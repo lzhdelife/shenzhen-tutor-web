@@ -1545,7 +1545,20 @@ function normalizeResolvedLocationName(query, value) {
 }
 
 function isGenericLocationValue(value) {
-  return /^(?:深圳市?)?(?:(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?)?[·:：-]?(?:具体)?(?:地点|地址)?(?:未提供|未知|待定|待确认|不详)$/.test(textOf(value).replace(/\s+/g, ''));
+  const normalized = textOf(value).replace(/\s+/g, '');
+  if (/^(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?$/.test(normalized)) return true;
+  return /^(?:深圳市?)?(?:(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?)?[·:：-]?(?:具体)?(?:地点|地址)?(?:未提供|未知|待定|待确认|不详)$/.test(normalized);
+}
+
+function refreshLocationEvidenceFromRaw(order) {
+  if (!textOf(order?.raw)) return false;
+  const reparsed = parseOrder(order.raw, order.source || '', order.agencyId || '');
+  if (!reparsed.place || isGenericLocationValue(reparsed.place)) return false;
+  for (const key of ['place', 'placeOriginal', 'address', 'locationQuery', 'locationQueries', 'locationOptions', 'locationRelation', 'transitLine']) {
+    if (reparsed[key] !== undefined && reparsed[key] !== '') order[key] = reparsed[key];
+  }
+  if (reparsed.district) order.district = reparsed.district;
+  return true;
 }
 
 function isExplicitTransitCandidateMatch(query, candidate) {
@@ -1720,7 +1733,7 @@ async function resolveOrderLocation(order, settings) {
   const query = locationQueries[0] || fallbackQuery;
   const usesDistrictFallback = Boolean(districtHint && query === `${districtHint}区` && isGenericLocationValue(normalizedPlace));
   order.locationQuery = query;
-  order.locationQueries = locationQueries;
+  order.locationQueries = uniq([query, ...locationQueries].filter(Boolean));
   order.placeOriginal ||= originalPlace;
   const clearResolvedLocation = (status, keepOriginal = true) => {
     order.place = keepOriginal ? normalizedPlace : '';
@@ -1731,7 +1744,7 @@ async function resolveOrderLocation(order, settings) {
     order.locationCoordinates = '';
     order.locationAddress = '';
     order.locationConfidence = 0;
-    order.locationCandidates = locationQueries.slice(0, 3).map(name => ({ name, district: districtHint, location: '' }));
+    order.locationCandidates = order.locationQueries.slice(0, 3).map(name => ({ name, district: districtHint, location: '' }));
   };
   if (!amapServiceKey(settings) || query.length < 2) {
     clearResolvedLocation(query ? 'unverified' : 'missing', Boolean(query));
@@ -1739,7 +1752,7 @@ async function resolveOrderLocation(order, settings) {
   }
   const candidates = [];
   const seenCandidates = new Set();
-  for (const searchQuery of locationQueries.slice(0, 4)) {
+  for (const searchQuery of order.locationQueries.slice(0, 4)) {
     const found = await amapPlaceCandidates(settings, searchQuery, districtHint);
     for (const candidate of found) {
       const key = candidate.id || `${candidate.name}|${candidate.location}`;
@@ -2455,8 +2468,10 @@ async function handleApi(req, res) {
       && (isGenericLocationValue(order.place) || (order.locationCandidates || []).some(candidate => candidate?.location)));
     let defaultedExistingLocation = false;
     await mapWithConcurrency(unresolved, 2, async order => {
+      const reparsedPreciseLocation = refreshLocationEvidenceFromRaw(order);
       await resolveOrderLocation(order, db.settings);
-      if (order.locationVerified) defaultedExistingLocation = true;
+      if (reparsedPreciseLocation) order.structured = await runParserPipeline({ rawText: order.raw, ruleOrder: order });
+      if (order.locationVerified || reparsedPreciseLocation) defaultedExistingLocation = true;
     });
     if (defaultedExistingLocation) writeDb(db);
     const distances = await previewDistances(db.settings, origin, openOrders, data.mode);
@@ -2862,6 +2877,7 @@ module.exports = {
   isUnexpectedLocationDetail,
   normalizeResolvedLocationName,
   isGenericLocationValue,
+  refreshLocationEvidenceFromRaw,
   isExplicitTransitCandidateMatch,
   consensusCandidateDistrict,
   locationQueryCharacterCoverage,

@@ -152,6 +152,8 @@ async function runLocationChecks() {
               : { id: 'synthetic-poi', name: '共和花园', adname: '宝安区', address: '西乡街道', location: '113.850000,22.580000', type: '商务住宅;住宅区;住宅小区' };
       const pois = keywords === '福田区'
         ? [{ id: 'district-default', name: '福田区人民政府', adname: '福田区', address: '福民路123号', location: '114.055000,22.522000', type: '政府机构及社会团体;政府机关;区县级政府及事业单位' }]
+        : /洲石路|润景华府/.test(keywords)
+          ? [{ id: 'road-property', name: '润景华府', adname: '宝安区', address: '洲石路', location: '113.880000,22.650000', type: '商务住宅;住宅区;住宅小区' }]
         : keywords.includes('默认地点社区')
         ? [
             { id: 'default-first', name: '默认地点社区一期', adname: '福田区', address: '测试路1号', location: '114.050000,22.530000', type: '商务住宅;住宅区;住宅小区' },
@@ -216,6 +218,22 @@ async function runLocationChecks() {
     assert.equal(genericDefault.locationStatus, 'defaulted');
     assert.equal(genericDefault.locationPoiId, 'district-default');
     assert.equal(genericDefault.locationCoordinates, '114.055000,22.522000');
+
+    const persistedGeneric = {
+      district: '宝安',
+      place: '具体地点未提供',
+      placeOriginal: '具体地点未提供',
+      raw: '2️⃣新高二物理 男孩\n宝安洲石路润景·华府\n成绩只有32，其他科还可以，7月或8月都能上课\n需要补差经验好的老师\n大学生300~350/2h',
+      source: '匿名回归机构',
+      agencyId: 'fixture'
+    };
+    assert.equal(platform.refreshLocationEvidenceFromRaw(persistedGeneric), true);
+    assert.match(persistedGeneric.place, /洲石路/);
+    assert.match(persistedGeneric.placeOriginal, /润景·华府/);
+    assert.ok(persistedGeneric.locationQueries.includes('深圳市宝安区洲石路润景华府'));
+    const repairedPrecise = await platform.resolveOrderLocation(persistedGeneric, { amapWebServiceKey: 'synthetic-test-value' });
+    assert.equal(repairedPrecise.locationPoiId, 'road-property');
+    assert.notEqual(repairedPrecise.locationPoiId, 'district-default');
   } finally {
     global.fetch = originalFetch;
   }
