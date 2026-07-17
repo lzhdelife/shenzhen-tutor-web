@@ -505,6 +505,10 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .preview { display: grid; gap: 9px; max-height: 430px; margin-top: 12px; overflow: auto; }
 .preview-card { padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: #f8fafb; }
 .preview-title { margin-bottom: 7px; font-weight: 800; }
+.parse-evidence { margin-top: 8px; color: var(--muted); font-size: 13px; }
+.parse-evidence summary { cursor: pointer; color: var(--text); font-weight: 700; }
+.parse-evidence div { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.parse-warning { margin-top: 8px; padding: 7px 9px; border-left: 3px solid #d97706; background: #fff7ed; color: #9a3412; font-size: 13px; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
 .pill { padding: 4px 8px; border-radius: 999px; background: #edf1f5; font-size: 12px; }
 .agency-import-panel { padding: 20px; }

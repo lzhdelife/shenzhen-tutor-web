@@ -11,7 +11,7 @@ const fixturePath = path.join(__dirname, 'fixtures', 'parser-regressions.jsonl')
 const fixtures = fs.readFileSync(fixturePath, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
 const batchFixturePath = path.join(__dirname, 'fixtures', 'batch-nine-orders.txt');
 const batchFixture = fs.readFileSync(batchFixturePath, 'utf8').trim().replace(/\r/g, '');
-const counters = { district: [0, 0], place: [0, 0], priceUnit: [0, 0], phases: [0, 0], genderConfusions: 0 };
+const counters = { district: [0, 0], place: [0, 0], grade: [0, 0], subject: [0, 0], studentGender: [0, 0], teacherGender: [0, 0], price: [0, 0], priceUnit: [0, 0], phases: [0, 0], evidence: [0, 0], genderConfusions: 0 };
 
 for (const fixture of fixtures) {
   const order = platform.parseOrder(fixture.raw, '匿名回归机构', 'fixture');
@@ -27,22 +27,75 @@ for (const fixture of fixtures) {
   if (expected.locationOptionCount) assert.equal(order.locationOptions.length, expected.locationOptionCount, fixture.id);
   if (expected.scheduleIncludes) { counters.phases[1]++; const ok = expected.scheduleIncludes.every(value => order.schedule.includes(value)); if (ok) counters.phases[0]++; assert.equal(ok, true, `${fixture.id}: ${order.schedule}`); }
   if (!expected.teacherGender && order.gender) counters.genderConfusions++;
-  assert.equal(structured.parserVersion, '2.0.0');
+  assert.equal(structured.parserVersion, '2.1.0');
   assert.equal(structured.rawText, fixture.raw);
+  assert.ok(structured.normalizedText, `${fixture.id}: normalized text available alongside lossless rawText`);
+  assert.equal(structured.locations.rawEvidence.length > 0, true, `${fixture.id}: location evidence`);
+  assert.ok(structured.locations.value.every(location => Array.isArray(location.locationQueries)), `${fixture.id}: candidate query contract`);
+  for (const [counter, field, expectedKey] of [
+    ['grade', 'gradeCurrent', 'grade'], ['subject', 'subjectsCurrent', 'subject'],
+    ['studentGender', 'studentGender', 'studentGender'], ['teacherGender', 'teacherGender', 'teacherGender'],
+    ['price', 'priceMin', 'price']
+  ]) {
+    if (!Object.prototype.hasOwnProperty.call(expected, expectedKey)) continue;
+    counters[counter][1]++;
+    const value = structured[field].value;
+    const wanted = expected[expectedKey];
+    const correct = Array.isArray(value) ? value.join('/') === wanted : (counter === 'price' && expected.priceMin ? value === expected.priceMin : value === wanted);
+    if (correct) counters[counter][0]++;
+  }
+  for (const field of ['locations', 'gradeCurrent', 'subjectsCurrent', 'studentGender', 'teacherGender', 'priceMin', 'priceUnit']) {
+    const item = structured[field];
+    if (item?.value == null || item.value === '' || (Array.isArray(item.value) && !item.value.length)) continue;
+    counters.evidence[1]++;
+    if (item.rawEvidence && item.confidence > 0) counters.evidence[0]++;
+  }
+  assert.ok(Array.isArray(structured.diagnostics.uncertainFields), `${fixture.id}: uncertainty contract`);
+  if (fixture.id === 'nanshan-baoan-location-or') {
+    assert.equal(structured.locations.relation, 'OR');
+    assert.equal(structured.locations.value.length, 2);
+    assert.equal(structured.locations.value[1].nearby, true);
+    assert.ok(structured.locations.value.every(location => location.locationQueries.length >= 1));
+    assert.equal(structured.schedulePhases[0].lessonCountMin, 15);
+    assert.equal(structured.schedulePhases[0].lessonCountMax, 20);
+    assert.equal(structured.schedulePhases[0].durationPerLesson, 2);
+  }
+  if (fixture.id === 'yantianxu-graduate-phases') {
+    assert.deepEqual(structured.schedulePhases[0].weekdays, ['一', '三', '五']);
+    assert.equal(structured.schedulePhases[0].timeOfDay, '早8点');
+    assert.equal(structured.schedulePhases[1].frequency, '每周末1次');
+  }
+  if (fixture.id === 'baoan-huaide-metro-phases') {
+    assert.equal(structured.locations.value[0].transitLine, '12号线');
+    assert.equal(structured.schedulePhases[0].durationPerLesson, 2);
+    assert.equal(structured.schedulePhases[1].durationPerLesson, 3);
+  }
 }
 
 const ratio = ([correct, total]) => total ? correct / total : 1;
 const metrics = {
   districtExact: ratio(counters.district),
   explicitPlaceExact: ratio(counters.place),
+  gradeExact: ratio(counters.grade),
+  subjectExact: ratio(counters.subject),
+  studentGenderExact: ratio(counters.studentGender),
+  teacherGenderExact: ratio(counters.teacherGender),
+  priceExact: ratio(counters.price),
   priceUnitExact: ratio(counters.priceUnit),
   phasedScheduleRecall: ratio(counters.phases),
+  populatedFieldEvidenceCoverage: ratio(counters.evidence),
   genderConfusions: counters.genderConfusions
 };
 assert.equal(metrics.districtExact, 1, 'district exact-match threshold 100%');
 assert.ok(metrics.explicitPlaceExact >= 0.98, 'explicit POI/metro threshold >=98%');
+assert.equal(metrics.gradeExact, 1, 'grade exact-match threshold 100%');
+assert.equal(metrics.subjectExact, 1, 'subject exact-match threshold 100%');
+assert.equal(metrics.studentGenderExact, 1, 'student gender threshold 100%');
+assert.equal(metrics.teacherGenderExact, 1, 'teacher gender threshold 100%');
+assert.equal(metrics.priceExact, 1, 'price exact-match threshold 100%');
 assert.equal(metrics.priceUnitExact, 1, 'price unit threshold 100%');
 assert.ok(metrics.phasedScheduleRecall >= 0.95, 'phased schedule threshold >=95%');
+assert.equal(metrics.populatedFieldEvidenceCoverage, 1, 'populated fields must retain evidence');
 assert.equal(metrics.genderConfusions, 0, 'student/teacher gender confusion must be zero');
 console.log('PASS parser regression metrics', metrics);
 

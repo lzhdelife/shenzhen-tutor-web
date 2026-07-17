@@ -858,6 +858,17 @@ function previewCard(o, index) {
     label: `${optionIndex + 1}：${option.district || ''}${option.place || ''}`,
     candidates: option.verified && option.status !== 'defaulted' ? [] : (Array.isArray(option.candidates) ? option.candidates.slice(0, 3).filter(candidate => candidate?.name) : [])
   })).filter(item => item.candidates.length) : [];
+  const structured = o.structured || {};
+  const evidenceRows = [
+    ['地点', structured.locations],
+    ['年级', structured.gradeCurrent],
+    ['科目', structured.subjectsCurrent],
+    ['学生性别', structured.studentGender],
+    ['教师性别', structured.teacherGender],
+    ['价格', structured.priceMin],
+    ['计价单位', structured.priceUnit]
+  ].filter(([, field]) => field?.rawEvidence);
+  const uncertainFields = structured.diagnostics?.uncertainFields || [];
   return `<div class="preview-card">
     <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
     <div class="meta">
@@ -868,6 +879,9 @@ function previewCard(o, index) {
     </div>
     ${candidates.length ? `<div class="raw">${o.locationStatus === 'defaulted' ? '已默认选择第一项，可改：' : '地点待确认：'}${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
     ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate(${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
+    ${evidenceRows.length ? `<details class="parse-evidence"><summary>解析证据与置信度</summary>${evidenceRows.map(([label, field]) => `<div><strong>${escapeHtml(label)}</strong> ${(Number(field.confidence || 0) * 100).toFixed(0)}%：${escapeHtml(field.rawEvidence)}</div>`).join('')}</details>` : ''}
+    ${uncertainFields.length ? `<div class="parse-warning">导入前请确认：${escapeHtml(uncertainFields.join('、'))}</div>` : ''}
+    <details class="parse-evidence"><summary>订单原文（导入时保留）</summary><div>${escapeHtml(o.raw || structured.rawText || '')}</div></details>
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
   </div>`;
 }

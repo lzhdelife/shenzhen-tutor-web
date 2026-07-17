@@ -131,6 +131,8 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 `POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics }`。`splitDiagnostics` 中每项包含 `blockIndex`、`rawStart`、`rawEnd`、`boundaryReason` 和 `confidence`。预览不会去重或静默丢弃字段不完整的原文。
 
+每个 `parsed[]` 项包含统一的 `structured` 契约。可抽取字段使用 `{ value, rawEvidence, confidence, source }`；`structured.locations.value[]` 同时保留地点原文、行政区、展示地点、`query/locationQueries`、附近语义和二选一关系。`structured.schedulePhases[]` 保留阶段、开始时间、频次、星期、时段、单次时长和课次范围。`structured.diagnostics.uncertainFields[]` 必须在导入前展示给用户确认。解析层只生成地点证据和查询文本，不负责调用地图服务。
+
 最简单的请求：
 
 ```json

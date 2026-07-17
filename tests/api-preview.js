@@ -79,7 +79,7 @@ async function run() {
   const batchText = fs.readFileSync(path.join(__dirname, 'fixtures', 'batch-nine-orders.txt'), 'utf8').trim().replace(/\r/g, '');
   const expectedBlocks = batchText.split(/\n[ \t]*\n+/).map(block => block.trim());
   const batch = await previewBatch(login.agencyToken, batchText);
-  assert.equal(batch.parserVersion, '2.0.0');
+  assert.equal(batch.parserVersion, '2.1.0');
   assert.equal(batch.parsed.length, 9, 'blank-line batch must produce exactly 9 orders');
   assert.equal(batch.splitDiagnostics.length, 9);
   assert.deepEqual(batch.parsed.map(order => order.raw), expectedBlocks, 'preview raw blocks must preserve every order exactly');

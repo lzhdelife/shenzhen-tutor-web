@@ -23,7 +23,7 @@ async function run() {
     }
   });
 
-  assert.equal(result.parserVersion, '2.0.0');
+  assert.equal(result.parserVersion, '2.1.0');
   assert.equal(result.parsed.length, 2, 'preview contract must preserve duplicate-looking raw blocks');
   assert.equal(result.splitDiagnostics.length, 2);
   assert.deepEqual(result.parsed.map(order => order.raw), raw.split('\n\n'));
