@@ -2122,7 +2122,6 @@ function publicDb(db, viewer = null) {
     );
     copy.applicantCount = order.applicants?.length || 0;
     copy.applicants = canSeeApplicants ? (order.applicants || []) : [];
-    copy.sourceImageCount = Array.isArray(order.sourceImages) ? order.sourceImages.length : 0;
     delete copy.sourceImages;
     delete copy.importFingerprint;
     return copy;
@@ -2173,19 +2172,7 @@ async function handleApi(req, res) {
   const db = readDb();
   touchVisitor(req);
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const sourceImageMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/source-images\/(\d+)$/);
-  if (req.method === 'GET' && sourceImageMatch) {
-    if (!sessionOf(req)) return send(res, 401, { error: '请先登录后查看原图' });
-    const order = db.orders.find(item => item.id === sourceImageMatch[1]);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    const index = Number(sourceImageMatch[2]);
-    const fileName = path.basename((order.sourceImages || [])[index] || '');
-    if (!fileName) return send(res, 404, { error: '这张原图不存在' });
-    const full = path.join(SOURCE_IMAGE_DIR, fileName);
-    if (!full.startsWith(SOURCE_IMAGE_DIR + path.sep) || !fs.existsSync(full)) return send(res, 404, { error: '原图文件不存在' });
-    const type = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-    return send(res, 200, fs.readFileSync(full), type);
-  }
+  if (url.pathname.startsWith('/api/auth/')) return send(res, 404, { error: '该登录方式已移除，请使用昵称、手机号和密码登录' });
   if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, publicDb(db, sessionOf(req)));
 
   if (req.method === 'GET' && url.pathname === '/api/stats') {
@@ -2330,10 +2317,8 @@ async function handleApi(req, res) {
 
     const paired = ensurePairedIdentity(db, name, phone, { password, requirePassword: true });
     if (paired.error) return send(res, 401, { error: paired.error });
-    const bound = bindWechatIdentity(db, paired.teacher, paired.agency, textOf(data.wechatBindTicket));
-    if (bound.error) return send(res, 400, { error: bound.error });
     const login = memberLoginResponse(db, paired.teacher, paired.agency, rememberAccount, req);
-    if (paired.changed || bound.changed || login.changed) writeDb(db);
+    if (paired.changed || login.changed) writeDb(db);
     return send(res, 200, login.body, 'application/json; charset=utf-8', { 'Set-Cookie': login.rememberCookie });
   }
 
@@ -2657,8 +2642,8 @@ async function handleApi(req, res) {
     if (!agency) return;
     const data = await bodyJson(req);
     const source = agency.name;
-    const order = await enrichOrder({ ...parseOrder(data.raw || '', source, agency.id), ...data, agencyId: agency.id, source, id: undefined }, db.settings);
-    order.sourceImages = saveSourceImages(data.images).slice(0, 1);
+    const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
+    const order = await enrichOrder({ ...parseOrder(orderData.raw || '', source, agency.id), ...orderData, agencyId: agency.id, source, id: undefined }, db.settings);
     order.id = 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     order.createdAt = new Date().toISOString();
     order.applicants = [];
@@ -2692,8 +2677,6 @@ async function handleApi(req, res) {
     const chunks = data.orders && Array.isArray(data.orders)
       ? data.orders.map(o => o.raw || JSON.stringify(o))
       : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id);
-    const sourcePages = saveSourcePages(data.pages, data.images);
-    const storedPageImages = uniq(sourcePages.map(page => page.fileName));
     const created = [];
     let duplicatesSkipped = 0;
     let incompleteSkipped = 0;
@@ -2731,7 +2714,6 @@ async function handleApi(req, res) {
         continue;
       }
       base.importFingerprint = semanticFingerprint;
-      base.sourceImages = sourceImageForOrder(chunks[i], sourcePages);
       const order = await enrichOrder(base, db.settings);
       const meaningful = Boolean(order.district || order.price || order.monthly || (order.subject && order.subject !== '其他') || (order.grade && order.grade !== '其他'));
       if (meaningful) {
@@ -2742,26 +2724,8 @@ async function handleApi(req, res) {
         if (semanticFingerprint) semanticFingerprints.add(semanticFingerprint);
       }
     }
-    removeUnreferencedSourceImages(db, storedPageImages);
     writeDb(db);
     return send(res, 200, { created, duplicatesSkipped, incompleteSkipped });
-  }
-
-  if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/source-images$/)) {
-    const id = url.pathname.split('/')[3];
-    const order = db.orders.find(item => item.id === id);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    const actor = sessionOf(req);
-    const allowed = actor && (actor.role === 'admin' || (actor.role === 'agency' && order.agencyId === actor.id));
-    if (!allowed) return send(res, 403, { error: '你只能给自己发布的订单补充原图' });
-    const data = await bodyJson(req);
-    const stored = saveSourceImages(data.images);
-    if (!stored.length) return send(res, 400, { error: '没有收到有效的 PNG 或 JPG 图片' });
-    const previousImages = order.sourceImages || [];
-    order.sourceImages = stored.slice(0, 1);
-    removeUnreferencedSourceImages(db, previousImages);
-    writeDb(db);
-    return send(res, 200, { ok: true, sourceImageCount: order.sourceImages.length });
   }
 
   if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/apply$/)) {

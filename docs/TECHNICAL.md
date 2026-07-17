@@ -6,13 +6,10 @@
 flowchart LR
     B["浏览器前端"] -->|"HTTP JSON"| A["Node.js API"]
     A --> D["data/db.json"]
-    A --> I["data/source-images/"]
     A --> G["高德 Web 服务 API"]
-    A --> S["腾讯云短信 API"]
-    A --> X["微信开放平台 OAuth"]
 ```
 
-网站当前是单进程原型：静态页面和 API 由同一个 Node.js 进程提供，数据保存在本地 JSON 文件和图片目录。
+网站当前是单进程原型：静态页面和 API 由同一个 Node.js 进程提供，数据保存在本地 JSON 文件。
 
 ## 2. 技术栈
 
@@ -20,10 +17,8 @@ flowchart LR
 | --- | --- |
 | 后端 | Node.js 20+，标准库 `http`、`fs`、`path`、`crypto` 和原生 `fetch` |
 | 前端 | 原生 HTML、CSS、JavaScript，无打包器 |
-| 数据 | `TutorPlatform/data/db.json` 和 `data/source-images/` |
+| 数据 | `TutorPlatform/data/db.json` |
 | 密码 | `crypto.scryptSync` + 随机盐 |
-| 短信 | 腾讯云 SMS HTTP API |
-| 微信登录 | 微信开放平台网站应用 OAuth 2.0 |
 | 地图 | 高德 Web 服务 POI、地理编码和路线规划 |
 | 测试 | Node.js `node:assert` 合成烟雾测试 |
 
@@ -59,10 +54,9 @@ flowchart LR
 ## 6. 已知生产风险
 
 1. `db.json` 同步整文件写入，没有事务、文件锁或多进程并发保护。
-2. 会话、验证码、OAuth state、访客计数和地图缓存在重启后丢失。
+2. 会话、访客计数和地图缓存在重启后丢失。
 3. 密码登录可为不存在的身份自动注册，正式运营应分离注册和登录。
-4. 登录、短信、反馈和 API 缺少生产级限流、审计日志和异常监控。
-5. `SMS_DEV_MODE=1` 会把验证码返回浏览器，只能在本机开发环境使用。
+4. 登录、反馈和 API 缺少生产级限流、审计日志和异常监控。
 6. 当前未完成数据自动备份、灾难恢复和隐私合规评审。
 
 大规模上线前，应迁移到 PostgreSQL、Redis 和私有对象存储，并完成安全、备份、监控和合规改造。

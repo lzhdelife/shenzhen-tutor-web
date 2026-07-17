@@ -64,7 +64,6 @@ function rowsOf(result) {
 
 function createRepository(env = {}) {
   const db = env.DB || env.D1;
-  const bucket = env.BUCKET || env.R2;
   if (!db || typeof db.prepare !== 'function') throw new Error('Cloudflare D1 binding is required as env.DB (or env.D1)');
 
   const first = async (sql, values = []) => db.prepare(sql).bind(...values).first();
@@ -83,10 +82,6 @@ function createRepository(env = {}) {
     return mapRow(await first('SELECT * FROM users WHERE phone = ? ORDER BY created_at LIMIT 1', [phone]));
   }
 
-  async function getUserByWechatIdentityHash(identityHash) {
-    return mapRow(await first('SELECT * FROM users WHERE wechat_identity_hash = ? LIMIT 1', [identityHash]));
-  }
-
   async function listUsers(filters = {}) {
     const clauses = [], values = [];
     for (const [key, column] of [['role', 'role'], ['phone', 'phone'], ['name', 'name']]) {
@@ -99,17 +94,17 @@ function createRepository(env = {}) {
     const timestamp = input.createdAt || nowIso();
     const user = {
       id: input.id || makeId('u'), role: input.role, name: input.name, phone: input.phone || '',
-      passwordHash: input.passwordHash || null, wechatIdentityHash: input.wechatIdentityHash || null,
+      passwordHash: input.passwordHash || null,
       preferences: input.preferences || {}, createdAt: timestamp, updatedAt: input.updatedAt || timestamp
     };
-    await run(`INSERT INTO users (id, role, name, phone, password_hash, wechat_identity_hash, preferences_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [user.id, user.role, user.name, user.phone, user.passwordHash,
-      user.wechatIdentityHash, JSON.stringify(user.preferences), user.createdAt, user.updatedAt]);
+    await run(`INSERT INTO users (id, role, name, phone, password_hash, preferences_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [user.id, user.role, user.name, user.phone, user.passwordHash,
+      JSON.stringify(user.preferences), user.createdAt, user.updatedAt]);
     return getUserById(user.id);
   }
 
   async function updateUser(id, patch) {
-    const columns = { role: 'role', name: 'name', phone: 'phone', passwordHash: 'password_hash', wechatIdentityHash: 'wechat_identity_hash', preferences: 'preferences_json' };
+    const columns = { role: 'role', name: 'name', phone: 'phone', passwordHash: 'password_hash', preferences: 'preferences_json' };
     const entries = Object.entries(patch).filter(([key]) => columns[key]);
     if (!entries.length) return getUserById(id);
     const values = entries.map(([key, value]) => key === 'preferences' ? JSON.stringify(value || {}) : value);
@@ -268,8 +263,8 @@ function createRepository(env = {}) {
   async function getPublicState() {
     const [settings, announcements, orders] = await Promise.all([getSettings(), listAnnouncements({ active: true }), listOrders({ status: 'open' })]);
     const publicOrders = orders.map(order => {
-      const { importFingerprint: _fingerprint, sourceImages = [], applicants = [], ...safe } = order;
-      return { ...safe, sourceImageCount: Array.isArray(sourceImages) ? sourceImages.length : 0,
+      const { importFingerprint: _fingerprint, sourceImages: _sourceImages, applicants = [], ...safe } = order;
+      return { ...safe,
         applicantCount: Array.isArray(applicants) ? applicants.length : 0, applicants: [] };
     });
     return {
@@ -280,24 +275,11 @@ function createRepository(env = {}) {
     };
   }
 
-  function requireBucket() {
-    if (!bucket) throw new Error('Cloudflare R2 binding is required as env.BUCKET (or env.R2)');
-    return bucket;
-  }
-
-  async function putObject(key, body, options = {}) {
-    const target = requireBucket();
-    return target.put(key, body, { httpMetadata: options.contentType ? { contentType: options.contentType } : undefined, customMetadata: options.metadata });
-  }
-
-  async function getObject(key) { return requireBucket().get(key); }
-  async function deleteObject(key) { return requireBucket().delete(key); }
-
-  return { objectStorageEnabled: Boolean(bucket),
-    getPublicState, getUserById, getUserByPhone, getUserByWechatIdentityHash, listUsers, createUser, updateUser, deleteUser,
+  return {
+    getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
     updateOrder, deleteOrder, createApplication, listApplications, updateApplication, getSettings, setSetting,
-    listFeedback, createFeedback, listAnnouncements, createAnnouncement, putObject, getObject, deleteObject };
+    listFeedback, createFeedback, listAnnouncements, createAnnouncement };
 }
 
 module.exports = { createRepository };

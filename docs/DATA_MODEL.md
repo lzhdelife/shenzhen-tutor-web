@@ -35,7 +35,6 @@
 | `name` | string | 老师名或机构名 |
 | `phone` | string | 11 位中国大陆手机号 |
 | `passwordHash` | string? | `salt:scryptHex`；旧账号可能没有 |
-| `wechatIdentityHash` | string? | 微信 appId + unionid/openid 的 SHA-256，不保存明文 openid |
 | `preferences` | object? | 仅老师账号使用的筛选偏好 |
 | `createdAt` | ISO string | 创建时间 |
 
@@ -118,12 +117,11 @@
 
 老师按自己起点计算的四种路线不会持久写入订单，前端保存在当前页面状态中。
 
-### 去重、申请和原图
+### 去重和申请
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `importFingerprint` | string | 近期语义去重指纹，公开状态接口会移除 |
-| `sourceImages` | string[] | `data/source-images` 中的文件名；目前最多一张 |
 | `applicants` | array | 申请老师列表 |
 
 申请项：
@@ -178,7 +176,7 @@
 
 ## 迁移注意事项
 
-迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`applications`、`teacher_preferences`、`announcements`、`feedback`、`sessions` 和 `source_images` 表。应增加：
+迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`applications`、`teacher_preferences`、`announcements`、`feedback` 和 `sessions` 表。应增加：
 
 - 用户角色 + 名称 + 手机号唯一约束。
 - 中介订单编号/指纹的适当唯一约束。

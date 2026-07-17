@@ -6,15 +6,12 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   phone TEXT NOT NULL DEFAULT '',
   password_hash TEXT,
-  wechat_identity_hash TEXT,
   preferences_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   UNIQUE (role, name, phone)
 );
 CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_wechat_identity
-  ON users(wechat_identity_hash) WHERE wechat_identity_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,

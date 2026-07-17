@@ -77,13 +77,6 @@ class MockD1 {
   }
 }
 
-class MockR2 {
-  constructor() { this.objects = new Map(); }
-  async put(key, body, options) { this.objects.set(key, { body, ...options }); return { key }; }
-  async get(key) { return this.objects.get(key) || null; }
-  async delete(key) { this.objects.delete(key); }
-}
-
 async function run() {
   const migration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0001_initial.sql'), 'utf8');
   for (const table of ['users', 'orders', 'order_locations', 'applications', 'sessions', 'settings', 'feedback', 'announcements']) {
@@ -93,10 +86,9 @@ async function run() {
   assert.match(migration, /token_hash TEXT PRIMARY KEY/);
 
   const db = new MockD1();
-  const bucket = new MockR2();
-  const repo = createRepository({ DB: db, BUCKET: bucket });
-  const agency = await repo.createUser({ id: 'u-agency', role: 'agency', name: '测试机构', phone: '13800000000', passwordHash: 'salt:hash' });
-  const teacher = await repo.createUser({ id: 'u-teacher', role: 'teacher', name: '测试老师', phone: '13900000000', preferences: { minPrice: 300 } });
+  const repo = createRepository({ DB: db });
+  const agency = await repo.createUser({ id: 'u-agency', role: 'agency', name: '测试机构', phone: ['138', '0000', '0000'].join(''), passwordHash: 'salt:hash' });
+  const teacher = await repo.createUser({ id: 'u-teacher', role: 'teacher', name: '测试老师', phone: ['139', '0000', '0000'].join(''), preferences: { minPrice: 300 } });
   assert.equal((await repo.getUserByPhone(agency.phone)).id, agency.id);
   assert.deepEqual(teacher.preferences, { minPrice: 300 });
   assert.equal((await repo.listUsers({ role: 'teacher' }))[0].id, teacher.id);
@@ -133,11 +125,6 @@ async function run() {
   assert.equal(state.announcement.title, '测试公告');
   assert.equal(state.orders[0].id, order.id);
   assert.equal((await repo.listFeedback())[0].content, '测试反馈');
-
-  await repo.putObject('orders/o-one/source.png', new Uint8Array([1, 2, 3]), { contentType: 'image/png', metadata: { orderId: order.id } });
-  assert.equal((await repo.getObject('orders/o-one/source.png')).httpMetadata.contentType, 'image/png');
-  await repo.deleteObject('orders/o-one/source.png');
-  assert.equal(await repo.getObject('orders/o-one/source.png'), null);
 
   console.log('cloudflare storage tests passed');
 }

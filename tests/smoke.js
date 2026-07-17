@@ -125,12 +125,6 @@ const phasedSchedule = summarizeScheduleText(yantianOrder.schedule);
 assert.match(phasedSchedule.count, /暑假每周一、三、五；开学后每周末1次/);
 assert.match(phasedSchedule.slot, /早8点/);
 
-const selectedImage = platform.sourceImageForOrder(orders[0].raw, [
-  { text: blocks[1], fileName: 'page-b.png' },
-  { text: blocks[0], fileName: 'page-a.png' }
-]);
-assert.deepEqual(selectedImage, ['page-a.png']);
-
 const syntheticPhone = ['138', '0013', '8000'].join('');
 assert.equal(platform.validMainlandPhone(syntheticPhone), true);
 assert.equal(platform.validMainlandPhone(syntheticPhone + syntheticPhone), false);

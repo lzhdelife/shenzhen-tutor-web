@@ -1,6 +1,6 @@
 # HTTP API
 
-基础地址默认是 `http://localhost:8787`。请求和响应使用 JSON，图片读取接口除外。
+基础地址默认是 `http://localhost:8787`。请求和响应使用 JSON。
 
 ## 认证方式
 
@@ -22,12 +22,6 @@
 | GET | `/api/state` | 可选登录 | 返回页面状态；管理员可看到用户/反馈，中介所有者可看到申请人 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
 | GET | `/api/location-suggestions?q=` | 公共 | 地点输入候选，优先高德，缺少 Key 时返回有限本地候选 |
-| GET | `/api/auth/config` | 公共 | 短信/微信登录是否启用及验证码时限 |
-| POST | `/api/auth/sms/send` | 公共 | 发送 6 位短信验证码 |
-| POST | `/api/auth/sms/verify` | 公共 | 验证码登录/注册一对老师和中介身份 |
-| GET | `/api/auth/wechat/start` | 公共 | 跳转微信开放平台二维码 |
-| GET | `/api/auth/wechat/callback` | 微信回调 | 换取微信身份，跳回登录页 |
-| POST | `/api/auth/wechat/complete` | 公共 + ticket | 完成已绑定微信登录 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
@@ -44,8 +38,7 @@ Content-Type: application/json
   "phone": "<11位手机号>",
   "password": "<至少6位密码>",
   "rememberAccount": true,
-  "autoLogin": false,
-  "wechatBindTicket": ""
+  "autoLogin": false
 }
 ```
 
@@ -123,11 +116,9 @@ Content-Type: application/json
 | --- | --- | --- | --- |
 | POST | `/api/orders` | agency | 手工创建一条订单 |
 | POST | `/api/parse` | agency | 拆分并预览粘贴文字，不写数据库 |
-| POST | `/api/import` | agency | 批量解析/导入文本或已解析订单，可携带原图 |
-| POST | `/api/orders/:id/source-images` | owner agency/admin | 替换该订单的一张原图 |
-| GET | `/api/orders/:id/source-images/:index` | 任意登录用户 | 读取原图二进制 |
+| POST | `/api/import` | agency | 批量解析/导入文本或已解析订单 |
 | PATCH | `/api/orders/:id` | owner agency/admin | 中介编辑自己的订单；管理员只能改状态 |
-| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单和未被引用的原图 |
+| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单 |
 
 ### 批量导入
 
@@ -138,21 +129,6 @@ Content-Type: application/json
 ```json
 {
   "text": "<包含一条或多条订单的文字>"
-}
-```
-
-带原图的完整形式：
-
-```json
-{
-  "text": "<包含一条或多条订单的文字>",
-  "images": ["data:image/png;base64,..."],
-  "pages": [
-    {
-      "text": "<与该图片对应的文字>",
-      "image": "data:image/png;base64,..."
-    }
-  ]
 }
 ```
 
@@ -167,8 +143,6 @@ Content-Type: application/json
   "incompleteSkipped": 0
 }
 ```
-
-限制：请求体约 30 MiB；单张 Data URL 解码后最大 8 MiB；每次最多处理 40 张候选图；每条订单最终只保留一张原图。
 
 ### 修改权限
 

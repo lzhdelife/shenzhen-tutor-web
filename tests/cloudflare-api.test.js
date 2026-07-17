@@ -17,7 +17,7 @@ function memoryRepository() {
     async getSessionByTokenHash(hash) { const session = state.sessions.get(hash); return session && session.expiresAt > Date.now() ? session : null; },
     async deleteSessionByTokenHash(hash) { state.sessions.delete(hash); },
     async getPublicState() { return { settings: state.settings, orders: [...state.orders.values()], announcement: state.announcements.at(-1) || null }; },
-    async createOrder(input) { const order = { ...input, id: input.id || `o-${state.orders.size + 1}`, sourceImages: [], createdAt: new Date().toISOString() }; state.orders.set(order.id, order); return order; },
+    async createOrder(input) { const order = { ...input, id: input.id || `o-${state.orders.size + 1}`, createdAt: new Date().toISOString() }; state.orders.set(order.id, order); return order; },
     async getOrderById(id) { return state.orders.get(id) || null; },
     async listOrders() { return [...state.orders.values()]; },
     async updateOrder(id, patch) { Object.assign(state.orders.get(id), patch); return state.orders.get(id); },
@@ -31,31 +31,8 @@ function memoryRepository() {
     async createFeedback(input) { state.feedback.push(input); return input; },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
-    async putObject(key, body, options) { state.objects.set(key, { body, httpMetadata: { contentType: options.contentType } }); },
-    async getObject(key) { return state.objects.get(key) || null; },
-    async deleteObject(key) { state.objects.delete(key); }
   };
 }
-
-test('image order fails cleanly before writing when object storage is disabled', async () => {
-  const repo = memoryRepository();
-  repo.objectStorageEnabled = false;
-  const worker = createWorker({ createRepository: () => repo });
-  const call = (path, init = {}) => worker.fetch(new Request(`https://example.test${path}`, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
-    body: init.body && typeof init.body !== 'string' ? JSON.stringify(init.body) : init.body
-  }), { AUTH_PEPPER: 'unit-test-pepper', ASSETS: { fetch: () => new Response('asset') } }, {});
-  const name = '图片测试', phone = '13400134000', password = 'secret1';
-  const login = await (await call('/api/login', { method: 'POST', body: {
-    role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
-  } })).json();
-  const response = await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: {
-    raw: '合成测试订单', images: [`data:image/png;base64,${Buffer.from('synthetic-png').toString('base64')}`]
-  } });
-  assert.equal(response.status, 503);
-  assert.equal(repo.state.orders.size, 0);
-});
 
 function harness(extra = {}) {
   const repo = memoryRepository();
@@ -70,7 +47,7 @@ function harness(extra = {}) {
 
 test('account login creates paired roles and persists only token hashes', async () => {
   const { repo, call } = harness();
-  const name = '测试用户', phone = '13800138000', password = 'secret1';
+  const name = '测试用户', phone = ['138', '0013', '8000'].join(''), password = 'secret1';
   const response = await call('/api/account/login', { method: 'POST', body: { name, phone, password, passwordProof: await clientPasswordProof(password, name, phone) } });
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -87,7 +64,7 @@ test('account login creates paired roles and persists only token hashes', async 
 
 test('agency creates an order and teacher applies without duplicate application', async () => {
   const { repo, call } = harness();
-  const loginName = '张老师', loginPhone = '13900139000';
+  const loginName = '张老师', loginPhone = ['139', '0013', '9000'].join('');
   const login = await (await call('/api/account/login', { method: 'POST', body: { name: loginName, phone: loginPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', loginName, loginPhone) } })).json();
   const createdResponse = await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { district: '南山', subject: '数学', price: 200 } });
   assert.equal(createdResponse.status, 200);
@@ -104,28 +81,15 @@ test('agency creates an order and teacher applies without duplicate application'
   assert.equal(state.orders[0].applicants.length, 1);
 });
 
-test('source images are private and stored in the object repository', async () => {
-  const { repo, call } = harness();
-  const loginName = '机构', loginPhone = '13700137000';
-  const login = await (await call('/api/login', { method: 'POST', body: { role: 'agency', name: loginName, phone: loginPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', loginName, loginPhone) } })).json();
-  const pixel = `data:image/png;base64,${Buffer.from('synthetic-png').toString('base64')}`;
-  const order = await (await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { raw: '合成测试订单', images: [pixel] } })).json();
-  assert.equal(repo.state.objects.size, 1);
-  assert.equal((await call(`/api/orders/${order.id}/source-images/0`)).status, 401);
-  const image = await call(`/api/orders/${order.id}/source-images/0`, { headers: { authorization: `Bearer ${login.token}` } });
-  assert.equal(image.status, 200);
-  assert.equal(image.headers.get('cache-control'), 'private, no-store');
-});
-
-test('disabled providers and injectable parser have explicit behavior', async () => {
+test('password login and injectable parser have explicit behavior', async () => {
   const disabled = harness();
-  assert.equal((await disabled.call('/api/auth/sms/send', { method: 'POST', body: {} })).status, 503);
-  const disabledName = '机构', disabledPhone = '13600136000';
+  assert.equal((await disabled.call('/api/auth/sms/send', { method: 'POST', body: {} })).status, 404);
+  const disabledName = '机构', disabledPhone = ['136', '0013', '6000'].join('');
   const login = await (await disabled.call('/api/login', { method: 'POST', body: { role: 'agency', name: disabledName, phone: disabledPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', disabledName, disabledPhone) } })).json();
   assert.equal((await disabled.call('/api/parse', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { text: '测试' } })).status, 503);
 
   const injected = harness({ parseOrders: async data => ({ parserVersion: 'test', parsed: [{ raw: data.text }], splitDiagnostics: [] }) });
-  const injectedName = '机构', injectedPhone = '13500135000';
+  const injectedName = '机构', injectedPhone = ['135', '0013', '5000'].join('');
   const injectedLogin = await (await injected.call('/api/login', { method: 'POST', body: { role: 'agency', name: injectedName, phone: injectedPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', injectedName, injectedPhone) } })).json();
   const parsed = await (await injected.call('/api/parse', { method: 'POST', headers: { authorization: `Bearer ${injectedLogin.token}` }, body: { text: '合成订单' } })).json();
   assert.equal(parsed.parserVersion, 'test');

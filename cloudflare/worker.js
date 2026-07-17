@@ -103,30 +103,9 @@ async function pairedLogin(repo, request, data, env) {
 
 function cleanOrder(order, applications, viewer) {
   const canSee = viewer && (viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId));
-  const copy = { ...order, applicantCount: applications.length, applicants: canSee ? applications : [], sourceImageCount: (order.sourceImages || []).length };
+  const copy = { ...order, applicantCount: applications.length, applicants: canSee ? applications : [] };
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
   return copy;
-}
-
-function imageFromDataUrl(value) {
-  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(text(value));
-  if (!match) return null;
-  const binary = atob(match[2]);
-  if (binary.length > 8 * 1024 * 1024) return null;
-  return { type: match[1], body: Uint8Array.from(binary, character => character.charCodeAt(0)) };
-}
-
-function requestedImage(images) {
-  return imageFromDataUrl(Array.isArray(images) ? images[0] : '');
-}
-
-async function storeFirstImage(repo, orderId, images) {
-  const image = imageFromDataUrl(Array.isArray(images) ? images[0] : '');
-  if (!image) return [];
-  const extension = image.type === 'image/png' ? 'png' : image.type === 'image/webp' ? 'webp' : 'jpg';
-  const key = `orders/${orderId}/${randomToken(12)}.${extension}`;
-  await repo.putObject(key, image.body, { contentType: image.type });
-  return [key];
 }
 
 function createWorker(dependencies = {}) {
@@ -137,8 +116,6 @@ function createWorker(dependencies = {}) {
       try {
         if (!path.startsWith('/api/')) return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
         if (method === 'OPTIONS') return new Response(null, { status: 204 });
-        if (method === 'GET' && path === '/api/auth/config') return json({ sms: { enabled: false, devMode: false }, wechat: { enabled: false }, smsEnabled: false, wechatEnabled: false, codeExpiresIn: 0 });
-        if ((path.startsWith('/api/auth/sms/') || path.startsWith('/api/auth/wechat/')) && path !== '/api/auth/config') return error('该登录方式尚未配置，请使用密码登录', 503);
         if (method === 'POST' && path === '/api/account/login') return pairedLogin(repo, request, await bodyJson(request), env);
         if (method === 'POST' && path === '/api/login') return loginOne(repo, request, await bodyJson(request), env);
         if (method === 'POST' && path === '/api/account/remember-login') {
@@ -244,11 +221,8 @@ function createWorker(dependencies = {}) {
           const agency = await requireRole(repo, request, 'agency');
           if (!agency) return error('请先以中介身份登录', 401);
           const data = await bodyJson(request);
-          if (requestedImage(data.images) && repo.objectStorageEnabled === false) return error('图片存储尚未启用，请先移除原图后发布订单', 503);
-          let order = await repo.createOrder({ ...data, id: undefined, agencyId: agency.id, source: agency.name, status: data.status || 'open', structured: data });
-          const sourceImages = await storeFirstImage(repo, order.id, data.images);
-          if (sourceImages.length) order = await repo.updateOrder(order.id, { sourceImages });
-          return json(order);
+          const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
+          return json(await repo.createOrder({ ...orderData, id: undefined, agencyId: agency.id, source: agency.name, status: data.status || 'open', structured: orderData }));
         }
         if (method === 'POST' && path === '/api/import') {
           const agency = await requireRole(repo, request, 'agency');
@@ -261,9 +235,10 @@ function createWorker(dependencies = {}) {
           for (const item of incoming) {
             const raw = text(item.raw);
             const importFingerprint = item.importFingerprint || (raw ? await sha256(raw.replace(/\s+/g, '')) : '');
+            const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = item;
             try {
-              const order = await repo.createOrder({ ...item, id: undefined, agencyId: agency.id, source: agency.name,
-                status: item.status || 'open', importFingerprint, structured: item });
+              const order = await repo.createOrder({ ...orderData, id: undefined, agencyId: agency.id, source: agency.name,
+                status: item.status || 'open', importFingerprint, structured: orderData });
               created.push(order);
             } catch (caught) {
               if (/unique|constraint|fingerprint/i.test(String(caught?.message || ''))) duplicatesSkipped++;
@@ -271,28 +246,6 @@ function createWorker(dependencies = {}) {
             }
           }
           return json({ created, duplicatesSkipped, incompleteSkipped: 0 });
-        }
-        const imageRead = path.match(/^\/api\/orders\/([^/]+)\/source-images\/(\d+)$/);
-        if (method === 'GET' && imageRead) {
-          if (!viewer) return error('请先登录后查看原图', 401);
-          const order = await repo.getOrderById(imageRead[1]), key = order?.sourceImages?.[Number(imageRead[2])];
-          if (!key) return error('这张原图不存在', 404);
-          const object = await repo.getObject(key);
-          if (!object) return error('原图文件不存在', 404);
-          return new Response(object.body, { headers: { 'content-type': object.httpMetadata?.contentType || 'application/octet-stream', 'cache-control': 'private, no-store' } });
-        }
-        const imageWrite = path.match(/^\/api\/orders\/([^/]+)\/source-images$/);
-        if (method === 'POST' && imageWrite) {
-          const order = await repo.getOrderById(imageWrite[1]);
-          if (!order) return error('订单不存在', 404);
-          if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能管理自己发布的订单', 403);
-          const images = (await bodyJson(request)).images;
-          if (requestedImage(images) && repo.objectStorageEnabled === false) return error('图片存储尚未启用，请稍后再上传原图', 503);
-          const keys = await storeFirstImage(repo, order.id, images);
-          if (!keys.length) return error('没有收到有效图片');
-          await Promise.all((order.sourceImages || []).map(key => repo.deleteObject(key)));
-          await repo.updateOrder(order.id, { sourceImages: keys });
-          return json({ ok: true, sourceImageCount: 1 });
         }
         const apply = path.match(/^\/api\/orders\/([^/]+)\/apply$/);
         if (method === 'POST' && apply) {
@@ -314,7 +267,6 @@ function createWorker(dependencies = {}) {
           if (!order) return error('订单不存在', 404);
           if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能管理自己发布的订单', 403);
           if (method === 'DELETE') {
-            await Promise.all((order.sourceImages || []).map(key => repo.deleteObject(key)));
             await repo.deleteOrder(order.id); return json({ ok: true });
           }
           const data = await bodyJson(request);

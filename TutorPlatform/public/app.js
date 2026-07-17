@@ -12,13 +12,8 @@ let activeView = sessionStorage.getItem('activeView') || 'teacher';
 let locationSuggestionTimer = 0;
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
-let sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
 let rememberedCredentialActive = false;
 let loginBusy = false;
-let loginMethod = 'sms';
-let authConfig = { smsEnabled: false, wechatEnabled: false, smsResendSeconds: 60, smsExpiresMinutes: 5 };
-let wechatBindTicket = '';
-let smsCountdownTimer = 0;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
@@ -88,116 +83,6 @@ function toast(text) {
   el.textContent = text;
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2200);
-}
-
-function setLoginMethod(method) {
-  if (!['sms', 'wechat', 'password'].includes(method)) return;
-  loginMethod = method;
-  $$('[data-login-method]').forEach(button => {
-    const active = button.dataset.loginMethod === method;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
-  $$('[data-login-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.loginPanel !== method));
-  const form = $('#unifiedLogin');
-  if (!form) return;
-  form.elements.smsCode.required = method === 'sms';
-  form.elements.password.required = method === 'password';
-}
-
-async function loadAuthConfiguration() {
-  authConfig = await api('/api/auth/config');
-  const smsButton = $('#sendSmsCode');
-  const smsSubmit = $('#smsLoginSubmit');
-  const smsStatus = $('#smsLoginStatus');
-  const wechatButton = $('#wechatLoginButton');
-  const wechatStatus = $('#wechatLoginStatus');
-  if (smsButton) {
-    smsButton.disabled = !authConfig.smsEnabled;
-    smsButton.title = authConfig.smsEnabled ? '发送短信验证码' : '短信验证码服务待开通';
-  }
-  if (smsSubmit) smsSubmit.disabled = !authConfig.smsEnabled;
-  if (smsStatus) {
-    smsStatus.textContent = authConfig.smsEnabled
-      ? `验证码 ${Number(authConfig.smsExpiresMinutes || 5)} 分钟内有效。`
-      : '短信验证码服务待开通，当前请使用密码登录。';
-  }
-  if (wechatButton) wechatButton.disabled = !authConfig.wechatEnabled;
-  if (wechatStatus) {
-    wechatStatus.textContent = authConfig.wechatEnabled
-      ? '首次扫码后需要绑定现有账号。'
-      : '微信开放平台配置完成后即可扫码登录。';
-  }
-}
-
-function startSmsCountdown(seconds) {
-  clearInterval(smsCountdownTimer);
-  let remaining = Math.max(1, Number(seconds || authConfig.smsResendSeconds || 60));
-  const button = $('#sendSmsCode');
-  button.disabled = true;
-  button.textContent = `${remaining}秒后重发`;
-  smsCountdownTimer = setInterval(() => {
-    remaining--;
-    if (remaining <= 0) {
-      clearInterval(smsCountdownTimer);
-      button.disabled = false;
-      button.textContent = '获取验证码';
-      return;
-    }
-    button.textContent = `${remaining}秒后重发`;
-  }, 1000);
-}
-
-async function requestSmsCode() {
-  const form = $('#unifiedLogin');
-  const phone = String(form.elements.phone.value || '').trim();
-  if (!/^1[3-9]\d{9}$/.test(phone)) {
-    form.elements.phone.focus();
-    throw new Error('请先填写正确的手机号');
-  }
-  const result = await api('/api/auth/sms/send', { method: 'POST', body: { phone } });
-  startSmsCountdown(result.resendAfter);
-  if (result.debugCode) form.elements.smsCode.value = result.debugCode;
-  toast('验证码已发送，请查看手机短信');
-}
-
-function startWechatLogin() {
-  if (!authConfig.wechatEnabled) return toast('微信扫码登录正在等待开放平台参数');
-  window.location.href = '/api/auth/wechat/start';
-}
-
-async function completeWechatLogin(ticket) {
-  const form = $('#unifiedLogin');
-  const result = await api('/api/auth/wechat/complete', {
-    method: 'POST',
-    body: {
-      ticket,
-      rememberAccount: Boolean(form.elements.rememberAccount.checked || form.elements.autoLogin.checked),
-      autoLogin: Boolean(form.elements.autoLogin.checked)
-    }
-  });
-  storeMemberSession(result);
-  await load();
-  await loadTeacherPreferences();
-  setView('teacher');
-  toast('微信登录成功');
-}
-
-async function handleWechatReturn() {
-  const params = new URLSearchParams(window.location.search);
-  const loginTicket = params.get('wechat_ticket') || '';
-  const bindTicket = params.get('wechat_bind') || '';
-  const error = params.get('wechat_error') || '';
-  if (!loginTicket && !bindTicket && !error) return;
-  history.replaceState(null, '', window.location.pathname || '/');
-  if (error) return toast(error);
-  if (bindTicket) {
-    wechatBindTicket = bindTicket;
-    setLoginMethod(authConfig.smsEnabled ? 'sms' : 'password');
-    toast(authConfig.smsEnabled ? '扫码成功，请用验证码完成首次绑定' : '扫码成功，请用密码完成首次绑定');
-    return;
-  }
-  await completeWechatLogin(loginTicket);
 }
 
 async function load() {
@@ -788,12 +673,6 @@ function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
   </div>`;
 }
 
-function sourceImageButton(order) {
-  const count = Math.max(0, Number(order.sourceImageCount || 0));
-  if (!count) return '<button class="secondary" type="button" disabled title="这张旧单没有留存截图">暂无原图</button>';
-  return `<button class="secondary" type="button" onclick="openSourceImages('${order.id}', ${count})">查看原图</button>`;
-}
-
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
   return `<article class="card">
@@ -808,7 +687,6 @@ function orderCard(o) {
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
       <button class="secondary" onclick="copyText('${encodeURIComponent(o.raw || o.requirements || '')}')">复制原文</button>
-      ${sourceImageButton(o)}
     </div>
   </article>`;
 }
@@ -855,7 +733,6 @@ function renderAdmin() {
           : '<div class="raw">暂无接单老师</div>'}
       </div>
       <div class="actions">
-        ${sourceImageButton(o)}
         <button class="secondary" onclick="setStatus('${o.id}','open')">开放</button>
         <button class="secondary" onclick="setStatus('${o.id}','matched')">已成交</button>
         <button class="danger" onclick="setStatus('${o.id}','closed')">关闭</button>
@@ -955,7 +832,6 @@ function renderAgencyOrders() {
           : '<div class="raw">暂时还没有老师申请。</div>'}
       </div>
       <div class="actions">
-        ${sourceImageButton(o)}
         <button class="secondary" onclick="setAgencyStatus('${o.id}','open')">重新开放</button>
         <button class="secondary" onclick="setAgencyStatus('${o.id}','closed')">下架</button>
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
@@ -1058,7 +934,6 @@ function hydrateLoginForm() {
   if (!form) return;
   const preference = readLoginPreference();
   form.reset();
-  setLoginMethod('sms');
   rememberedCredentialActive = false;
   if (!preference?.rememberAccount) return;
   form.elements.name.value = preference.name;
@@ -1086,11 +961,11 @@ function invalidateCredentialForIdentity(name, phone) {
 
 function setLoginBusy(busy, automatic = false) {
   const form = $('#unifiedLogin');
-  const button = form?.querySelector(`[data-login-panel="${loginMethod}"] button[type="submit"]`);
+  const button = form?.querySelector('button[type="submit"]');
   loginBusy = busy;
   if (!button) return;
   button.dataset.idleText ||= button.textContent;
-  button.disabled = busy || (!busy && loginMethod === 'sms' && !authConfig.smsEnabled);
+  button.disabled = busy;
   button.textContent = busy ? (automatic ? '正在自动登录...' : '正在登录...') : button.dataset.idleText;
 }
 
@@ -1148,19 +1023,6 @@ async function unifiedLogin(form, { automatic = false } = {}) {
         form.elements.password.focus();
         throw error;
       }
-    } else if (loginMethod === 'sms') {
-      result = await api('/api/auth/sms/verify', {
-        method: 'POST',
-        body: {
-          name,
-          phone,
-          code: form.elements.smsCode.value,
-          rememberAccount,
-          autoLogin,
-          wechatBindTicket
-        }
-      });
-      wechatBindTicket = '';
     } else {
       const password = form.elements.password.value;
       result = await api('/api/account/login', {
@@ -1171,11 +1033,9 @@ async function unifiedLogin(form, { automatic = false } = {}) {
           password,
           passwordProof: await passwordProof(password, name, phone),
           rememberAccount,
-          autoLogin,
-          wechatBindTicket
+          autoLogin
         }
       });
-      wechatBindTicket = '';
     }
 
     storeMemberSession(result);
@@ -1198,7 +1058,6 @@ async function unifiedLogin(form, { automatic = false } = {}) {
     await loadTeacherPreferences();
     setView('teacher');
     form.elements.password.value = '';
-    form.elements.smsCode.value = '';
     toast(automatic ? '已自动登录' : '登录成功');
   } finally {
     setLoginBusy(false);
@@ -1418,89 +1277,6 @@ function closeAgencyContact() {
   $('#contactPanel').classList.add('hidden');
 }
 
-function sourceImageToken() {
-  return adminToken || agencyToken || teacherToken;
-}
-
-async function loadSourceImage(index) {
-  const viewer = sourceImageViewer;
-  if (!viewer.orderId || !viewer.count) return;
-  const safeIndex = Math.max(0, Math.min(viewer.count - 1, Number(index) || 0));
-  viewer.index = safeIndex;
-  $('#sourceImageCounter').textContent = `第 ${safeIndex + 1} 张，共 ${viewer.count} 张`;
-  $('#sourceImagePrevious').disabled = safeIndex === 0;
-  $('#sourceImageNext').disabled = safeIndex === viewer.count - 1;
-  const image = $('#sourceImageView');
-  const loading = $('#sourceImageLoading');
-  image.classList.add('hidden');
-  loading.classList.remove('hidden');
-  loading.textContent = '正在读取原图...';
-
-  let objectUrl = viewer.urls[safeIndex];
-  if (!objectUrl) {
-    const token = sourceImageToken();
-    if (!token) throw new Error('请先登录后查看原图');
-    const orderId = viewer.orderId;
-    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/source-images/${safeIndex}`, {
-      credentials: 'same-origin',
-      headers: { Authorization: `Bearer ${token}`, 'X-Visitor-Id': visitorId }
-    });
-    if (!response.ok) {
-      let message = '原图读取失败';
-      try { message = (await response.json()).error || message; } catch {}
-      throw new Error(message);
-    }
-    const blob = await response.blob();
-    if (sourceImageViewer !== viewer || viewer.orderId !== orderId) return;
-    objectUrl = URL.createObjectURL(blob);
-    viewer.urls[safeIndex] = objectUrl;
-  }
-  image.onload = () => {
-    if (sourceImageViewer !== viewer || viewer.index !== safeIndex) return;
-    loading.classList.add('hidden');
-    image.classList.remove('hidden');
-  };
-  image.onerror = () => {
-    loading.classList.remove('hidden');
-    loading.textContent = '这张原图暂时无法显示。';
-  };
-  image.src = objectUrl;
-  if (image.complete && image.naturalWidth) image.onload();
-}
-
-function openSourceImages(orderId, count) {
-  if (!sourceImageToken()) return toast('请先登录后查看原图');
-  closeSourceImages();
-  sourceImageViewer = { orderId: String(orderId || ''), count: Math.max(0, Number(count || 0)), index: 0, urls: [] };
-  if (!sourceImageViewer.orderId || !sourceImageViewer.count) return toast('这张单暂时没有原图');
-  $('.source-image-nav')?.classList.toggle('hidden', sourceImageViewer.count <= 1);
-  $('#sourceImagePanel').classList.remove('hidden');
-  loadSourceImage(0).catch(err => {
-    $('#sourceImageLoading').textContent = err.message;
-    toast(err.message);
-  });
-}
-
-function stepSourceImage(delta) {
-  loadSourceImage(sourceImageViewer.index + delta).catch(err => toast(err.message));
-}
-
-function closeSourceImages() {
-  const image = $('#sourceImageView');
-  if (image) {
-    image.onload = null;
-    image.onerror = null;
-    image.removeAttribute('src');
-    image.classList.add('hidden');
-  }
-  for (const url of sourceImageViewer.urls || []) {
-    if (url) URL.revokeObjectURL(url);
-  }
-  sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
-  const panel = $('#sourceImagePanel');
-  if (panel) panel.classList.add('hidden');
-}
-
 async function copyAgencyContact() {
   if (!activeAgencyContact?.phone) return;
   await navigator.clipboard.writeText(`${activeAgencyContact.name} ${activeAgencyContact.phone}`);
@@ -1600,16 +1376,6 @@ $('#routeModeSelect').addEventListener('change', () => {
     updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(err => toast(err.message));
   }
 });
-
-$$('[data-login-method]').forEach(button => {
-  button.addEventListener('click', () => setLoginMethod(button.dataset.loginMethod));
-});
-
-$('#sendSmsCode').addEventListener('click', () => {
-  requestSmsCode().catch(err => toast(err.message));
-});
-
-$('#wechatLoginButton').addEventListener('click', startWechatLogin);
 
 $('#refreshOrdersButton').addEventListener('click', () => {
   refreshOrderList().catch(err => toast(err.message));
@@ -1810,17 +1576,8 @@ $('#saveAgencyContact').addEventListener('click', saveAgencyContact);
 $('#contactPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeAgencyContact();
 });
-$('#sourceImageClose').addEventListener('click', closeSourceImages);
-$('#sourceImagePrevious').addEventListener('click', () => stepSourceImage(-1));
-$('#sourceImageNext').addEventListener('click', () => stepSourceImage(1));
-$('#sourceImagePanel').addEventListener('click', event => {
-  if (event.target === event.currentTarget) closeSourceImages();
-});
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
-  if (event.key === 'Escape' && !$('#sourceImagePanel').classList.contains('hidden')) closeSourceImages();
-  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowLeft') stepSourceImage(-1);
-  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowRight') stepSourceImage(1);
 });
 
 $('#feedbackButton').addEventListener('click', openFeedback);
@@ -1851,16 +1608,14 @@ window.addEventListener('scroll', () => {
 
 async function initializeApp() {
   hydrateLoginForm();
-  await loadAuthConfiguration();
   await load();
-  await handleWechatReturn();
   const signedIn = Boolean(
     (state.viewer?.role === 'admin' && adminToken)
     || (state.viewer && teacherToken && agencyToken)
   );
   if (signedIn && teacherToken && !teacherPreferencesLoaded) await loadTeacherPreferences();
   const preference = readLoginPreference();
-  if (!signedIn && !wechatBindTicket && preference?.autoLogin && preference.hasCredential) {
+  if (!signedIn && preference?.autoLogin && preference.hasCredential) {
     await unifiedLogin($('#unifiedLogin'), { automatic: true });
   }
 }
