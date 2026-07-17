@@ -32,6 +32,8 @@ npx.cmd wrangler secret put AMAP_WEB_SERVICE_KEY
 npm.cmd run cloudflare:deploy
 ```
 
+`AMAP_WEB_SERVICE_KEY` 只允许通过 `wrangler secret put` 配置，不得放入 `wrangler.jsonc`、前端或 D1。未配置时地点接口返回 `AMAP_NOT_CONFIGURED`；部署验收应覆盖候选、确认保存和四种路线模式，并以响应中的 `source: "amap"` / `status: "verified"` 判断真实调用成功。
+
 先使用 `*.workers.dev` 验收。Cloudflare zone 激活后，再为 Worker 添加 `tutor.liuzonghao.top` Custom Domain。正式环境必须保持 `SMS_DEV_MODE=0`。
 
 ## 数据与回滚

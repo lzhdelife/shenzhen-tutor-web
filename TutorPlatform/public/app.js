@@ -319,7 +319,6 @@ function fillSettings() {
   const form = $('#settingsForm');
   if (!form) return;
   form.homeAddress.value = state.settings.homeAddress || '';
-  form.amapKey.value = state.settings.amapKey || '';
   form.maxBikeKm.value = state.settings.maxBikeKm || 12;
 }
 
@@ -851,6 +850,11 @@ function previewCard(o, index) {
   const candidates = !o.locationVerified && Array.isArray(o.locationCandidates)
     ? o.locationCandidates.slice(0, 3).filter(candidate => candidate?.name)
     : [];
+  const optionCandidates = Array.isArray(o.locationOptions) ? o.locationOptions.map((option, optionIndex) => ({
+    optionIndex,
+    label: `${optionIndex + 1}：${option.district || ''}${option.place || ''}`,
+    candidates: option.verified ? [] : (Array.isArray(option.candidates) ? option.candidates.slice(0, 3).filter(candidate => candidate?.name) : [])
+  })).filter(item => item.candidates.length) : [];
   return `<div class="preview-card">
     <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
     <div class="meta">
@@ -860,6 +864,7 @@ function previewCard(o, index) {
       <span class="pill">${escapeHtml(studentSummary(o))}</span>
     </div>
     ${candidates.length ? `<div class="raw">地点待确认：${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
+    ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate(${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
   </div>`;
 }
@@ -870,12 +875,30 @@ function selectPreviewLocationCandidate(orderIndex, candidateIndex) {
   if (!order || !candidate) return;
   order.district = String(candidate.district || order.district || '').replace(/区$/, '');
   order.place = candidate.name;
-  order.address = `深圳市${order.district ? `${order.district}区` : ''}${candidate.name}`;
+  order.address = `深圳市${order.district ? `${order.district}区` : ''}${candidate.address || candidate.name}`;
   order.locationCoordinates = candidate.location || '';
   order.locationPoiId = candidate.id || '';
-  order.locationConfidence = candidate.confidence || 0;
+  order.locationAddress = candidate.address || '';
+  order.locationConfidence = candidate.confidence || 100;
   order.locationVerified = Boolean(candidate.location);
-  order.locationStatus = candidate.location ? 'selected' : 'selected_unverified';
+  order.locationStatus = candidate.location ? 'confirmed' : 'selected_unverified';
+  renderPreview();
+}
+
+function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidateIndex) {
+  const order = parsedImport[orderIndex];
+  const option = order?.locationOptions?.[optionIndex];
+  const candidate = option?.candidates?.[candidateIndex];
+  if (!order || !option || !candidate?.location) return;
+  option.district = String(candidate.district || option.district || '').replace(/区$/, '');
+  option.place = candidate.name;
+  option.poiId = candidate.id || '';
+  option.coordinates = candidate.location;
+  option.address = `深圳市${option.district ? `${option.district}区` : ''}${candidate.address || candidate.name}`;
+  option.confidence = candidate.confidence || 100;
+  option.verified = true;
+  order.locationVerified = order.locationOptions.some(item => item.verified);
+  order.locationStatus = order.locationOptions.every(item => item.verified) ? 'confirmed' : 'options_unverified';
   renderPreview();
 }
 

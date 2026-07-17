@@ -38,6 +38,8 @@ npm.cmd test
 npm.cmd run check:secrets
 ```
 
+地图合成测试使用注入的假 HTTP 响应，不访问高德。需要本地联调时仅在当前进程环境设置 `AMAP_WEB_SERVICE_KEY`；无 Key 时 API 会明确返回未配置，且不会提供本地伪候选或伪路线。
+
 根目录 `tests/` 只能包含匿名合成数据，不得提交真实用户、手机号、地址、聊天文字或订单图片。
 
 ## 修改检查清单

@@ -2,6 +2,7 @@
 
 const { createRepository } = require('./storage.js');
 const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
+const { createAmapService } = require('./amap-service.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -113,6 +114,7 @@ function createWorker(dependencies = {}) {
     async fetch(request, env, ctx) {
       const repo = dependencies.createRepository ? dependencies.createRepository(env) : createRepository(env);
       const url = new URL(request.url), path = url.pathname, method = request.method.toUpperCase();
+      const amap = createAmapService({ key: env.AMAP_WEB_SERVICE_KEY, fetchImpl: dependencies.fetchImpl || fetch, timeoutMs: dependencies.amapTimeoutMs || 7000 });
       try {
         if (!path.startsWith('/api/')) return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
         if (method === 'OPTIONS') return new Response(null, { status: 204 });
@@ -211,6 +213,33 @@ function createWorker(dependencies = {}) {
           await Promise.all(pair.map(item => repo.updateUser(item.id, { passwordHash })));
           return json({ ok: true });
         }
+        if (method === 'GET' && path === '/api/location-suggestions') {
+          const result = await amap.candidates(url.searchParams.get('q'), url.searchParams.get('district'));
+          return json(result);
+        }
+        if (method === 'POST' && path === '/api/distance-preview') {
+          const teacher = await requireRole(repo, request, 'teacher');
+          if (!teacher) return error('请先以老师身份登录', 401);
+          const data = await bodyJson(request), origin = text(data.origin);
+          if (!origin) return error('请填写你的位置');
+          const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed');
+          const distances = [];
+          for (const order of orders) {
+            const destinations = Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+              ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => ({ option, value: option.coordinates }))
+              : order.locationVerified && order.locationCoordinates ? [{ value: order.locationCoordinates }] : [];
+            if (!destinations.length) {
+              distances.push({ id: order.id, status: 'location_unconfirmed', distanceKm: '', routeOptions: {}, locationOptionRoutes: [] });
+              continue;
+            }
+            const routed = [];
+            for (const destination of destinations) routed.push({ ...destination, route: await amap.route(origin, destination.value, data.mode) });
+            const best = routed.slice().sort((a, b) => a.route.km - b.route.km)[0];
+            distances.push({ id: order.id, status: 'verified', distanceKm: best.route.km, routeMode: best.route.label,
+              routeOptions: { [best.route.mode]: best.route }, locationOptionRoutes: routed.map(item => ({ ...item.option, routeOptions: { [item.route.mode]: item.route } })) });
+          }
+          return json({ status: 'verified', distances });
+        }
         if (method === 'POST' && path === '/api/parse') {
           const agency = await requireRole(repo, request, 'agency');
           if (!agency) return error('请先以中介身份登录', 401);
@@ -261,6 +290,15 @@ function createWorker(dependencies = {}) {
           return json({ ok: true, alreadyApplied: Boolean(existing), contact: { name: agency?.name || order.source || '发单人', phone: agency?.phone || '' },
             applicant: { name: applicant.name, phone: applicant.phone, at: applicant.createdAt } });
         }
+        const locationConfirmation = path.match(/^\/api\/orders\/([^/]+)\/location\/confirm$/);
+        if (method === 'POST' && locationConfirmation) {
+          const order = await repo.getOrderById(locationConfirmation[1]);
+          if (!order) return error('订单不存在', 404);
+          if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能确认自己发布订单的地点', 403);
+          const data = await bodyJson(request);
+          const confirmed = amap.confirm(data.candidate, data.district || order.district);
+          return json(await repo.updateOrder(order.id, { ...confirmed, locationCandidates: order.locationCandidates || [] }));
+        }
         const orderRoute = path.match(/^\/api\/orders\/([^/]+)$/);
         if (orderRoute && ['PATCH', 'DELETE'].includes(method)) {
           const order = await repo.getOrderById(orderRoute[1]);
@@ -288,6 +326,7 @@ function createWorker(dependencies = {}) {
         }
         return error('接口不存在', 404);
       } catch (caught) {
+        if (caught?.code) return json({ error: caught.message, code: caught.code, details: caught.details || {} }, caught.status || 500);
         return error(caught && caught.message ? caught.message : '服务器错误', caught && caught.status ? caught.status : 500);
       }
     }

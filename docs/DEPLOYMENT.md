@@ -44,6 +44,8 @@ flowchart LR
 
 `WECHAT_REDIRECT_URI` 必须与微信开放平台后台允许的回调域名和路径一致，指向 `/api/auth/wechat/callback`。`SMS_DEV_MODE` 在公网环境中必须关闭。
 
+`AMAP_WEB_SERVICE_KEY` 必须由部署平台作为 Secret/环境变量注入。不要写入管理页面、`db.json`、Wrangler 普通变量、日志、测试数据或 Git 历史。本地 PowerShell 可在启动进程前临时设置 `$env:AMAP_WEB_SERVICE_KEY`。
+
 ## 备份
 
 当前原型备份需要同时复制：

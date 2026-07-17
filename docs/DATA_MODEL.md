@@ -22,7 +22,6 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `homeAddress` | string | 管理端默认出发地 |
-| `amapKey` | string | 本地兼容用的高德 Web 服务 Key；生产环境优先使用 `AMAP_WEB_SERVICE_KEY` |
 | `maxBikeKm` | number | 历史默认骑行范围，当前路线 UI 仍沿用该配置 |
 | `adminPasswordHash` | string | `salt:scryptHex`，敏感数据 |
 
@@ -102,7 +101,7 @@
 | --- | --- | --- |
 | `placeOriginal` | string? | 高德处理前的原始地点 |
 | `locationVerified` | boolean | 是否通过真实地点候选核验 |
-| `locationStatus` | string | 例如 `verified`、`ambiguous`、`unresolved` |
+| `locationStatus` | string | `confirmed` 表示用户确认；另有 `verified`、`ambiguous`、`not_found` 等解析状态 |
 | `locationPoiId` | string? | 高德 POI ID |
 | `locationCoordinates` | string? | `longitude,latitude` |
 | `locationAddress` | string? | 高德候选地址 |
@@ -111,8 +110,8 @@
 | `locationCandidates` | array | 低置信度时保留给预览人工选择的 2–3 个候选 |
 | `locationOptions` | array | “A 或 B/二选一/均可”订单的多个地点；每项独立保存 POI、坐标、置信度和路线 |
 | `locationRelation` | string | 多地点关系，当前为 `OR` |
-| `distanceKm` | number/string | 默认路线或估算距离 |
-| `routeMode` | string | 实际路线标签或“估算/地点待核实” |
+| `distanceKm` | number/string | 高德返回的路线距离；失败时为空 |
+| `routeMode` | string | 实际路线标签或明确的不可用状态，不再伪装成本地估算 |
 | `score` | number | 当前设置下的匹配分数，可重新计算 |
 
 老师按自己起点计算的四种路线不会持久写入订单，前端保存在当前页面状态中。

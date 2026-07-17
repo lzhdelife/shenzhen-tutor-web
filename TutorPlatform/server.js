@@ -542,7 +542,7 @@ function textOf(value) {
 }
 
 function amapServiceKey(settings = {}) {
-  return envValue('AMAP_WEB_SERVICE_KEY') || textOf(settings.amapKey);
+  return envValue('AMAP_WEB_SERVICE_KEY') || textOf(settings.amapWebServiceKey);
 }
 
 function stripLeadingDistrict(value, district = '') {
@@ -1876,21 +1876,6 @@ async function locationSuggestions(settings, query) {
     } catch (_) {}
   }
 
-  const localPlaces = [
-    ['西乡地铁站', '宝安区', '西乡街道'], ['坪洲地铁站', '宝安区', '新湖路'],
-    ['宝安中心地铁站', '宝安区', '新湖路'], ['新安公园', '宝安区', '新安街道'],
-    ['灵芝地铁站', '宝安区', '创业二路'], ['固戍地铁站', '宝安区', '宝安大道'],
-    ['南山地铁站', '南山区', '南山大道'], ['后海地铁站', '南山区', '后海滨路'],
-    ['深圳湾口岸', '南山区', '东滨路'], ['西丽地铁站', '南山区', '留仙大道'],
-    ['车公庙地铁站', '福田区', '深南大道'], ['深圳北站', '龙华区', '民治街道'],
-    ['红山地铁站', '龙华区', '腾龙路'], ['布吉地铁站', '龙岗区', '龙岗大道']
-  ];
-  for (const [name, district, address] of localPlaces) {
-    if (`${name}${district}${address}`.includes(keywords) || keywords.includes(name.replace(/地铁站|站|公园|口岸/, ''))) {
-      add(name, district, address);
-    }
-  }
-  if (!suggestions.length) add(keywords, '深圳市', '你输入的位置');
   return suggestions.slice(0, 8);
 }
 
@@ -2075,15 +2060,14 @@ async function previewDistances(settings, origin, orders, requestedMode = 'cycli
       order.locationCoordinates || order.address,
       [mode]
     );
-    const fallbackKm = estimateKm(order.district, order.place);
-    const fallbackRoute = estimatedRoutes(fallbackKm)[mode];
-    const routes = liveRoutes[mode] ? liveRoutes : (fallbackRoute ? { [mode]: fallbackRoute } : {});
+    const routes = liveRoutes[mode] ? liveRoutes : {};
     const preferred = routes[mode] || {};
-    const distanceKm = preferred.km || fallbackKm || '';
+    const distanceKm = preferred.km || '';
     return {
       id: order.id,
       distanceKm,
-      routeMode: preferred.mode || '估算',
+      routeMode: preferred.mode || (key ? '路线不可用' : '地图服务未配置'),
+      routeStatus: preferred.km ? 'verified' : (key ? 'unavailable' : 'not_configured'),
       routeOptions: routes,
       score: score({ ...order, distanceKm }, scopedSettings)
     };
@@ -2182,7 +2166,8 @@ async function handleApi(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/location-suggestions') {
     const suggestions = await locationSuggestions(db.settings, url.searchParams.get('q') || '');
-    return send(res, 200, { suggestions });
+    return send(res, amapServiceKey(db.settings) ? 200 : 503, { suggestions, status: amapServiceKey(db.settings) ? (suggestions.length ? 'candidates' : 'not_found') : 'not_configured',
+      ...(amapServiceKey(db.settings) ? {} : { error: '地图服务尚未配置' }) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/config') {
@@ -2613,12 +2598,12 @@ async function handleApi(req, res) {
     db.settings = {
       ...db.settings,
       homeAddress: textOf(data.homeAddress),
-      amapKey: textOf(data.amapKey) || db.settings.amapKey || '',
       maxBikeKm: Number(data.maxBikeKm || 12)
     };
+    delete db.settings.amapKey;
     db.orders.forEach(o => o.score = score(o, db.settings));
     writeDb(db);
-    return send(res, 200, db.settings);
+    return send(res, 200, { homeAddress: db.settings.homeAddress, maxBikeKm: db.settings.maxBikeKm });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/admin/reconcile-locations') {
@@ -2838,5 +2823,6 @@ module.exports = {
   locationQueryCharacterCoverage,
   score,
   previewDistances,
+  locationSuggestions,
   sanitizeRouteMode
 };

@@ -11,7 +11,7 @@ async function parseOrders(data, context) {
   const agency = context.agency;
   const env = context.env || {};
   const settings = {
-    amapKey: env.AMAP_WEB_SERVICE_KEY || '',
+    amapWebServiceKey: env.AMAP_WEB_SERVICE_KEY || '',
     homeAddress: '',
     maxBikeKm: 12
   };

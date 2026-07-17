@@ -9,7 +9,7 @@
 - 自动登录使用名为 `tutor_remember` 的 `HttpOnly` Cookie，浏览器请求需保持同源 Cookie。
 - 批量导入使用中介 Token 调用 `/api/import`。
 
-错误通常返回：
+错误通常返回；地图上游错误还会包含稳定的 `code` 和不含密钥的 `details`：
 
 ```json
 { "error": "可读的错误消息" }
@@ -21,7 +21,7 @@
 | --- | --- | --- | --- |
 | GET | `/api/state` | 可选登录 | 返回页面状态；管理员可看到用户/反馈，中介所有者可看到申请人 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
-| GET | `/api/location-suggestions?q=` | 公共 | 地点输入候选，优先高德，缺少 Key 时返回有限本地候选 |
+| GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
@@ -91,6 +91,8 @@ Content-Type: application/json
 
 `mode` 可为 `walking`、`cycling`、`driving`、`transit`。
 
+Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap"`。未确认地点返回 `location_unconfirmed`，无 Key、超时、限流和高德错误分别返回 `AMAP_NOT_CONFIGURED`、`AMAP_TIMEOUT`、`AMAP_RATE_LIMITED`、`AMAP_API_ERROR`，不会回退成“已验证”距离。
+
 偏好结构：
 
 ```json
@@ -119,6 +121,9 @@ Content-Type: application/json
 | POST | `/api/import` | agency | 批量解析/导入文本或已解析订单 |
 | PATCH | `/api/orders/:id` | owner agency/admin | 中介编辑自己的订单；管理员只能改状态 |
 | DELETE | `/api/orders/:id` | owner agency/admin | 删除订单 |
+| POST | `/api/orders/:id/location/confirm` | owner agency/admin | 确认高德候选并保存标准地址、POI 和经纬度 |
+
+候选确认请求为 `{ "candidate": { "id", "name", "district", "address", "location" }, "district": "南山" }`。服务端校验经纬度和区名冲突，成功后写入 `locationStatus: "confirmed"`。
 
 ### 批量导入
 
@@ -169,7 +174,7 @@ Content-Type: application/json
 | POST | `/api/admin/batch-delete-orders` | admin | 最多接收 5000 个订单 ID |
 | POST | `/api/admin/batch-delete-users` | admin | 删除选中身份、关联订单/申请/会话 |
 | POST | `/api/admin/announcement` | admin | 发布或撤下公告 |
-| POST | `/api/settings` | admin | 保存默认地址、高德 Key 和距离参数 |
+| POST | `/api/settings` | admin | 保存默认地址和距离参数；不接收高德 Key |
 | POST | `/api/admin/reconcile-locations` | admin | 对指定或全部订单重新核验地点 |
 
 批量删除订单请求：
@@ -193,7 +198,7 @@ Content-Type: application/json
 - 老师：订单不包含申请人明细。
 - 中介：自己的订单包含申请人明细，其他订单不包含。
 - 管理员：所有申请人、用户列表和反馈列表可见。
-- `passwordHash`、`adminPasswordHash`、`amapKey`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。
+- `passwordHash`、`adminPasswordHash`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。高德 Key 仅存在于服务端环境/Secret，任何 API 都不返回。
 
 ## CORS 和浏览器说明
 

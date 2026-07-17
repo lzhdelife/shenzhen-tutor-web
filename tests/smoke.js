@@ -155,26 +155,26 @@ async function runLocationChecks() {
     throw new Error(`Unexpected synthetic request: ${url}`);
   };
   try {
-    const resolved = await platform.resolveOrderLocation({ ...decorativeSeparatorOrder }, { amapKey: 'synthetic-key' });
+    const resolved = await platform.resolveOrderLocation({ ...decorativeSeparatorOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolved.locationVerified, true);
     assert.equal(resolved.locationStatus, 'verified');
     assert.equal(resolved.locationCoordinates, '113.850000,22.580000');
     assert.equal(resolved.district, '宝安');
     assert.equal(resolved.place, '共和花园');
 
-    const resolvedYantian = await platform.resolveOrderLocation({ ...yantianOrder }, { amapKey: 'synthetic-key' });
+    const resolvedYantian = await platform.resolveOrderLocation({ ...yantianOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedYantian.locationVerified, true);
     assert.equal(resolvedYantian.district, '盐田');
     assert.equal(resolvedYantian.place, '盐田墟');
     assert.equal(resolvedYantian.locationCoordinates, '114.268000,22.584000');
 
-    const resolvedLiutang = await platform.resolveOrderLocation({ ...liutangOrder }, { amapKey: 'synthetic-key' });
+    const resolvedLiutang = await platform.resolveOrderLocation({ ...liutangOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedLiutang.locationVerified, true);
     assert.equal(resolvedLiutang.district, '宝安');
     assert.match(resolvedLiutang.place, /流塘/);
     assert.equal(resolvedLiutang.locationCoordinates, '113.890000,22.580000');
 
-    const resolvedAlternatives = await platform.resolveOrderLocation({ ...alternativeLocationOrder }, { amapKey: 'synthetic-key' });
+    const resolvedAlternatives = await platform.resolveOrderLocation({ ...alternativeLocationOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedAlternatives.locationOptions.length, 2);
     assert.equal(resolvedAlternatives.locationOptions[0].coordinates, '113.895000,22.493000');
     assert.equal(resolvedAlternatives.locationOptions[1].coordinates, '113.776000,22.707000');

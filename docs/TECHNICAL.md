@@ -49,7 +49,7 @@ flowchart LR
 - 普通 API 使用 Bearer Token，短期会话保存在进程内存。
 - “记住登录”在 `HttpOnly`、`SameSite=Lax` Cookie 中保存随机令牌，数据库只保存散列。
 - 管理端首次进入时设置至少 8 位密码。
-- 高德 Web 服务 Key 优先从 `AMAP_WEB_SERVICE_KEY` 环境变量读取，本地也兼容管理端保存的 `db.json` 设置。生产环境应使用受保护的环境变量。
+- 高德 Web 服务 Key 只能从 `AMAP_WEB_SERVICE_KEY` 服务端 Secret/环境变量读取。浏览器、`db.json`、D1 和日志均不得保存或返回该值。
 
 ## 6. 已知生产风险
 
