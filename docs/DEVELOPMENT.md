@@ -13,23 +13,14 @@ npm.cmd start
 
 也可在 `TutorPlatform` 目录双击 `start.bat`。默认地址为 <http://localhost:8787>。
 
+`npm.cmd start` 和 `start.bat` 会自动读取仓库根目录中被 Git 忽略的 `.env.local`。首次配置高德时，双击 `TutorPlatform/配置本地高德Key.bat`，按提示粘贴高德 Web 服务 Key，然后重新启动网站。
+
 ```powershell
 $env:PORT = '9000'
 node TutorPlatform/server.js
 ```
 
 首次读写数据时会创建 `TutorPlatform/data/db.json`。匿名初始结构见 `examples/TutorPlatform-db.example.json`。
-
-## 本地短信模式
-
-没有腾讯云短信账号时，可仅在本机临时启用开发模式：
-
-```powershell
-$env:SMS_DEV_MODE = '1'
-npm.cmd start
-```
-
-此模式会在 API 响应中返回验证码，绝不能用于公网或共享环境。正式短信变量见 `.env.example`。
 
 ## 公开测试
 
