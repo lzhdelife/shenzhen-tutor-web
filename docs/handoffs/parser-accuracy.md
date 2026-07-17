@@ -1,0 +1,63 @@
+# 文本解析准确率交接
+
+## 分支与基线
+
+- 工作分支：`codex/parser-accuracy`
+- 基线提交：`005502f`
+- 功能提交：`bb7bd6b feat: strengthen tutor order parsing evidence`
+- 状态：仅本地提交；未推送、未部署、未合并。
+
+## 负责范围与修改路径
+
+领域负责范围是无损多单切割、订单字段提取、证据与置信度、解析契约和匿名回归测试。
+
+- `TutorPlatform/parser/pipeline.js`：结构化证据、地点查询意图、分阶段时间和不确定字段。
+- `TutorPlatform/parser/schema.js`：解析输出 schema。
+- `tests/parser-regressions.js`、`tests/recognizer-contract.js`、`tests/api-preview.js`：公共解析和 9 条永久样例回归。
+- `tests/cloudflare-parser-contract.test.js`：Cloudflare adapter 使用同一公共解析契约的测试。
+- `docs/API.md`、`docs/DATA_MODEL.md`、`docs/PARSER_ACCURACY.md`：共享契约与指标。
+- `TutorPlatform/public/app.js`、`TutorPlatform/public/styles.css`：只消费公共 `structured` 契约，展示证据、置信度、原文和不确定字段；未加入解析正则或地图逻辑。
+
+未修改登录、高德网络调用、数据库实现、图片处理或页面整体视觉。
+
+## 接口与字段变化
+
+- `parserVersion`：`2.0.0` → `2.1.0`。
+- `/api/parse` 响应形状仍为 `{ parserVersion, parsed, splitDiagnostics }`。
+- 每个 `parsed[]` 项的 `structured` 字段强化如下：
+  - 可抽取字段统一为 `{ value, rawEvidence, confidence, source }`。
+  - `locations` 增加/规范 `relation`、地点原文、行政区、片区、展示地点、`query`、`locationQueries[]`、`nearby`、核验状态和候选证据。
+  - `schedulePhases[]` 保留 `phase`、`rawEvidence`、`start`、`frequency`、`weekdays`、`timeOfDay`、`durationPerLesson`、`lessonCountMin/Max`、`confidence`、`source`。
+  - `diagnostics.uncertainFields[]` 列出缺失或低置信字段，供导入前确认。
+- `raw` 与 `structured.rawText` 保留逐条原文；`normalizedText` 允许做解析用标点规范化。
+- 地点解析只输出证据和候选查询文本，不调用高德。地点与路线工作流应把 `district + locationQueries[] + nearby` 作为输入，返回 POI 候选；用户确认后再写标准地址和坐标。
+
+## 测试结果
+
+在提交 `bb7bd6b` 后执行：
+
+- `npm test`：通过。
+  - 9 条批量样例数量、顺序、逐条原文和覆盖率均为 100%。
+  - 行政区、明示地点、年级、学科、学生/教师性别、价格和单位均为 100%。
+  - 分阶段时间召回率和已填字段证据覆盖率均为 100%；性别混淆为 0。
+- `npm run cloudflare:test`：5/5 通过，包含真实 parser adapter 契约测试。
+- `npm run check:secrets`：通过；交接提交前共扫描 55 个跟踪文件。
+- `git diff --check`：通过。
+
+所有回归数据均为匿名合成数据。详细口径见 `docs/PARSER_ACCURACY.md`；样本量较小，不代表线上总体准确率。
+
+## 已知风险与跨领域依赖
+
+- “会展附近”等范围地点不能由解析层确定唯一 POI；地点工作流必须保留 `nearby`，展示候选并要求用户确认。
+- “连续上课”“周内上课”缺少明确每周次数时只保留原文证据，不应由订单或 UI 层猜测。
+- 缺少明确“老师”上下文的性别描述不会推断教师性别，UI 应继续展示 `uncertainFields`。
+- `parserVersion` 已升级，主任务若有硬编码版本断言或桌面客户端契约，需要同步调整为 `2.1.0`。
+- 当前旧规则解析仍由 `server.js` 注入公共 recognizer；后续若迁移实现，应保持 `TutorPlatform/parser` 为唯一编排/契约边界，禁止在 Worker、UI 或地点服务复制正则。
+
+## 主任务集成顺序
+
+1. 先集成主任务最新的协同文档提交，保留 `AGENTS.md` 和 `docs/WORKSTREAMS.md`。
+2. 在集成分支 cherry-pick 功能提交 `bb7bd6b`。
+3. 再 cherry-pick 本交接文档提交，若 `docs/handoffs` 已存在则仅解决文档目录冲突。
+4. 检查地点工作流是否消费 `structured.locations.value[].locationQueries`、`district` 和 `nearby`，不要把高德调用移入 parser。
+5. 运行 `npm test`、`npm run cloudflare:test`、`npm run check:secrets`，并人工确认解析预览能展开证据、置信度、原文和不确定字段。
