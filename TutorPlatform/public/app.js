@@ -14,6 +14,7 @@ let locationSuggestionRequest = 0;
 let selectedOriginCoordinates = localStorage.getItem('teacherOriginCoordinates') || '';
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
+let activeRawText = '';
 let rememberedCredentialActive = false;
 let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
@@ -687,7 +688,7 @@ function orderCard(o) {
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
-      <button class="secondary" onclick="copyText('${encodeURIComponent(o.raw || o.requirements || '')}')">复制原文</button>
+      <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
     </div>
   </article>`;
 }
@@ -1299,9 +1300,23 @@ function queueLocationSuggestions() {
   }, 260);
 }
 
-function copyText(encoded) {
-  navigator.clipboard.writeText(decodeURIComponent(encoded));
-  toast('已复制');
+function openRawText(encoded) {
+  activeRawText = decodeURIComponent(encoded || '');
+  $('#rawTextContent').textContent = activeRawText || '这条订单没有保留原文。';
+  $('#copyRawText').disabled = !activeRawText;
+  $('#rawTextPanel').classList.remove('hidden');
+}
+
+function closeRawText() {
+  $('#rawTextPanel').classList.add('hidden');
+  activeRawText = '';
+  $('#rawTextContent').textContent = '';
+}
+
+async function copyRawText() {
+  if (!activeRawText) return;
+  await navigator.clipboard.writeText(activeRawText);
+  toast('原文已复制');
 }
 
 function openAgencyContact(contact) {
@@ -1310,11 +1325,7 @@ function openAgencyContact(contact) {
   activeAgencyContact = { name, phone };
   $('#agencyContactName').textContent = name;
   $('#agencyContactPhone').textContent = phone || '未填写';
-  $('#saveAgencyContact').disabled = !phone;
   $('#copyAgencyContact').disabled = !phone;
-  const callLink = $('#callAgencyContact');
-  callLink.href = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : '#';
-  callLink.classList.toggle('disabled', !phone);
   $('#contactPanel').classList.remove('hidden');
 }
 
@@ -1326,26 +1337,6 @@ async function copyAgencyContact() {
   if (!activeAgencyContact?.phone) return;
   await navigator.clipboard.writeText(`${activeAgencyContact.name} ${activeAgencyContact.phone}`);
   toast('联系方式已复制');
-}
-
-function saveAgencyContact() {
-  if (!activeAgencyContact?.phone) return;
-  const escapeVcard = value => String(value || '').replace(/([\\,;])/g, '\\$1').replace(/\r?\n/g, '\\n');
-  const content = [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `FN:${escapeVcard(activeAgencyContact.name)}`,
-    `TEL;TYPE=CELL:${escapeVcard(activeAgencyContact.phone)}`,
-    'END:VCARD'
-  ].join('\r\n');
-  const url = URL.createObjectURL(new Blob([content], { type: 'text/vcard;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${activeAgencyContact.name.replace(/[\\/:*?"<>|]/g, '_') || '发单人'}.vcf`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function openFeedback() {
@@ -1621,12 +1612,17 @@ $('#adminLogin').addEventListener('submit', async event => {
 
 $('#contactClose').addEventListener('click', closeAgencyContact);
 $('#copyAgencyContact').addEventListener('click', () => copyAgencyContact().catch(err => toast(err.message)));
-$('#saveAgencyContact').addEventListener('click', saveAgencyContact);
 $('#contactPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeAgencyContact();
 });
+$('#rawTextClose').addEventListener('click', closeRawText);
+$('#copyRawText').addEventListener('click', () => copyRawText().catch(err => toast(err.message)));
+$('#rawTextPanel').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeRawText();
+});
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
+  if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
 
 $('#feedbackButton').addEventListener('click', openFeedback);

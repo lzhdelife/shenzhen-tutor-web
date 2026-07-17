@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260718-2">
+  <link rel="stylesheet" href="./styles.css?v=20260718-3">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -265,9 +265,20 @@
           <div><span>联系方式</span><strong id="agencyContactPhone">未填写</strong></div>
         </div>
         <div class="contact-actions">
-          <button id="saveAgencyContact" type="button">保存到通讯录</button>
-          <button id="copyAgencyContact" class="secondary" type="button">复制联系方式</button>
-          <a id="callAgencyContact" class="action-link" href="#">拨打电话</a>
+          <button id="copyAgencyContact" class="primary" type="button">复制联系方式</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rawTextPanel" class="contact-panel hidden" role="dialog" aria-modal="true" aria-labelledby="rawTextTitle">
+      <div class="contact-card raw-text-card">
+        <div class="contact-head">
+          <div><span class="section-kicker">订单详情</span><h2 id="rawTextTitle">订单原文</h2></div>
+          <button id="rawTextClose" class="icon-button" type="button" aria-label="关闭订单原文" title="关闭">×</button>
+        </div>
+        <pre id="rawTextContent" class="raw-text-content"></pre>
+        <div class="contact-actions">
+          <button id="copyRawText" class="primary" type="button">复制原文</button>
         </div>
       </div>
     </div>
@@ -287,6 +298,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260718-1"></script>
+  <script src="./app.js?v=20260718-2"></script>
 </body>
 </html>
