@@ -2778,6 +2778,28 @@ async function handleApi(req, res) {
     return send(res, 200, { created, duplicatesSkipped, incompleteSkipped });
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/agency/orders/bulk') {
+    const agency = requireRole(req, res, 'agency');
+    if (!agency) return;
+    const data = await bodyJson(req);
+    if (!['close', 'delete'].includes(data.action)) return send(res, 400, { error: '不支持的批量操作' });
+    const ownedOrders = db.orders.filter(order => order.agencyId === agency.id);
+    let affected = 0;
+    if (data.action === 'close') {
+      for (const order of ownedOrders) {
+        if (order.status === 'closed') continue;
+        order.status = 'closed';
+        affected++;
+      }
+    } else {
+      affected = ownedOrders.length;
+      db.orders = db.orders.filter(order => order.agencyId !== agency.id);
+      for (const order of ownedOrders) removeUnreferencedSourceImages(db, order.sourceImages || []);
+    }
+    if (affected) writeDb(db);
+    return send(res, 200, { action: data.action, affected });
+  }
+
   if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/apply$/)) {
     const teacher = requireRole(req, res, 'teacher');
     if (!teacher) return;

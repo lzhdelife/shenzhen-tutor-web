@@ -106,6 +106,13 @@ test('agency creates an order and teacher applies without duplicate application'
   const state = await (await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } })).json();
   assert.equal(state.orders[0].applicantCount, 1);
   assert.equal(state.orders[0].applicants.length, 1);
+
+  const closeAll = await (await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'close' } })).json();
+  assert.equal(closeAll.affected, 1);
+  assert.equal(repo.state.orders.get(order.id).status, 'closed');
+  const deleteAll = await (await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'delete' } })).json();
+  assert.equal(deleteAll.affected, 1);
+  assert.equal(repo.state.orders.size, 0);
 });
 
 test('password login and injectable parser have explicit behavior', async () => {

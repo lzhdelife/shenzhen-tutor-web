@@ -185,7 +185,13 @@
           <div id="parsePreview" class="preview"></div>
         </form>
         <section class="agency-orders-section">
-          <div class="workspace-heading minor"><h2>我发布的订单</h2></div>
+          <div class="workspace-heading minor">
+            <h2>我发布的订单</h2>
+            <div class="workspace-heading-actions">
+              <button id="closeAllAgencyOrders" class="secondary" type="button">一键下架</button>
+              <button id="deleteAllAgencyOrders" class="danger" type="button">删除全部</button>
+            </div>
+          </div>
           <div id="agencyOrders"></div>
         </section>
         <details class="panel manual-entry-panel">
@@ -298,6 +304,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260718-4"></script>
+  <script src="./app.js?v=20260718-5"></script>
 </body>
 </html>

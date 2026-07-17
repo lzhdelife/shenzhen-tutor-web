@@ -279,6 +279,17 @@ function createWorker(dependencies = {}) {
           }
           return json({ created, duplicatesSkipped, incompleteSkipped: 0 });
         }
+        if (method === 'POST' && path === '/api/agency/orders/bulk') {
+          const agency = await requireRole(repo, request, 'agency');
+          if (!agency) return error('请先以中介身份登录', 401);
+          const data = await bodyJson(request);
+          if (!['close', 'delete'].includes(data.action)) return error('不支持的批量操作');
+          const orders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
+          const targets = data.action === 'close' ? orders.filter(order => order.status !== 'closed') : orders;
+          if (data.action === 'close') await Promise.all(targets.map(order => repo.updateOrder(order.id, { status: 'closed' })));
+          else await Promise.all(targets.map(order => repo.deleteOrder(order.id)));
+          return json({ action: data.action, affected: targets.length });
+        }
         const apply = path.match(/^\/api\/orders\/([^/]+)\/apply$/);
         if (method === 'POST' && apply) {
           const teacher = await requireRole(repo, request, 'teacher');
