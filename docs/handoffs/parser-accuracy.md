@@ -6,6 +6,7 @@
 - 基线提交：`005502f`
 - 功能提交：`bb7bd6b feat: strengthen tutor order parsing evidence`
 - 编号订单切割修复：`cbdbe15 fix: split compact numbered tutor orders`
+- 道路与楼盘地点修复：`095fe4e fix: preserve road and property location evidence`
 - 状态：仅本地提交；未推送、未部署、未合并。
 
 ## 负责范围与修改路径
@@ -53,6 +54,7 @@
 - 修复无空行的 `1️⃣…` / `2️⃣…` 长单行订单被合并的问题。
 - 公共 splitter 仅在编号后的同一行同时存在年级与学科证据时建立边界，避免把普通编号要求列表误切成订单。
 - 匿名合成回归固定为 2 条，断言数量、顺序、逐条原文、边界原因和 100% 覆盖率。
+- 修复独立地点行“行政区 + 道路 + `·` 分隔楼盘（如某某华府）”落成“具体地点未提供”的问题；保留展示原文，并额外生成去间隔点的“区+道路+楼盘”和“区+楼盘”查询文本供地点工作流使用。
 
 ## 已知风险与跨领域依赖
 
@@ -67,5 +69,6 @@
 1. 先集成主任务最新的协同文档提交，保留 `AGENTS.md` 和 `docs/WORKSTREAMS.md`。
 2. 在集成分支 cherry-pick 功能提交 `bb7bd6b`。
 3. cherry-pick 首次交接提交 `ba7e2df`，再 cherry-pick 编号订单切割修复 `cbdbe15` 和最新交接更新提交。
+   已集成上述历史提交的主任务只需继续 cherry-pick `095fe4e` 和其后的最新交接更新提交。
 4. 检查地点工作流是否消费 `structured.locations.value[].locationQueries`、`district` 和 `nearby`，不要把高德调用移入 parser。
 5. 运行 `npm test`、`npm run cloudflare:test`、`npm run check:secrets`，并人工确认解析预览能展开证据、置信度、原文和不确定字段。
