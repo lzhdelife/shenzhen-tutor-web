@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run synthetic tests
+        run: npm test
+
+      - name: Check PowerShell syntax
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-powershell-syntax.ps1
+
+      - name: Scan tracked files for secrets and private runtime data
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1

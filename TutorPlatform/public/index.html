@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>家教单平台</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./styles.css?v=20260716-3">
+</head>
+<body>
+  <section id="authScreen" class="auth-screen">
+    <div class="auth-layout">
+      <div class="auth-brand" aria-label="家教单平台">
+        <span class="brand-mark">教</span>
+        <div>
+          <h1>家教单平台</h1>
+          <p>深圳家教订单工作台</p>
+          <div class="platform-stats auth-platform-stats" aria-label="平台使用数据">
+            <span><strong data-stat="registered">0</strong><small>注册用户</small></span>
+            <span><strong data-stat="online">0</strong><small>当前在线</small></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-stack">
+        <form id="unifiedLogin" class="auth-card">
+          <div class="auth-heading">
+            <span class="section-kicker">账号登录</span>
+            <h2>进入工作台</h2>
+          </div>
+          <label>老师姓名或机构名称<input name="name" required autocomplete="username" placeholder="例如：陈老师"></label>
+          <label>手机号<input name="phone" required inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号"></label>
+          <div class="auth-method-tabs" role="tablist" aria-label="登录方式">
+            <button class="active" type="button" data-login-method="sms" role="tab" aria-selected="true">验证码登录</button>
+            <button type="button" data-login-method="wechat" role="tab" aria-selected="false">微信扫码</button>
+            <button type="button" data-login-method="password" role="tab" aria-selected="false">密码登录</button>
+          </div>
+          <div class="login-method-panel" data-login-panel="sms">
+            <label>短信验证码
+              <span class="sms-code-row">
+                <input name="smsCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6位验证码">
+                <button id="sendSmsCode" class="secondary" type="button">获取验证码</button>
+              </span>
+            </label>
+            <small id="smsLoginStatus" class="form-note" aria-live="polite">验证码 5 分钟内有效。</small>
+            <button id="smsLoginSubmit" class="primary wide-button" type="submit">验证码登录</button>
+          </div>
+          <div class="login-method-panel hidden" data-login-panel="wechat">
+            <div class="wechat-login-box">
+              <span class="wechat-login-symbol" aria-hidden="true">微信</span>
+              <strong>使用微信扫码登录</strong>
+              <button id="wechatLoginButton" class="wechat-button" type="button">打开微信登录二维码</button>
+              <small id="wechatLoginStatus">首次扫码后需要绑定现有账号。</small>
+            </div>
+          </div>
+          <div class="login-method-panel hidden" data-login-panel="password">
+            <label>密码<input name="password" type="password" minlength="6" autocomplete="current-password" placeholder="至少6位"></label>
+            <button class="primary wide-button" type="submit">密码登录</button>
+          </div>
+          <div class="login-options">
+            <label class="login-check"><input id="rememberPassword" name="rememberAccount" type="checkbox"> 记住登录</label>
+            <label class="login-check"><input id="autoLogin" name="autoLogin" type="checkbox"> 自动登录</label>
+          </div>
+          <div class="auth-links">
+            <button id="togglePasswordPanel" class="text-button" type="button">修改或忘记密码</button>
+            <button id="toggleAdminPanel" class="text-button" type="button">管理员入口</button>
+          </div>
+        </form>
+
+        <form id="identityPasswordForm" class="auth-card compact-auth hidden">
+          <div class="auth-heading row-heading">
+            <div><span class="section-kicker">账号安全</span><h2>修改密码</h2></div>
+            <button class="icon-button close-auth-panel" type="button" aria-label="关闭修改密码" title="关闭">×</button>
+          </div>
+          <div class="form-grid two-column">
+            <label>姓名或机构名称<input name="name" required autocomplete="username" placeholder="与登录账号一致"></label>
+            <label>手机号<input name="phone" required inputmode="tel" autocomplete="tel" placeholder="与登录账号一致"></label>
+            <label>原密码<input name="oldPassword" required type="password" autocomplete="current-password"></label>
+            <label>新密码<input name="newPassword" required type="password" minlength="6" autocomplete="new-password" placeholder="至少6位"></label>
+          </div>
+          <button type="submit" class="primary">确认修改</button>
+          <p class="form-note">忘记原密码时，请联系平台管理员重置。</p>
+        </form>
+
+        <form id="adminLogin" class="auth-card compact-auth hidden">
+          <div class="auth-heading row-heading">
+            <div><span class="section-kicker">平台管理</span><h2>管理员登录</h2></div>
+            <button class="icon-button close-auth-panel" type="button" aria-label="关闭管理员登录" title="关闭">×</button>
+          </div>
+          <input class="sr-only" name="username" value="admin" autocomplete="username" tabindex="-1" aria-hidden="true">
+          <label>管理员密码<input name="password" required type="password" minlength="8" autocomplete="current-password" placeholder="至少8位"></label>
+          <button type="submit" id="adminLoginButton" class="primary">登录管理端</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
+    <header class="topbar">
+      <div class="brand-inline">
+        <span class="brand-mark small">教</span>
+        <div>
+          <strong>家教单平台</strong>
+          <small id="accountBadge">工作台</small>
+          <div class="platform-stats compact-platform-stats" aria-label="平台使用数据">
+            <span>注册 <b data-stat="registered">0</b></span>
+            <span>在线 <b data-stat="online">0</b></span>
+          </div>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="工作台切换">
+        <button data-view="teacher" class="active">接单端</button>
+        <button data-view="agency">发单端</button>
+        <button data-view="admin" id="adminTab" class="hidden">管理端</button>
+      </nav>
+      <button id="logoutButton" class="secondary logout-button" type="button">退出登录</button>
+    </header>
+
+    <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
+      <div class="announcement-inner">
+        <span class="announcement-icon">公告</span>
+        <div class="announcement-copy">
+          <strong id="announcementTitle">平台公告</strong>
+          <p id="announcementContent"></p>
+          <small id="announcementTime"></small>
+        </div>
+      </div>
+    </div>
+
+    <main>
+      <section id="teacher" class="view active">
+        <div class="workspace-heading">
+          <div><span class="section-kicker">接单端</span><h2>适合你的家教单</h2></div>
+          <div class="workspace-heading-actions">
+            <span id="orderCount" class="count-label"></span>
+            <button id="refreshOrdersButton" class="refresh-button" type="button" title="刷新家教单" aria-label="刷新家教单"><span aria-hidden="true">↻</span><b>刷新</b></button>
+          </div>
+        </div>
+
+        <form id="teacherLocationForm" class="location-strip">
+          <div class="location-field">
+            <label for="teacherOrigin">我的位置</label>
+            <div class="autocomplete-wrap">
+              <input id="teacherOrigin" name="origin" autocomplete="off" placeholder="输入小区、地铁站或商圈">
+              <div id="originSuggestions" class="suggestions hidden" role="listbox"></div>
+            </div>
+          </div>
+          <label class="route-field">出行方式
+            <select id="routeModeSelect" name="routeMode">
+              <option value="cycling">骑行</option>
+              <option value="walking">步行</option>
+              <option value="driving">开车</option>
+              <option value="transit">公共交通</option>
+            </select>
+          </label>
+          <button type="submit" class="primary">计算距离</button>
+          <button type="button" class="secondary" id="clearTeacherLocation">清除</button>
+          <span id="teacherLocationStatus" class="location-status">选择位置后计算路线</span>
+        </form>
+
+        <div id="teacherFilters" class="toolbar" aria-label="订单筛选">
+          <details class="multi-filter" data-filter-group="district">
+            <summary aria-label="地区多选"><span>地区</span><strong id="filterDistrictSummary">不限</strong></summary>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-options" data-filter-options="district"></div>
+              <button class="filter-clear" type="button" data-clear-filter="district">清空本项</button>
+            </div>
+          </details>
+          <details class="multi-filter" data-filter-group="subject">
+            <summary aria-label="科目多选"><span>科目</span><strong id="filterSubjectSummary">不限</strong></summary>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-options" data-filter-options="subject"></div>
+              <button class="filter-clear" type="button" data-clear-filter="subject">清空本项</button>
+            </div>
+          </details>
+          <details class="multi-filter" data-filter-group="grade">
+            <summary aria-label="年级多选"><span>年级</span><strong id="filterGradeSummary">不限</strong></summary>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-options" data-filter-options="grade"></div>
+              <button class="filter-clear" type="button" data-clear-filter="grade">清空本项</button>
+            </div>
+          </details>
+          <details class="multi-filter" data-filter-group="gender">
+            <summary aria-label="教师性别多选"><span>教师性别</span><strong id="filterGenderSummary">不限</strong></summary>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-options" data-filter-options="gender"></div>
+              <button class="filter-clear" type="button" data-clear-filter="gender">清空本项</button>
+            </div>
+          </details>
+          <input id="filterMinPrice" type="number" aria-label="最低课酬" placeholder="最低课酬">
+          <label class="check"><input id="filterBike" type="checkbox"> 只看范围内</label>
+          <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
+        </div>
+        <div id="orders" class="order-list"></div>
+      </section>
+
+      <section id="agency" class="view">
+        <div class="workspace-heading"><div><span class="section-kicker">发单端</span><h2>发布和管理订单</h2></div></div>
+        <div class="columns">
+          <form id="orderForm" class="panel">
+            <h2>手动发布</h2>
+            <div class="grid">
+              <select name="district"></select>
+              <input name="place" placeholder="地点，如 后海、蛇口、西乡">
+              <select name="subject"></select>
+              <select name="grade"></select>
+              <input name="price" type="number" placeholder="课酬（元/小时）">
+              <input name="priceText" placeholder="薪酬原文，如 300/2h">
+              <input name="schedule" placeholder="上课时间">
+              <input name="gender" placeholder="教师性别要求">
+            </div>
+            <textarea name="requirements" placeholder="学生情况、教师要求和其他备注"></textarea>
+            <button type="submit" class="primary">发布订单</button>
+          </form>
+
+          <form id="importForm" class="panel">
+            <h2>批量识别微信订单</h2>
+            <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
+            <div class="actions">
+              <button type="button" id="parseImport" class="primary">识别预览</button>
+              <button type="submit" class="secondary">确认导入</button>
+            </div>
+            <div id="parsePreview" class="preview"></div>
+          </form>
+        </div>
+        <section class="agency-orders-section">
+          <div class="workspace-heading minor"><h2>我发布的订单</h2></div>
+          <div id="agencyOrders"></div>
+        </section>
+      </section>
+
+      <section id="admin" class="view">
+        <div class="workspace-heading"><div><span class="section-kicker">管理端</span><h2>平台管理</h2></div></div>
+        <div id="adminWorkspace" class="columns">
+          <form id="announcementForm" class="panel announcement-editor">
+            <h2>平台公告</h2>
+            <input name="title" maxlength="60" placeholder="公告标题">
+            <textarea name="content" maxlength="2000" placeholder="公告内容"></textarea>
+            <div class="actions"><button type="submit" class="primary">发布公告</button><button type="button" id="withdrawAnnouncement" class="danger">撤下公告</button></div>
+            <p id="announcementAdminStatus" class="form-note"></p>
+          </form>
+          <form id="settingsForm" class="panel">
+            <h2>平台设置</h2>
+            <input name="homeAddress" placeholder="默认出发地">
+            <input name="amapKey" placeholder="高德 Web服务 Key">
+            <input name="maxBikeKm" type="number" placeholder="范围公里">
+            <button type="submit" class="primary">保存设置</button>
+          </form>
+          <section class="panel admin-orders-panel">
+            <div class="admin-section-head">
+              <div><h2>订单管理</h2><p>查看订单详情、调整状态或批量清理失效订单。</p></div>
+              <div class="bulk-toolbar">
+                <label class="selection-check"><input id="selectAllAdminOrders" type="checkbox">全选</label>
+                <span id="adminOrderSelectionCount" class="selection-count">已选 0 条</span>
+                <button id="batchDeleteAdminOrders" class="danger" type="button" disabled>删除已选订单</button>
+              </div>
+            </div>
+            <div id="adminOrders" class="admin-order-list"></div>
+          </section>
+          <section class="panel admin-users-panel">
+            <div class="admin-section-head">
+              <div><h2>账号与密码</h2><p>统一管理老师和中介账号。</p></div>
+              <div class="bulk-toolbar">
+                <label class="selection-check"><input id="selectAllAdminUsers" type="checkbox">全选</label>
+                <span id="adminUserSelectionCount" class="selection-count">已选 0 个</span>
+                <button id="batchDeleteAdminUsers" class="danger" type="button" disabled>删除已选账号</button>
+              </div>
+            </div>
+            <div id="adminUsers" class="admin-user-list"></div>
+          </section>
+          <div class="panel"><h2>问题反馈</h2><div id="adminFeedback"></div></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="contactPanel" class="contact-panel hidden" role="dialog" aria-modal="true" aria-labelledby="contactPanelTitle">
+      <div class="contact-card">
+        <div class="contact-head">
+          <div><span class="section-kicker">接单成功</span><h2 id="contactPanelTitle">发单人联系方式</h2></div>
+          <button id="contactClose" class="icon-button" type="button" aria-label="关闭联系方式" title="关闭">×</button>
+        </div>
+        <div class="contact-details">
+          <div><span>姓名</span><strong id="agencyContactName">发单人</strong></div>
+          <div><span>联系方式</span><strong id="agencyContactPhone">未填写</strong></div>
+        </div>
+        <div class="contact-actions">
+          <button id="saveAgencyContact" type="button">保存到通讯录</button>
+          <button id="copyAgencyContact" class="secondary" type="button">复制联系方式</button>
+          <a id="callAgencyContact" class="action-link" href="#">拨打电话</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="sourceImagePanel" class="source-image-panel hidden" role="dialog" aria-modal="true" aria-labelledby="sourceImageTitle">
+      <div class="source-image-card">
+        <div class="source-image-head">
+          <div><span class="section-kicker">OCR 对照</span><h2 id="sourceImageTitle">微信原始截图</h2></div>
+          <button id="sourceImageClose" class="icon-button" type="button" aria-label="关闭原图" title="关闭">×</button>
+        </div>
+        <div class="source-image-stage">
+          <div id="sourceImageLoading" class="source-image-loading">正在读取原图...</div>
+          <img id="sourceImageView" class="hidden" alt="订单对应的微信原始截图">
+        </div>
+        <div class="source-image-nav">
+          <button id="sourceImagePrevious" class="icon-button" type="button" aria-label="上一张原图" title="上一张">‹</button>
+          <span id="sourceImageCounter">第 1 张，共 1 张</span>
+          <button id="sourceImageNext" class="icon-button" type="button" aria-label="下一张原图" title="下一张">›</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="feedbackButton" class="feedback-button" type="button">问题反馈</button>
+    <div id="feedbackPanel" class="feedback-panel hidden">
+      <form id="feedbackForm" class="feedback-card">
+        <div class="feedback-head"><h2>问题反馈</h2><button id="feedbackClose" class="icon-button" type="button" aria-label="关闭反馈" title="关闭">×</button></div>
+        <input name="name" placeholder="你的称呼（可不填）">
+        <input name="contact" placeholder="联系方式（可不填）">
+        <textarea name="content" required placeholder="请写下你遇到的问题或建议"></textarea>
+        <p class="form-note">你们反馈的问题，开发者都会看，感谢反馈。</p>
+        <button type="submit" class="primary">提交反馈</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="./schedule-format.js?v=20260717-4"></script>
+  <script src="./app.js?v=20260717-5"></script>
+</body>
+</html>

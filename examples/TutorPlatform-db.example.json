@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "homeAddress": "",
+    "amapKey": "",
+    "maxBikeKm": 12
+  },
+  "users": [],
+  "orders": [],
+  "feedback": [],
+  "announcement": {
+    "title": "",
+    "content": "",
+    "active": false,
+    "updatedAt": ""
+  },
+  "rememberSessions": []
+}

@@ -1,0 +1,1809 @@
+let state = { viewer: null, announcement: null, settings: {}, users: [], orders: [], feedback: [], stats: { registeredUsers: 0, onlineUsers: 0 }, lists: { districts: [], subjects: [], grades: [] } };
+let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
+let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
+let teacherToken = sessionStorage.getItem('teacherToken') || '';
+let agencyToken = sessionStorage.getItem('agencyToken') || '';
+let adminToken = sessionStorage.getItem('adminToken') || '';
+let parsedImport = [];
+let teacherOrigin = localStorage.getItem('teacherOrigin') || '';
+let routeMode = localStorage.getItem('routeMode') || 'cycling';
+let distanceOverrides = {};
+let activeView = sessionStorage.getItem('activeView') || 'teacher';
+let locationSuggestionTimer = 0;
+let feedbackHideTimer = 0;
+let activeAgencyContact = null;
+let sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
+let rememberedCredentialActive = false;
+let loginBusy = false;
+let loginMethod = 'sms';
+let authConfig = { smsEnabled: false, wechatEnabled: false, smsResendSeconds: 60, smsExpiresMinutes: 5 };
+let wechatBindTicket = '';
+let smsCountdownTimer = 0;
+let teacherPreferenceSaveTimer = 0;
+let teacherPreferencesLoaded = false;
+let ordersRefreshBusy = false;
+
+const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
+const REMEMBERED_PASSWORD_MASK = 'remembered-login';
+
+const visitorId = localStorage.getItem('tutorPlatformVisitorId')
+  || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+localStorage.setItem('tutorPlatformVisitorId', visitorId);
+
+const K12_FILTER_SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '政治', '地理', '体育'];
+const TEACHER_FILTER_OPTIONS = {
+  district: [],
+  subject: [...K12_FILTER_SUBJECTS, '其他'],
+  grade: ['小学', '初中', '高中', '其他'],
+  gender: ['男老师', '女老师', '男女不限']
+};
+const teacherFilterSelections = {
+  district: new Set(),
+  subject: new Set(),
+  grade: new Set(),
+  gender: new Set()
+};
+
+const routeLabels = {
+  walking: '步行',
+  cycling: '骑行',
+  driving: '开车',
+  transit: '公共交通'
+};
+
+const $ = (s, root = document) => root ? root.querySelector(s) : null;
+const $$ = (s, root = document) => root ? [...root.querySelectorAll(s)] : [];
+
+async function api(path, options = {}, token = '') {
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Visitor-Id': visitorId,
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  if (!res.ok) {
+    let message = '请求失败';
+    try { message = (await res.json()).error || message; } catch {}
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+function setLoginMethod(method) {
+  if (!['sms', 'wechat', 'password'].includes(method)) return;
+  loginMethod = method;
+  $$('[data-login-method]').forEach(button => {
+    const active = button.dataset.loginMethod === method;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  $$('[data-login-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.loginPanel !== method));
+  const form = $('#unifiedLogin');
+  if (!form) return;
+  form.elements.smsCode.required = method === 'sms';
+  form.elements.password.required = method === 'password';
+}
+
+async function loadAuthConfiguration() {
+  authConfig = await api('/api/auth/config');
+  const smsButton = $('#sendSmsCode');
+  const smsSubmit = $('#smsLoginSubmit');
+  const smsStatus = $('#smsLoginStatus');
+  const wechatButton = $('#wechatLoginButton');
+  const wechatStatus = $('#wechatLoginStatus');
+  if (smsButton) {
+    smsButton.disabled = !authConfig.smsEnabled;
+    smsButton.title = authConfig.smsEnabled ? '发送短信验证码' : '短信验证码服务待开通';
+  }
+  if (smsSubmit) smsSubmit.disabled = !authConfig.smsEnabled;
+  if (smsStatus) {
+    smsStatus.textContent = authConfig.smsEnabled
+      ? `验证码 ${Number(authConfig.smsExpiresMinutes || 5)} 分钟内有效。`
+      : '短信验证码服务待开通，当前请使用密码登录。';
+  }
+  if (wechatButton) wechatButton.disabled = !authConfig.wechatEnabled;
+  if (wechatStatus) {
+    wechatStatus.textContent = authConfig.wechatEnabled
+      ? '首次扫码后需要绑定现有账号。'
+      : '微信开放平台配置完成后即可扫码登录。';
+  }
+}
+
+function startSmsCountdown(seconds) {
+  clearInterval(smsCountdownTimer);
+  let remaining = Math.max(1, Number(seconds || authConfig.smsResendSeconds || 60));
+  const button = $('#sendSmsCode');
+  button.disabled = true;
+  button.textContent = `${remaining}秒后重发`;
+  smsCountdownTimer = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(smsCountdownTimer);
+      button.disabled = false;
+      button.textContent = '获取验证码';
+      return;
+    }
+    button.textContent = `${remaining}秒后重发`;
+  }, 1000);
+}
+
+async function requestSmsCode() {
+  const form = $('#unifiedLogin');
+  const phone = String(form.elements.phone.value || '').trim();
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    form.elements.phone.focus();
+    throw new Error('请先填写正确的手机号');
+  }
+  const result = await api('/api/auth/sms/send', { method: 'POST', body: { phone } });
+  startSmsCountdown(result.resendAfter);
+  if (result.debugCode) form.elements.smsCode.value = result.debugCode;
+  toast('验证码已发送，请查看手机短信');
+}
+
+function startWechatLogin() {
+  if (!authConfig.wechatEnabled) return toast('微信扫码登录正在等待开放平台参数');
+  window.location.href = '/api/auth/wechat/start';
+}
+
+async function completeWechatLogin(ticket) {
+  const form = $('#unifiedLogin');
+  const result = await api('/api/auth/wechat/complete', {
+    method: 'POST',
+    body: {
+      ticket,
+      rememberAccount: Boolean(form.elements.rememberAccount.checked || form.elements.autoLogin.checked),
+      autoLogin: Boolean(form.elements.autoLogin.checked)
+    }
+  });
+  storeMemberSession(result);
+  await load();
+  await loadTeacherPreferences();
+  setView('teacher');
+  toast('微信登录成功');
+}
+
+async function handleWechatReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const loginTicket = params.get('wechat_ticket') || '';
+  const bindTicket = params.get('wechat_bind') || '';
+  const error = params.get('wechat_error') || '';
+  if (!loginTicket && !bindTicket && !error) return;
+  history.replaceState(null, '', window.location.pathname || '/');
+  if (error) return toast(error);
+  if (bindTicket) {
+    wechatBindTicket = bindTicket;
+    setLoginMethod(authConfig.smsEnabled ? 'sms' : 'password');
+    toast(authConfig.smsEnabled ? '扫码成功，请用验证码完成首次绑定' : '扫码成功，请用密码完成首次绑定');
+    return;
+  }
+  await completeWechatLogin(loginTicket);
+}
+
+async function load() {
+  state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
+  applyDistanceOverrides();
+  fillSelects();
+  fillSettings();
+  fillTeacherLocation();
+  renderBadges();
+  renderOrders();
+  renderAgencyOrders();
+  renderAdmin();
+  renderAdminUsers();
+  renderFeedbackList();
+  renderAnnouncement();
+  renderPlatformStats();
+  syncShell();
+}
+
+function setView(name) {
+  const target = $('#' + name);
+  if (!target) return;
+  activeView = name;
+  sessionStorage.setItem('activeView', name);
+  $$('.tabs button').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+  $$('.view').forEach(view => view.classList.toggle('active', view.id === name));
+}
+
+function syncShell() {
+  const isAdmin = Boolean(state.viewer?.role === 'admin' && adminToken);
+  const isMember = Boolean(state.viewer && !isAdmin && teacherToken && agencyToken);
+  const signedIn = isAdmin || isMember;
+  $('#authScreen').classList.toggle('hidden', signedIn);
+  $('#appShell').classList.toggle('hidden', !signedIn);
+  if (!signedIn) return;
+
+  const normalTabs = $$('.tabs button[data-view="teacher"], .tabs button[data-view="agency"]');
+  normalTabs.forEach(button => button.classList.toggle('hidden', isAdmin));
+  $('#adminTab').classList.toggle('hidden', !isAdmin);
+  $('#accountBadge').textContent = isAdmin
+    ? '管理员已登录'
+    : `${currentTeacher?.name || currentAgency?.name || state.viewer.name || '账号'} 已登录`;
+  if (isAdmin) setView('admin');
+  else setView(['teacher', 'agency'].includes(activeView) ? activeView : 'teacher');
+}
+
+function renderPlatformStats() {
+  $$('[data-stat="registered"]').forEach(node => { node.textContent = Number(state.stats?.registeredUsers || 0).toLocaleString(); });
+  $$('[data-stat="online"]').forEach(node => { node.textContent = Number(state.stats?.onlineUsers || 0).toLocaleString(); });
+}
+
+async function refreshPlatformStats() {
+  state.stats = await api('/api/stats', {}, adminToken || agencyToken || teacherToken);
+  renderPlatformStats();
+}
+
+async function refreshOrderList() {
+  if (ordersRefreshBusy) return;
+  const button = $('#refreshOrdersButton');
+  ordersRefreshBusy = true;
+  button.disabled = true;
+  button.classList.add('loading');
+  try {
+    await load();
+    toast('家教单已刷新');
+  } finally {
+    ordersRefreshBusy = false;
+    button.disabled = false;
+    button.classList.remove('loading');
+  }
+}
+
+function renderAnnouncement() {
+  const bar = $('#announcementBar');
+  if (!bar) return;
+  const announcement = state.announcement;
+  const visible = Boolean(announcement?.active && announcement.content);
+  bar.classList.toggle('hidden', !visible);
+  if (visible) {
+    $('#announcementTitle').textContent = announcement.title || '平台公告';
+    $('#announcementContent').textContent = announcement.content;
+    $('#announcementTime').textContent = announcement.updatedAt
+      ? `更新于 ${new Date(announcement.updatedAt).toLocaleString()}`
+      : '';
+  }
+
+  const form = $('#announcementForm');
+  if (!form || !adminToken) return;
+  form.elements.title.value = announcement?.title || '';
+  form.elements.content.value = announcement?.content || '';
+  $('#announcementAdminStatus').textContent = announcement?.active
+    ? '当前状态：已发布，所有用户可见'
+    : '当前状态：未发布';
+}
+
+function selectedRoute(order) {
+  const routes = distanceOverrides[order.id]?.routeOptions || order.routeOptions || {};
+  return routes[routeMode] || null;
+}
+
+function routeText(order) {
+  if (order.locationVerified === false && ['ambiguous', 'not_found', 'missing'].includes(order.locationStatus)) {
+    return '地点待核实，距离暂不可计算';
+  }
+  const route = selectedRoute(order);
+  if (route && route.km) {
+    const suffix = route.estimated ? ' 估算' : '';
+    return `${route.mode || routeLabels[routeMode]} ${route.km}公里，约${route.minutes || '-'}分钟${suffix}`;
+  }
+  if (distanceOverrides[order.id]) return `当前${routeLabels[routeMode]}路线待计算`;
+  if (order.distanceKm) return `${order.routeMode || '距离'} ${order.distanceKm}公里`;
+  return '距离待定';
+}
+
+function applyDistanceOverrides() {
+  if (!Object.keys(distanceOverrides).length) return;
+  state.orders = state.orders.map(order => {
+    const override = distanceOverrides[order.id];
+    if (!override) return order;
+    const route = override.routeOptions?.[routeMode];
+    if (!route) return order;
+    return {
+      ...order,
+      ...override,
+      distanceKm: route.km || override.distanceKm,
+      routeMode: route.mode || override.routeMode,
+      score: override.score
+    };
+  });
+}
+
+function setOptions(select, values, first = '') {
+  if (!select) return;
+  const old = select.value;
+  const list = first ? [first, ...values] : values;
+  select.innerHTML = list.map(v => `<option>${escapeHtml(v)}</option>`).join('');
+  if (list.includes(old)) select.value = old;
+}
+
+function fillSelects() {
+  TEACHER_FILTER_OPTIONS.district = [...state.lists.districts];
+  fillTeacherFilters();
+  setOptions($('[name="district"]', $('#orderForm')), state.lists.districts, '选择区域');
+  setOptions($('[name="subject"]', $('#orderForm')), state.lists.subjects, '选择科目');
+  setOptions($('[name="grade"]', $('#orderForm')), state.lists.grades, '选择年级');
+}
+
+function fillTeacherFilters() {
+  for (const [group, options] of Object.entries(TEACHER_FILTER_OPTIONS)) {
+    const root = $(`[data-filter-options="${group}"]`);
+    if (!root) continue;
+    root.innerHTML = options.map(option => `<label class="multi-option">
+      <input type="checkbox" value="${escapeHtml(option)}" data-filter-option="${group}"${teacherFilterSelections[group].has(option) ? ' checked' : ''}>
+      <span>${escapeHtml(option)}</span>
+    </label>`).join('');
+    updateFilterSummary(group);
+  }
+}
+
+function updateFilterSummary(group) {
+  const selected = [...teacherFilterSelections[group]];
+  const summary = $(`#filter${group === 'gender' ? 'Gender' : group[0].toUpperCase() + group.slice(1)}Summary`);
+  if (!summary) return;
+  summary.textContent = !selected.length ? '不限' : selected.length <= 2 ? selected.join('、') : `已选${selected.length}项`;
+  summary.title = selected.join('、');
+}
+
+function clearFilterGroup(group) {
+  teacherFilterSelections[group].clear();
+  $$(`input[data-filter-option="${group}"]`).forEach(input => { input.checked = false; });
+  updateFilterSummary(group);
+}
+
+function currentTeacherPreferences() {
+  return {
+    filters: Object.fromEntries(Object.entries(teacherFilterSelections).map(([group, selected]) => [group, [...selected]])),
+    minPrice: Number($('#filterMinPrice')?.value || 0),
+    onlyRange: Boolean($('#filterBike')?.checked),
+    origin: String($('#teacherOrigin')?.value || teacherOrigin || '').trim(),
+    routeMode
+  };
+}
+
+function applyTeacherPreferences(preferences = {}) {
+  const filters = preferences.filters || {};
+  for (const group of Object.keys(teacherFilterSelections)) {
+    teacherFilterSelections[group].clear();
+    for (const item of Array.isArray(filters[group]) ? filters[group] : []) teacherFilterSelections[group].add(item);
+  }
+  teacherOrigin = String(preferences.origin || '');
+  routeMode = ['walking', 'cycling', 'driving', 'transit'].includes(preferences.routeMode) ? preferences.routeMode : 'cycling';
+  localStorage.setItem('teacherOrigin', teacherOrigin);
+  localStorage.setItem('routeMode', routeMode);
+  $('#filterMinPrice').value = Number(preferences.minPrice || 0) || '';
+  $('#filterBike').checked = Boolean(preferences.onlyRange);
+  fillTeacherFilters();
+  fillTeacherLocation();
+  renderOrders();
+}
+
+async function saveTeacherPreferences() {
+  if (!teacherToken || !teacherPreferencesLoaded) return;
+  await api('/api/teacher/preferences', { method: 'PUT', body: currentTeacherPreferences() }, teacherToken);
+}
+
+function queueTeacherPreferencesSave() {
+  if (!teacherToken || !teacherPreferencesLoaded) return;
+  clearTimeout(teacherPreferenceSaveTimer);
+  teacherPreferenceSaveTimer = setTimeout(() => saveTeacherPreferences().catch(() => {}), 450);
+}
+
+async function loadTeacherPreferences() {
+  if (!teacherToken) return;
+  const result = await api('/api/teacher/preferences', {}, teacherToken);
+  if (result.exists) {
+    applyTeacherPreferences(result.preferences || {});
+  } else {
+    teacherPreferencesLoaded = true;
+    await saveTeacherPreferences();
+    return;
+  }
+  teacherPreferencesLoaded = true;
+}
+
+function fillSettings() {
+  const form = $('#settingsForm');
+  if (!form) return;
+  form.homeAddress.value = state.settings.homeAddress || '';
+  form.amapKey.value = state.settings.amapKey || '';
+  form.maxBikeKm.value = state.settings.maxBikeKm || 12;
+}
+
+function fillTeacherLocation() {
+  const form = $('#teacherLocationForm');
+  if (!form) return;
+  form.origin.value = teacherOrigin;
+  $('#routeModeSelect').value = routeMode;
+  $('#teacherLocationStatus').textContent = teacherOrigin
+    ? `当前按“${teacherOrigin}”计算，路线方案：${routeLabels[routeMode]}。`
+    : '填写后会显示到各单子的公里数和预计时间。';
+}
+
+function renderBadges() {
+  const adminButton = $('#adminLoginButton');
+  if (adminButton) adminButton.textContent = state.adminConfigured ? '登录管理端' : '首次设置管理员密码';
+}
+
+function genderBucket(order) {
+  const requirement = requirementSource(order);
+  const text = repairCommonOcr(`${order.gender || ''} ${requirement || order.raw || ''}`);
+  const wantsFemale = /女老师|女教员|女大学生|女生优先|女老师优先|性别\s*女|(?:^|[，；：\s])女(?:[，、；\s]|$)/.test(text);
+  const wantsMale = /男老师|男教员|男大学生|男生优先|男老师优先|性别\s*男|(?:^|[，；：\s])男(?:[，、；\s]|$)/.test(text);
+  if (wantsMale && !wantsFemale) return '男老师';
+  if (wantsFemale && !wantsMale) return '女老师';
+  if (/男女不限|性别不限|不限性别|男女都可|男老师女老师都可以/.test(text)) return '男女不限';
+  return '男女不限';
+}
+
+function subjectBuckets(order) {
+  const text = repairCommonOcr(String(order.subject || ''));
+  const buckets = new Set();
+  for (const subject of K12_FILTER_SUBJECTS) {
+    if (subject === '政治' ? /政治|道法/.test(text) : text.includes(subject)) buckets.add(subject);
+  }
+  const tokens = text.split(/[\/、，,]+/).map(token => token.trim()).filter(Boolean);
+  const hasOther = !tokens.length || tokens.some(token => !K12_FILTER_SUBJECTS.some(subject => (
+    subject === '政治' ? /政治|道法/.test(token) : token.includes(subject)
+  )));
+  if (hasOther) buckets.add('其他');
+  return buckets;
+}
+
+function gradeBuckets(order) {
+  const text = repairCommonOcr(String(order.grade || ''));
+  const buckets = new Set();
+  if (/小学|小[一二三四五六]|[一二三四五六]年级/.test(text)) buckets.add('小学');
+  if (/初[一二三]|初中|中考/.test(text)) buckets.add('初中');
+  if (/高[一二三]|高中|高考/.test(text)) buckets.add('高中');
+  if (/幼儿|大学|大[一二三四]|成人|其他/.test(text) || !buckets.size) buckets.add('其他');
+  return buckets;
+}
+
+function matchesSelection(values, selected) {
+  return !selected.size || [...selected].some(value => values.has(value));
+}
+
+function filteredOrders() {
+  const minPrice = Number($('#filterMinPrice').value || 0);
+  const onlyRange = $('#filterBike').checked;
+  const maxKm = Number(state.settings.maxBikeKm || 12);
+  return state.orders
+    .filter(o => o.status !== 'closed')
+    .filter(o => !teacherFilterSelections.district.size || teacherFilterSelections.district.has(String(o.district || '').replace(/区$/, '')))
+    .filter(o => matchesSelection(subjectBuckets(o), teacherFilterSelections.subject))
+    .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
+    .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
+    .filter(o => !minPrice || Number(o.price) >= minPrice || Number(o.monthly) >= minPrice)
+    .filter(o => !onlyRange || (Number(o.distanceKm) && Number(o.distanceKm) <= maxKm))
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+}
+
+function compactText(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, '')
+    .replace(/((?:每次|一次|时长\s*[:：]?))\s+(?=\d)/g, '$1')
+    .replace(/(?<=\d)\s+(?=(?:h|小时))/gi, '')
+    .replace(/\s+([，。；、：！？])/g, '$1')
+    .replace(/([，。；、：！？])\s+/g, '$1')
+    .trim();
+}
+
+function repairCommonOcr(value) {
+  return String(value || '')
+    .replace(/([一二三四五六])\uFFFD+级/g, '$1年级')
+    .replace(/[署团哮嗜]假/g, '暑假')
+    .replace(/男女不上限/g, '男女不限')
+    .replace(/次次课/g, '次课')
+    .replace(/2h[yv]/gi, '2h')
+    .replace(/香密湖/g, '香蜜湖')
+    .replace(/襄田(?=侨香)/g, '福田')
+    .replace(/孑子岭|子子岭/g, '孖岭')
+    .replace(/京基白纳/g, '京基百纳')
+    .replace(/龙[离寓]楼/g, '龙宫楼')
+    .replace(/伊墩酒店/g, '伊敦酒店')
+    .replace(/口讠吾/g, '口语')
+    .replace(/校夕卜/g, '校外')
+    .replace(/赋分后七\s+八十/g, '赋分后七八十')
+    .replace(/口\s+语好/g, '口语好');
+}
+
+function cleanDisplayText(value, maxLength = 120) {
+  const allowedLatin = new Set(['SAT', 'IELTS', 'TOEFL', 'DSE', 'RMB', 'AP', 'IB', 'AMC', 'A-LEVEL', 'P5.JS', 'JS', 'RE3', 'M2', 'H', 'KM', 'K', 'W']);
+  let text = compactText(repairCommonOcr(value))
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/微信家教订单搬运助手|家教订单自动采集助手|自动定位读取|识别并上传一次|开始自动搬运|停止自动搬运/gi, ' ')
+    .replace(/(?:深圳)?(?:优质)?家教群(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|\s*\d+\s*)*/gi, ' ')
+    .replace(/家教程老师\s*\([^)]*\)|家教小慧老师[^，。；]{0,18}|换群\s*[-&＆]?\s*招小助手/gi, ' ')
+    .replace(/(?:今日新单|暑假单|长期单|上门辅导|大学生家教|大学生上门)\s*[&＆|/\\-]*/gi, ' ')
+    .replace(/(?:接单中?|接单路?)群主|接单私聊我(?:\([^)]*\))?|需信息费\s*[:：]?\s*私[^【《]{0,20}|可回收家教/gi, ' ')
+    .replace(/共\s*\d+\s*条(?:新消息)?|\d+\s*条新消息|进入聊天|查看全部/gi, ' ')
+    .replace(/[\uE000-\uF8FF\uFFFD■□▇◆◇©®™¢¤¥]+/g, ' ')
+    .replace(/[A-Za-z][A-Za-z0-9._-]*/g, (token, offset, source) => {
+      const before = source[offset - 1] || '';
+      const after = source[offset + token.length] || '';
+      const addressMarker = /[\u4e00-\u9fff]/.test(before) && /[\u4e00-\u9fff]/.test(after) && /^(?:[A-Z]|[A-Z]\d+)$/i.test(token);
+      return allowedLatin.has(token.toUpperCase()) || addressMarker ? token : ' ';
+    })
+    .replace(/[@#$^_=+\\&＆]+/g, ' ')
+    .replace(/[|｜]{2,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([，。；、：])/g, '$1')
+    .replace(/^[，。；、：\-~…\s]+|[，；、：\-~\s]+$/g, '')
+    .trim();
+  const chineseCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const strayLatinCount = (text.match(/[A-Za-z]/g) || []).length;
+  if (chineseCount < 3 && strayLatinCount > chineseCount * 2) return '';
+  if (text.length > maxLength) text = `${text.slice(0, maxLength).replace(/[，；、\s]+$/, '')}…`;
+  return text;
+}
+
+function structuredFieldCount(value) {
+  return (String(value || '').match(/(?:【|《)?(?:学生|学员|时间|次数|薪酬|课酬|薪资|地址|地点|科目|要求|老师要求|教员要求)(?:】|》)?\s*[:：]?/g) || []).length;
+}
+
+function usefulChineseText(value, minimum = 2) {
+  const text = String(value || '');
+  const chineseCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const latinCount = (text.match(/[A-Za-z]/g) || []).length;
+  const oddCount = (text.match(/[©®™@#$^_=+\\\[\]{}]/g) || []).length;
+  return chineseCount >= minimum && latinCount <= Math.max(8, chineseCount / 2) && oddCount < 3;
+}
+
+function categoryLabel(value, options, fallback) {
+  const repaired = compactText(repairCommonOcr(value));
+  let found = options.filter(option => repaired.includes(option));
+  if (found.some(item => /^初[一二三]$/.test(item))) found = found.filter(item => item !== '初中');
+  if (found.some(item => /^高[一二三]$/.test(item))) found = found.filter(item => item !== '高中');
+  if (found.some(item => /^[一二三四五六]年级$/.test(item))) found = found.filter(item => item !== '小学');
+  if (found.length > 1) found = found.filter(item => item !== '其他');
+  return [...new Set(found)].join('/') || fallback;
+}
+
+function priceLabel(o) {
+  const fieldPrice = fieldFromRaw(o.raw, ['老师薪水', '老师课费', '课时价格', '课费报酬', '课费薪酬', '薪酬', '课酬', '薪资', '时薪']);
+  let text = cleanDisplayText(fieldPrice || o.priceText || '', 80)
+    .replace(/^(?:老师薪水|老师课费|课时价格|课费报酬|课费薪酬|薪酬|课酬|薪资|时薪)\s*[:：]?\s*/, '')
+    .split(/(?:学生|学员|老师要求|教员要求|要求|地址|地点|科目|时间)\s*[:：]/)[0]
+    .trim();
+  const direct = text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*(?:元|万|[kKwW])?\s*(?:\/|每|一)\s*(?:小时|时|h|次|节|天|月|2h)/i)
+    || text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*元\s*(?:左右)?/i)
+    || text.match(/\d+(?:\.\d+)?\s*[-~～—至到]\s*\d+(?:\.\d+)?\s*[万wWkK]\s*\/?\s*月/i);
+  if (direct) return compactText(direct[0]).replace(/\s+/g, '');
+
+  const ranges = [...text.matchAll(/(\d{2,6}\s*[-~～—至到一]\s*\d{2,6})/g)];
+  if (ranges.length && /一次课|每次|\/次/.test(text)) return `${ranges.at(-1)[1].replace(/\s+/g, '')}/次`;
+  if (ranges.length && /时薪|小时|\/h/i.test(text)) return `${ranges.at(-1)[1].replace(/\s+/g, '')}元/小时`;
+  if (/老师自报价|老师报价|自报价|老师自带价|接受报价|价格面议|薪资面议|课酬面议/.test(text)) {
+    return text.match(/老师自报价|老师报价|自报价|老师自带价|接受报价|价格面议|薪资面议|课酬面议/)[0];
+  }
+  if (Number(o.monthly) >= 1000) return `${o.monthly}元/月`;
+  if (Number(o.price) >= 50) return `${o.price}元/小时`;
+  return '课酬待定';
+}
+
+function displayPlace(order) {
+  const district = compactText(order.district || '').replace(/区$/, '');
+  let place = cleanDisplayText(order.place || '', 60)
+    .replace(/^(?:【|《)?(?:学员地址|辅导地址|上课地址|地址|地点)(?:】|》)?\s*[:：]?\s*/, '')
+    .replace(/^(?:【[^】]{0,18}】|《[^》]{0,18}》)\s*/, '')
+    .replace(/^[^\u4e00-\u9fff0-9]+/, '')
+    .replace(/^[【[(<]?\s*(?!\d{1,2}\s*号线)\d{1,3}\s*/, '')
+    .replace(/^(?:深圳)?[A-Za-z]{0,3}\d{6,}[A-Za-z]?\s*/i, '')
+    .replace(/^[（(【[]?\s*[A-Za-z]\s*/i, '')
+    .replace(/[¢¤¥]+/g, ' ')
+    .replace(/^\d{1,2}(?=深圳市|[\u4e00-\u9fff]{2,4}区)/, '')
+    .replace(/深圳市/g, '')
+    .replace(/^\d{1,2}(?=[\u4e00-\u9fff]{2,4}区)/, '')
+    .replace(/^[^\u4e00-\u9fff0-9]+/, '')
+    .replace(new RegExp(`^${district}区?`), '')
+    .replace(/^(?:次|地址|地点)\s*[:：]\s*/, '')
+    .replace(new RegExp(`^${district}区?`), '')
+    .replace(/\s+(?:时间|次数|科目|学生|学员|老师|要求)\s*[:：].*$/, '')
+    .replace(/\s*[:：]\s*(?:局蒙|男生|女生|男孩|女孩).*$/, '')
+    .replace(/[|｜].*$/, '')
+    .replace(/[佳新]?局[一二三].*$/, '')
+    .replace(/(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|初[一二三]|高[一二三]|准?初中|准?高中|大[一二三四]|大学|成人).*$/, '')
+    .replace(/[（(【[<《]+$/g, '')
+    .replace(/['"“”‘’]/g, '')
+    .replace(/^[>》】)）<\s]+|[>》】<\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/深圳家教|家教群|可拉人|群聊|群主|新消息|接单|换群|招小助手|言】/.test(place)) place = '';
+  if (/^(?:[A-Za-z]{0,3}\d{5,}[A-Za-z]?|\d{5,})$/i.test(place)) place = '';
+  if ((place.match(/[A-Za-z]/g) || []).length > 3) place = '';
+  const districtHits = ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏']
+    .filter(name => place.includes(name));
+  if (districtHits.length > 1 || (district && districtHits.some(name => name !== district))) place = '';
+  if (!place || place.length < 2) place = district ? '具体地点未提供' : '位置待定';
+  return place;
+}
+
+function firstMatchText(text, patterns, fallback = '') {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) return compactText(match[1] || match[0]);
+  }
+  return fallback;
+}
+
+function fieldFromRaw(raw, names) {
+  const text = String(raw || '').replace(/\r/g, '');
+  for (const name of names) {
+    const pattern = new RegExp(`(?:[【\\[]${name}\\s*[:：]?[】\\]]|《${name}》|${name}\\s*[:：])\\s*([\\s\\S]*?)(?=\\n\\s*(?:【|\\[|《|[\\u4e00-\\u9fa5]{2,8}\\s*[:：]|[A-Z]{1,5}\\d|深圳)|$)`, 'i');
+    const match = text.match(pattern);
+    if (match && compactText(match[1])) return compactText(match[1]);
+  }
+  return '';
+}
+
+function splitSchedule(order) {
+  const extracted = fieldFromRaw(order.raw, ['时间安排', '时间次数', '次数', '时间']);
+  const text = cleanDisplayText(extracted || order.schedule || '', 150)
+    .split(/(?:薪酬|课酬|薪资|时薪|老师薪水|老师要求|教员要求|要求|地点|地址|科目|学生|学员)\s*[:：]/)[0]
+    .trim();
+  const summarize = globalThis.TutorScheduleFormat?.summarizeScheduleText;
+  const summary = typeof summarize === 'function'
+    ? summarize(text)
+    : { start: '开始时间待定', count: '次数待定', slot: '时间段待定' };
+  const safe = (value, fallback) => {
+    const cleaned = cleanDisplayText(value, 42);
+    return !cleaned || /深圳[A-Za-z]{0,3}\d{5,}|家教群|新消息/.test(cleaned) ? fallback : cleaned;
+  };
+  return {
+    start: safe(summary.start, '开始时间待定'),
+    count: safe(summary.count, '次数待定'),
+    slot: safe(summary.slot, '时间段待定')
+  };
+}
+
+function studentSummary(order) {
+  const raw = order.raw || '';
+  let student = cleanDisplayText(fieldFromRaw(raw, ['学生情况', '学员情况', '学生', '学员', '成绩']) || order.student || '', 76)
+    .split(/(?:时间|次数|薪酬|课酬|要求|地址|地点|科目)\s*[:：]/)[0]
+    .replace(/[，,、\s]*(?:要|需|需要)(?:男|女)老师.*$/, '')
+    .trim();
+  if (!usefulChineseText(student) || structuredFieldCount(student) > 1 || /家教群|新消息|接单/.test(student)) student = '';
+  const grade = categoryLabel(order.grade, state.lists.grades, '年级待定');
+  const subject = categoryLabel(order.subject, state.lists.subjects, '科目待定');
+  if (student.replace(/^(?:准|新)/, '') === grade) student = '';
+  const gradeSubject = `${grade} / ${subject}`;
+  return student && !/学生信息待定/.test(student) ? `${gradeSubject}；${student}` : gradeSubject;
+}
+
+function requirementSource(order) {
+  const extracted = fieldFromRaw(order.raw, ['老师要求', '教师要求', '教员要求', '要求', 'BK', 'BR']);
+  return extracted || String(order.requirements || '');
+}
+
+function teacherAbility(order) {
+  const text = cleanDisplayText(requirementSource(order), 180);
+  const matches = text.match(/有经验|经验丰富|专职老师|在职老师|外教|大学生|研究生|985|211|深大|港中深|中大|师范生?|专业老师|耐心|责任心|认真负责|有方法|活跃|性格好|发音标准|口语纯正|沟通好|擅长提分|全英授课|口语好|有教资|成绩优秀/g) || [];
+  const unique = [...new Set(matches)].slice(0, 4);
+  return unique.length ? unique.join('、') : '能力要求待定';
+}
+
+function miscNotes(order) {
+  const original = requirementSource(order);
+  if (!original || structuredFieldCount(original) > 1) return '';
+  const cleaned = cleanDisplayText(original, 90)
+    .replace(/^(?:男老师|女老师|男教员|女教员|男女不限|性别不限|不限性别|性别\s*[男女])\s*[，、；;\s]*/, '')
+    .replace(/(?:接单私聊我|今日新单|上门辅导|大学生家教|大学生上门).*$/g, ' ')
+    .replace(/\s*(?:哩|入|外|地|和|合|网|罗|钊|贡|时|时时时|偶合)\s*$/g, '')
+    .replace(/[，、]\s*[，、]+/g, '，')
+    .replace(/\s*\/\s*的\s*$/g, '')
+    .replace(/^[，。；、：\s]+|[，。；、：\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const districts = ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'].filter(item => cleaned.includes(item));
+  const meaningful = /经验|耐心|责任|方法|专业|教学|成绩|学校|学历|本科|研究生|大学|师范|教资|口语|普通话|性格|沟通|长期|严厉|心理|趣味|证书|高考|竞赛|开朗|爱心|全英|提分|基础|能力|优先|老师|同学|英语|数学|物理|化学/.test(cleaned);
+  const duplicateOnly = cleaned
+    .replace(/有经验的?|经验丰富|专职老师|在职老师|大学生|研究生|985|211|深大|港中深|中大|师范生?|专业老师|有耐心|耐心|有责任心|责任心|沟通好|擅长提分|全英授课|口语好|有教资|成绩优秀/g, '')
+    .replace(/[，。；、：\s]+/g, '');
+  if (!usefulChineseText(cleaned) || !meaningful || !duplicateOnly || structuredFieldCount(cleaned) || districts.length > 1) return '';
+  if (/家教群|群主|新消息|信息费|换群|招小助手|号家教|优家教|进入聊天|现金奖励|限时特惠|立减|026年/.test(cleaned)) return '';
+  if (/(?:^|\s)\d+\s+[一二三四五六]\s+|征昌|急需\d/.test(cleaned)) return '';
+  return cleaned;
+}
+
+function detailItem(label, value, wide = false) {
+  const text = compactText(value || '');
+  if (!text || text === '暂无额外备注') return '';
+  return `<span class="info-chip${wide ? ' wide' : ''}" title="${escapeHtml(label)}">${escapeHtml(text)}</span>`;
+}
+
+function teacherDisplayName(name) {
+  const value = cleanDisplayText(name || '', 24) || '未填写姓名';
+  return /老师$/.test(value) ? value : `${value}老师`;
+}
+
+function orderDisplayMeta(o) {
+  const district = state.lists.districts.includes(String(o.district || '').replace(/区$/, ''))
+    ? String(o.district).replace(/区$/, '')
+    : '';
+  const place = displayPlace(o);
+  const location = `${district}${place}`.replace(/区区/g, '区') || '位置待定';
+  const grade = categoryLabel(o.grade, state.lists.grades, '年级待定');
+  const subject = categoryLabel(o.subject, state.lists.subjects, '科目待定');
+  const title = `${location} | ${grade} ${subject}`;
+  return { district, place, location, grade, subject, title };
+}
+
+function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
+  const schedule = splitSchedule(o);
+  return `<div class="detail-grid">
+    ${detailItem('价格', priceLabel(o))}
+    ${detailItem('位置/距离', `${meta.location}；${routeText(o)}`)}
+    ${detailItem('开始时间', schedule.start)}
+    ${detailItem('次数/时段', `${schedule.count}；${schedule.slot}`)}
+    ${detailItem('学生年级科目', studentSummary(o), true)}
+    ${detailItem('教师性别', genderBucket(o))}
+    ${detailItem('教师能力', teacherAbility(o))}
+    ${detailItem('备注杂项', miscNotes(o), true)}
+  </div>`;
+}
+
+function sourceImageButton(order) {
+  const count = Math.max(0, Number(order.sourceImageCount || 0));
+  if (!count) return '<button class="secondary" type="button" disabled title="这张旧单没有留存截图">暂无原图</button>';
+  return `<button class="secondary" type="button" onclick="openSourceImages('${order.id}', ${count})">查看原图</button>`;
+}
+
+function orderCard(o) {
+  const meta = orderDisplayMeta(o);
+  return `<article class="card">
+    <div class="card-head">
+      <div>
+        <div class="title">${escapeHtml(meta.title)}</div>
+        <div class="source-line">${escapeHtml(cleanDisplayText(o.source || '', 28) || '平台订单')} · ${new Date(o.createdAt).toLocaleString()}</div>
+      </div>
+      <div class="score">${o.score || 0}分</div>
+    </div>
+    ${orderDetailMarkup(o, meta)}
+    <div class="actions">
+      <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
+      <button class="secondary" onclick="copyText('${encodeURIComponent(o.raw || o.requirements || '')}')">复制原文</button>
+      ${sourceImageButton(o)}
+    </div>
+  </article>`;
+}
+
+function renderOrders() {
+  const list = filteredOrders();
+  $('#orders').innerHTML = list.length ? list.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
+  const count = $('#orderCount');
+  if (count) count.textContent = `共 ${list.length} 条`;
+}
+
+function renderAdmin() {
+  const root = $('#adminOrders');
+  if (!adminToken) {
+    root.innerHTML = '';
+    updateAdminBulkControls('orders');
+    return;
+  }
+  root.innerHTML = state.orders.length ? state.orders.map(o => {
+    const meta = orderDisplayMeta(o);
+    const status = ['open', 'matched', 'closed'].includes(o.status) ? o.status : 'open';
+    return `<article class="card admin-order-card">
+      <div class="card-head">
+        <div class="card-title-group">
+          <label class="selection-check admin-card-select">
+            <input class="admin-order-select" type="checkbox" value="${escapeHtml(o.id)}" aria-label="选择订单 ${escapeHtml(meta.title)}">
+            <span>选择</span>
+          </label>
+          <div>
+            <div class="title">${escapeHtml(meta.title)}</div>
+            <div class="source-line">${escapeHtml(cleanDisplayText(o.source || '', 28) || '平台订单')} · ${new Date(o.createdAt).toLocaleString()}</div>
+          </div>
+        </div>
+        <div class="card-head-side">
+          <span class="status-badge ${status}">${escapeHtml(statusLabel(status))}</span>
+          <div class="score">${o.score || 0}分</div>
+        </div>
+      </div>
+      ${orderDetailMarkup(o, meta)}
+      <div class="admin-order-summary">申请 ${o.applicantCount || 0} 人</div>
+      <div class="applicant-list">
+        ${(o.applicants || []).length
+          ? o.applicants.map(a => `<div class="applicant-item"><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <a href="tel:${escapeHtml(a.phone || '')}">${escapeHtml(a.phone || '未填写')}</a>，已接单</div>`).join('')
+          : '<div class="raw">暂无接单老师</div>'}
+      </div>
+      <div class="actions">
+        ${sourceImageButton(o)}
+        <button class="secondary" onclick="setStatus('${o.id}','open')">开放</button>
+        <button class="secondary" onclick="setStatus('${o.id}','matched')">已成交</button>
+        <button class="danger" onclick="setStatus('${o.id}','closed')">关闭</button>
+        <button class="danger" onclick="deleteOrder('${o.id}','admin')">删除</button>
+      </div>
+    </article>`;
+  }).join('') : '<div class="empty-state">目前没有订单。</div>';
+  updateAdminBulkControls('orders');
+}
+
+function renderAdminUsers() {
+  const root = $('#adminUsers');
+  if (!root) return;
+  if (!adminToken) {
+    root.innerHTML = '';
+    updateAdminBulkControls('users');
+    return;
+  }
+  const users = (state.users || []).filter(u => u.role === 'teacher' || u.role === 'agency');
+  const grouped = new Map();
+  for (const user of users) {
+    const key = user.phone ? `${user.name}\u0000${user.phone}` : user.id;
+    if (!grouped.has(key)) grouped.set(key, { ...user, ids: [], roles: [], passwordStates: [] });
+    const account = grouped.get(key);
+    account.ids.push(user.id);
+    account.roles.push(user.role);
+    account.passwordStates.push(user.passwordSet);
+  }
+  const accounts = [...grouped.values()];
+  root.innerHTML = accounts.length ? accounts.map(account => {
+    const roles = [...new Set(account.roles)].map(role => role === 'teacher' ? '老师' : '中介').join(' / ');
+    const passwordSet = account.passwordStates.every(Boolean);
+    return `<div class="admin-user-row">
+      <label class="selection-check admin-user-select-wrap">
+        <input class="admin-user-select" type="checkbox" value="${escapeHtml(account.ids.join(','))}" aria-label="选择账号 ${escapeHtml(account.name || '')}">
+        <span class="sr-only">选择</span>
+      </label>
+      <div class="admin-user-main">
+        <strong>${escapeHtml(account.name || '未填写名称')}</strong>
+        <div class="raw">${escapeHtml(account.phone || '未填写联系方式')} · ${escapeHtml(roles)} · ${passwordSet ? '已设置密码' : '未设置密码'}</div>
+      </div>
+      <button class="secondary" type="button" onclick="resetUserPassword('${account.ids[0]}')">重置密码</button>
+    </div>`;
+  }).join('') : '<div class="empty-state">还没有老师或中介账号。</div>';
+  updateAdminBulkControls('users');
+}
+
+function updateAdminBulkControls(type) {
+  const isOrders = type === 'orders';
+  const root = $(isOrders ? '#adminOrders' : '#adminUsers');
+  const selectAll = $(isOrders ? '#selectAllAdminOrders' : '#selectAllAdminUsers');
+  const deleteButton = $(isOrders ? '#batchDeleteAdminOrders' : '#batchDeleteAdminUsers');
+  const countLabel = $(isOrders ? '#adminOrderSelectionCount' : '#adminUserSelectionCount');
+  if (!root || !selectAll || !deleteButton || !countLabel) return;
+  const boxes = $$(isOrders ? '.admin-order-select' : '.admin-user-select', root);
+  const selected = boxes.filter(box => box.checked);
+  selectAll.disabled = !boxes.length;
+  selectAll.checked = Boolean(boxes.length && selected.length === boxes.length);
+  selectAll.indeterminate = selected.length > 0 && selected.length < boxes.length;
+  deleteButton.disabled = selected.length === 0;
+  countLabel.textContent = isOrders ? `已选 ${selected.length} 条` : `已选 ${selected.length} 个`;
+}
+
+function renderFeedbackList() {
+  const root = $('#adminFeedback');
+  if (!root) return;
+  if (!adminToken) {
+    root.innerHTML = '';
+    return;
+  }
+  const list = state.feedback || [];
+  root.innerHTML = list.length ? list.map(item => `<div class="admin-row">
+    <strong>${escapeHtml(item.name || '匿名反馈')}</strong>
+    <div class="raw">${escapeHtml(item.contact || '未留联系方式')} · ${new Date(item.createdAt).toLocaleString()}</div>
+    <div>${escapeHtml(item.content || '')}</div>
+  </div>`).join('') : '<div class="raw">暂时没有反馈。</div>';
+}
+
+function renderAgencyOrders() {
+  const root = $('#agencyOrders');
+  if (!currentAgency || !agencyToken) {
+    root.innerHTML = '<div class="raw">登录中介账号后，这里会显示你发布的订单。</div>';
+    return;
+  }
+  const orders = state.orders.filter(o => o.agencyId === currentAgency.id);
+  root.innerHTML = orders.length ? orders.map(o => {
+    const meta = orderDisplayMeta(o);
+    return `<div class="admin-row">
+      <strong>${escapeHtml(meta.title)}</strong>
+      <div class="raw">${escapeHtml(priceLabel(o))} · 状态：${escapeHtml(statusLabel(o.status))} · 申请 ${o.applicantCount || 0} 人</div>
+      <div class="applicant-list">
+        ${(o.applicants || []).length
+          ? o.applicants.map(a => `<div class="applicant-item">
+              <div><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <a href="tel:${escapeHtml(a.phone || '')}">${escapeHtml(a.phone || '未填写')}</a>，已接单</div>
+              <div class="raw">${a.at ? new Date(a.at).toLocaleString() : ''}${a.note ? ` · ${escapeHtml(a.note)}` : ''}</div>
+            </div>`).join('')
+          : '<div class="raw">暂时还没有老师申请。</div>'}
+      </div>
+      <div class="actions">
+        ${sourceImageButton(o)}
+        <button class="secondary" onclick="setAgencyStatus('${o.id}','open')">重新开放</button>
+        <button class="secondary" onclick="setAgencyStatus('${o.id}','closed')">下架</button>
+        <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="raw">这个账号还没有发布订单。</div>';
+}
+
+function statusLabel(status) {
+  return ({ open: '开放中', matched: '已成交', closed: '已下架' })[status] || status || '开放中';
+}
+
+function previewCard(o, index) {
+  const meta = orderDisplayMeta(o);
+  const schedule = splitSchedule(o);
+  const notes = miscNotes(o);
+  return `<div class="preview-card">
+    <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
+    <div class="meta">
+      <span class="pill">${escapeHtml(priceLabel(o))}</span>
+      <span class="pill">${escapeHtml(`${schedule.start} · ${schedule.count}`)}</span>
+      <span class="pill">${escapeHtml(genderBucket(o))}</span>
+      <span class="pill">${escapeHtml(studentSummary(o))}</span>
+    </div>
+    ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
+  </div>`;
+}
+
+function renderPreview() {
+  $('#parsePreview').innerHTML = parsedImport.length
+    ? parsedImport.map(previewCard).join('')
+    : '<div class="raw">还没有识别结果。</div>';
+}
+
+function readLoginPreference() {
+  try {
+    const preference = JSON.parse(localStorage.getItem(LOGIN_PREFERENCE_KEY) || 'null');
+    if (!preference || typeof preference !== 'object') return null;
+    return {
+      name: String(preference.name || ''),
+      phone: String(preference.phone || ''),
+      rememberAccount: Boolean(preference.rememberAccount),
+      autoLogin: Boolean(preference.autoLogin),
+      hasCredential: Boolean(preference.hasCredential)
+    };
+  } catch {
+    localStorage.removeItem(LOGIN_PREFERENCE_KEY);
+    return null;
+  }
+}
+
+function writeLoginPreference(preference) {
+  localStorage.setItem(LOGIN_PREFERENCE_KEY, JSON.stringify({
+    name: String(preference.name || '').trim(),
+    phone: String(preference.phone || '').trim(),
+    rememberAccount: Boolean(preference.rememberAccount),
+    autoLogin: Boolean(preference.autoLogin),
+    hasCredential: Boolean(preference.hasCredential)
+  }));
+}
+
+function clearRememberedPassword(form, clearValue = true) {
+  if (!rememberedCredentialActive) return;
+  rememberedCredentialActive = false;
+  const password = form?.elements?.password;
+  if (!password) return;
+  delete password.dataset.rememberedCredential;
+  if (clearValue) password.value = '';
+}
+
+function showRememberedPassword(form) {
+  const password = form?.elements?.password;
+  if (!password) return;
+  password.value = REMEMBERED_PASSWORD_MASK;
+  password.dataset.rememberedCredential = 'true';
+  rememberedCredentialActive = true;
+}
+
+function hydrateLoginForm() {
+  const form = $('#unifiedLogin');
+  if (!form) return;
+  const preference = readLoginPreference();
+  form.reset();
+  setLoginMethod('sms');
+  rememberedCredentialActive = false;
+  if (!preference?.rememberAccount) return;
+  form.elements.name.value = preference.name;
+  form.elements.phone.value = preference.phone;
+  form.elements.rememberAccount.checked = true;
+  form.elements.autoLogin.checked = Boolean(preference.autoLogin);
+  if (preference.hasCredential) showRememberedPassword(form);
+}
+
+function invalidateRememberedCredential(form = $('#unifiedLogin')) {
+  const preference = readLoginPreference();
+  clearRememberedPassword(form);
+  if (preference?.rememberAccount) {
+    writeLoginPreference({ ...preference, autoLogin: false, hasCredential: false });
+    form.elements.rememberAccount.checked = true;
+  }
+  form.elements.autoLogin.checked = false;
+}
+
+function invalidateCredentialForIdentity(name, phone) {
+  const preference = readLoginPreference();
+  if (!preference || preference.name !== String(name || '').trim() || preference.phone !== String(phone || '').trim()) return;
+  invalidateRememberedCredential();
+}
+
+function setLoginBusy(busy, automatic = false) {
+  const form = $('#unifiedLogin');
+  const button = form?.querySelector(`[data-login-panel="${loginMethod}"] button[type="submit"]`);
+  loginBusy = busy;
+  if (!button) return;
+  button.dataset.idleText ||= button.textContent;
+  button.disabled = busy || (!busy && loginMethod === 'sms' && !authConfig.smsEnabled);
+  button.textContent = busy ? (automatic ? '正在自动登录...' : '正在登录...') : button.dataset.idleText;
+}
+
+function storeMemberSession(result) {
+  currentTeacher = result.teacher;
+  currentAgency = result.agency;
+  teacherToken = result.teacherToken;
+  agencyToken = result.agencyToken;
+  localStorage.setItem('teacherUser', JSON.stringify(currentTeacher));
+  localStorage.setItem('agencyUser', JSON.stringify(currentAgency));
+  sessionStorage.setItem('teacherToken', teacherToken);
+  sessionStorage.setItem('agencyToken', agencyToken);
+}
+
+async function login(role, form) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  const result = await api('/api/login', { method: 'POST', body: { ...data, role } });
+  const user = result.user;
+  if (role === 'teacher') {
+    currentTeacher = user;
+    teacherToken = result.token;
+    localStorage.setItem('teacherUser', JSON.stringify(user));
+    sessionStorage.setItem('teacherToken', teacherToken);
+  } else {
+    currentAgency = user;
+    agencyToken = result.token;
+    localStorage.setItem('agencyUser', JSON.stringify(user));
+    sessionStorage.setItem('agencyToken', agencyToken);
+  }
+  await load();
+  toast('已进入' + (role === 'teacher' ? '老师端' : '中介端'));
+}
+
+async function unifiedLogin(form, { automatic = false } = {}) {
+  if (loginBusy) return;
+  setLoginBusy(true, automatic);
+  const preference = readLoginPreference();
+  const name = String(form.elements.name.value || '').trim();
+  const phone = String(form.elements.phone.value || '').trim();
+  const autoLogin = Boolean(form.elements.autoLogin.checked);
+  const rememberAccount = Boolean(form.elements.rememberAccount.checked || autoLogin);
+  const canUseRememberedCredential = rememberedCredentialActive
+    && preference?.hasCredential
+    && preference.name === name
+    && preference.phone === phone;
+
+  try {
+    let result;
+    if (canUseRememberedCredential) {
+      try {
+        result = await api('/api/account/remember-login', { method: 'POST', body: {} });
+      } catch (error) {
+        invalidateRememberedCredential(form);
+        form.elements.password.focus();
+        throw error;
+      }
+    } else if (loginMethod === 'sms') {
+      result = await api('/api/auth/sms/verify', {
+        method: 'POST',
+        body: {
+          name,
+          phone,
+          code: form.elements.smsCode.value,
+          rememberAccount,
+          autoLogin,
+          wechatBindTicket
+        }
+      });
+      wechatBindTicket = '';
+    } else {
+      result = await api('/api/account/login', {
+        method: 'POST',
+        body: {
+          name,
+          phone,
+          password: form.elements.password.value,
+          rememberAccount,
+          autoLogin,
+          wechatBindTicket
+        }
+      });
+      wechatBindTicket = '';
+    }
+
+    storeMemberSession(result);
+    if (rememberAccount) {
+      writeLoginPreference({
+        name: result.teacher?.name || name,
+        phone: result.teacher?.phone || phone,
+        rememberAccount: true,
+        autoLogin,
+        hasCredential: true
+      });
+    } else {
+      localStorage.removeItem(LOGIN_PREFERENCE_KEY);
+    }
+
+    rememberedCredentialActive = false;
+    activeView = 'teacher';
+    sessionStorage.setItem('activeView', activeView);
+    await load();
+    await loadTeacherPreferences();
+    setView('teacher');
+    form.elements.password.value = '';
+    form.elements.smsCode.value = '';
+    toast(automatic ? '已自动登录' : '登录成功');
+  } finally {
+    setLoginBusy(false);
+  }
+}
+
+async function changePasswordByIdentity(form) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  await api('/api/account/password-by-identity', { method: 'POST', body: data });
+  invalidateCredentialForIdentity(data.name, data.phone);
+  form.reset();
+  form.classList.add('hidden');
+  toast('密码已修改，请使用新密码登录');
+}
+
+function logout() {
+  const preference = readLoginPreference();
+  if (preference?.rememberAccount) {
+    writeLoginPreference({ ...preference, autoLogin: false });
+  }
+  currentTeacher = null;
+  currentAgency = null;
+  teacherToken = '';
+  agencyToken = '';
+  adminToken = '';
+  teacherPreferencesLoaded = false;
+  clearTimeout(teacherPreferenceSaveTimer);
+  state.viewer = null;
+  ['teacherUser', 'agencyUser'].forEach(key => localStorage.removeItem(key));
+  ['teacherToken', 'agencyToken', 'adminToken', 'activeView'].forEach(key => sessionStorage.removeItem(key));
+  $('#appShell').classList.add('hidden');
+  $('#authScreen').classList.remove('hidden');
+  hydrateLoginForm();
+  $('#unifiedLogin').elements.name.focus();
+  toast('已退出登录');
+}
+
+async function applyOrder(id) {
+  if (!currentTeacher || !teacherToken) return toast('请先登录老师账号');
+  const result = await api(`/api/orders/${id}/apply`, {
+    method: 'POST',
+    body: {
+      note: '我有意向接这个单'
+    }
+  }, teacherToken);
+  openAgencyContact(result.contact);
+  toast(result.alreadyApplied ? '你已接过这个单，已重新显示联系人' : '接单成功，发单人已收到你的联系方式');
+  await load();
+}
+
+async function setStatus(id, status) {
+  await api(`/api/orders/${id}`, { method: 'PATCH', body: { status } }, adminToken);
+  toast('状态已更新');
+  await load();
+}
+
+async function setAgencyStatus(id, status) {
+  await api(`/api/orders/${id}`, { method: 'PATCH', body: { status } }, agencyToken);
+  toast(status === 'closed' ? '订单已下架' : '订单已重新开放');
+  await load();
+}
+
+async function deleteOrder(id, actor) {
+  if (!confirm('确定永久删除这条订单吗？删除后无法恢复。')) return;
+  await api(`/api/orders/${id}`, { method: 'DELETE' }, actor === 'admin' ? adminToken : agencyToken);
+  toast('订单已删除');
+  await load();
+}
+
+async function batchDeleteAdminOrders() {
+  const orderIds = $$('.admin-order-select:checked', $('#adminOrders')).map(input => input.value);
+  if (!orderIds.length) return toast('请先选择要删除的订单');
+  if (!confirm(`确定永久删除已选的 ${orderIds.length} 条订单吗？删除后无法恢复。`)) return;
+  const result = await api('/api/admin/batch-delete-orders', {
+    method: 'POST',
+    body: { orderIds }
+  }, adminToken);
+  toast(`已删除 ${result.deletedOrders} 条订单`);
+  await load();
+}
+
+async function batchDeleteAdminUsers() {
+  const userIds = $$('.admin-user-select:checked', $('#adminUsers'))
+    .flatMap(input => input.value.split(','))
+    .filter(Boolean);
+  const accountCount = $$('.admin-user-select:checked', $('#adminUsers')).length;
+  if (!userIds.length) return toast('请先选择要删除的账号');
+  const warning = `确定永久删除已选的 ${accountCount} 个账号吗？这些账号发布的订单也会同时删除，操作无法恢复。`;
+  if (!confirm(warning)) return;
+  const result = await api('/api/admin/batch-delete-users', {
+    method: 'POST',
+    body: { userIds }
+  }, adminToken);
+  const orderText = result.deletedOrders ? `，同时删除 ${result.deletedOrders} 条关联订单` : '';
+  toast(`已删除 ${result.deletedAccounts} 个账号${orderText}`);
+  await load();
+}
+
+async function changePassword(role, form) {
+  const token = role === 'teacher' ? teacherToken : agencyToken;
+  if (!token) return toast(role === 'teacher' ? '请先登录老师账号' : '请先登录中介账号');
+  const data = Object.fromEntries(new FormData(form).entries());
+  await api('/api/account/password', { method: 'POST', body: data }, token);
+  const user = role === 'teacher' ? currentTeacher : currentAgency;
+  invalidateCredentialForIdentity(user?.name, user?.phone);
+  form.reset();
+  toast('密码已修改');
+}
+
+async function resetUserPassword(userId) {
+  const user = (state.users || []).find(u => u.id === userId);
+  const newPassword = prompt(`给 ${user?.name || '这个账号'} 设置新密码（至少6位）`);
+  if (newPassword === null) return;
+  if (newPassword.trim().length < 6) return toast('新密码至少需要6位');
+  await api('/api/admin/reset-password', { method: 'POST', body: { userId, newPassword: newPassword.trim() } }, adminToken);
+  toast('密码已重置，请把新密码告诉对方');
+  await load();
+}
+
+async function updateTeacherDistances(form, { silent = false } = {}) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  const origin = String(data.origin || '').trim();
+  if (!origin) return toast('请先填写你的位置');
+  routeMode = $('#routeModeSelect').value || 'cycling';
+  localStorage.setItem('routeMode', routeMode);
+  $('#teacherLocationStatus').textContent = '正在计算路线...';
+  const res = await api('/api/distance-preview', { method: 'POST', body: { origin, mode: routeMode } }, teacherToken);
+  for (const item of res.distances || []) {
+    const previous = distanceOverrides[item.id] || {};
+    distanceOverrides[item.id] = {
+      ...previous,
+      ...item,
+      routeOptions: { ...(previous.routeOptions || {}), ...(item.routeOptions || {}) }
+    };
+  }
+  teacherOrigin = origin;
+  localStorage.setItem('teacherOrigin', origin);
+  applyDistanceOverrides();
+  fillTeacherLocation();
+  renderOrders();
+  queueTeacherPreferencesSave();
+  if (!silent) toast('已按你的位置更新路线');
+}
+
+function clearTeacherDistances() {
+  teacherOrigin = '';
+  distanceOverrides = {};
+  localStorage.removeItem('teacherOrigin');
+  fillTeacherLocation();
+  queueTeacherPreferencesSave();
+  load().catch(err => toast(err.message));
+}
+
+function hideLocationSuggestions() {
+  const root = $('#originSuggestions');
+  root.classList.add('hidden');
+  root.innerHTML = '';
+}
+
+async function showLocationSuggestions(query) {
+  const root = $('#originSuggestions');
+  if (String(query || '').trim().length < 2) return hideLocationSuggestions();
+  const result = await api(`/api/location-suggestions?q=${encodeURIComponent(query.trim())}`);
+  const suggestions = result.suggestions || [];
+  root.innerHTML = '';
+  for (const suggestion of suggestions) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'suggestion-item';
+    button.setAttribute('role', 'option');
+    const name = document.createElement('span');
+    name.textContent = suggestion.name || suggestion.label;
+    const detail = document.createElement('small');
+    detail.textContent = [suggestion.district, suggestion.address].filter(Boolean).join(' · ');
+    button.append(name, detail);
+    button.addEventListener('click', () => {
+      $('#teacherOrigin').value = suggestion.value || suggestion.label;
+      hideLocationSuggestions();
+    });
+    root.appendChild(button);
+  }
+  root.classList.toggle('hidden', !suggestions.length);
+}
+
+function queueLocationSuggestions() {
+  clearTimeout(locationSuggestionTimer);
+  const query = $('#teacherOrigin').value;
+  locationSuggestionTimer = setTimeout(() => {
+    showLocationSuggestions(query).catch(() => hideLocationSuggestions());
+  }, 260);
+}
+
+function copyText(encoded) {
+  navigator.clipboard.writeText(decodeURIComponent(encoded));
+  toast('已复制');
+}
+
+function openAgencyContact(contact) {
+  const name = String(contact?.name || '发单人').trim();
+  const phone = String(contact?.phone || '').trim();
+  activeAgencyContact = { name, phone };
+  $('#agencyContactName').textContent = name;
+  $('#agencyContactPhone').textContent = phone || '未填写';
+  $('#saveAgencyContact').disabled = !phone;
+  $('#copyAgencyContact').disabled = !phone;
+  const callLink = $('#callAgencyContact');
+  callLink.href = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : '#';
+  callLink.classList.toggle('disabled', !phone);
+  $('#contactPanel').classList.remove('hidden');
+}
+
+function closeAgencyContact() {
+  $('#contactPanel').classList.add('hidden');
+}
+
+function sourceImageToken() {
+  return adminToken || agencyToken || teacherToken;
+}
+
+async function loadSourceImage(index) {
+  const viewer = sourceImageViewer;
+  if (!viewer.orderId || !viewer.count) return;
+  const safeIndex = Math.max(0, Math.min(viewer.count - 1, Number(index) || 0));
+  viewer.index = safeIndex;
+  $('#sourceImageCounter').textContent = `第 ${safeIndex + 1} 张，共 ${viewer.count} 张`;
+  $('#sourceImagePrevious').disabled = safeIndex === 0;
+  $('#sourceImageNext').disabled = safeIndex === viewer.count - 1;
+  const image = $('#sourceImageView');
+  const loading = $('#sourceImageLoading');
+  image.classList.add('hidden');
+  loading.classList.remove('hidden');
+  loading.textContent = '正在读取原图...';
+
+  let objectUrl = viewer.urls[safeIndex];
+  if (!objectUrl) {
+    const token = sourceImageToken();
+    if (!token) throw new Error('请先登录后查看原图');
+    const orderId = viewer.orderId;
+    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/source-images/${safeIndex}`, {
+      credentials: 'same-origin',
+      headers: { Authorization: `Bearer ${token}`, 'X-Visitor-Id': visitorId }
+    });
+    if (!response.ok) {
+      let message = '原图读取失败';
+      try { message = (await response.json()).error || message; } catch {}
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    if (sourceImageViewer !== viewer || viewer.orderId !== orderId) return;
+    objectUrl = URL.createObjectURL(blob);
+    viewer.urls[safeIndex] = objectUrl;
+  }
+  image.onload = () => {
+    if (sourceImageViewer !== viewer || viewer.index !== safeIndex) return;
+    loading.classList.add('hidden');
+    image.classList.remove('hidden');
+  };
+  image.onerror = () => {
+    loading.classList.remove('hidden');
+    loading.textContent = '这张原图暂时无法显示。';
+  };
+  image.src = objectUrl;
+  if (image.complete && image.naturalWidth) image.onload();
+}
+
+function openSourceImages(orderId, count) {
+  if (!sourceImageToken()) return toast('请先登录后查看原图');
+  closeSourceImages();
+  sourceImageViewer = { orderId: String(orderId || ''), count: Math.max(0, Number(count || 0)), index: 0, urls: [] };
+  if (!sourceImageViewer.orderId || !sourceImageViewer.count) return toast('这张单暂时没有原图');
+  $('.source-image-nav')?.classList.toggle('hidden', sourceImageViewer.count <= 1);
+  $('#sourceImagePanel').classList.remove('hidden');
+  loadSourceImage(0).catch(err => {
+    $('#sourceImageLoading').textContent = err.message;
+    toast(err.message);
+  });
+}
+
+function stepSourceImage(delta) {
+  loadSourceImage(sourceImageViewer.index + delta).catch(err => toast(err.message));
+}
+
+function closeSourceImages() {
+  const image = $('#sourceImageView');
+  if (image) {
+    image.onload = null;
+    image.onerror = null;
+    image.removeAttribute('src');
+    image.classList.add('hidden');
+  }
+  for (const url of sourceImageViewer.urls || []) {
+    if (url) URL.revokeObjectURL(url);
+  }
+  sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
+  const panel = $('#sourceImagePanel');
+  if (panel) panel.classList.add('hidden');
+}
+
+async function copyAgencyContact() {
+  if (!activeAgencyContact?.phone) return;
+  await navigator.clipboard.writeText(`${activeAgencyContact.name} ${activeAgencyContact.phone}`);
+  toast('联系方式已复制');
+}
+
+function saveAgencyContact() {
+  if (!activeAgencyContact?.phone) return;
+  const escapeVcard = value => String(value || '').replace(/([\\,;])/g, '\\$1').replace(/\r?\n/g, '\\n');
+  const content = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${escapeVcard(activeAgencyContact.name)}`,
+    `TEL;TYPE=CELL:${escapeVcard(activeAgencyContact.phone)}`,
+    'END:VCARD'
+  ].join('\r\n');
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/vcard;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${activeAgencyContact.name.replace(/[\\/:*?"<>|]/g, '_') || '发单人'}.vcf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openFeedback() {
+  $('#feedbackPanel').classList.remove('hidden');
+  $('#feedbackButton').classList.add('panel-open');
+}
+
+function closeFeedback() {
+  $('#feedbackPanel').classList.add('hidden');
+  $('#feedbackButton').classList.remove('panel-open', 'scrolling');
+}
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
+}
+
+$$('.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => setView(btn.dataset.view));
+});
+
+['filterMinPrice', 'filterBike'].forEach(id => {
+  $('#' + id).addEventListener('input', () => { renderOrders(); queueTeacherPreferencesSave(); });
+  $('#' + id).addEventListener('change', () => { renderOrders(); queueTeacherPreferencesSave(); });
+});
+
+$('#teacherFilters').addEventListener('change', event => {
+  const input = event.target.closest('input[data-filter-option]');
+  if (!input) return;
+  const group = input.dataset.filterOption;
+  if (input.checked) teacherFilterSelections[group].add(input.value);
+  else teacherFilterSelections[group].delete(input.value);
+  updateFilterSummary(group);
+  renderOrders();
+  queueTeacherPreferencesSave();
+});
+
+$('#teacherFilters').addEventListener('click', event => {
+  const button = event.target.closest('[data-clear-filter]');
+  if (!button) return;
+  clearFilterGroup(button.dataset.clearFilter);
+  renderOrders();
+  queueTeacherPreferencesSave();
+});
+
+$$('.multi-filter').forEach(details => {
+  details.addEventListener('toggle', () => {
+    if (!details.open) return;
+    $$('.multi-filter').forEach(other => { if (other !== details) other.open = false; });
+  });
+});
+
+document.addEventListener('click', event => {
+  if (event.target.closest('.multi-filter')) return;
+  $$('.multi-filter').forEach(details => { details.open = false; });
+});
+
+$('#clearTeacherFilters').addEventListener('click', () => {
+  Object.keys(teacherFilterSelections).forEach(clearFilterGroup);
+  $('#filterMinPrice').value = '';
+  $('#filterBike').checked = false;
+  renderOrders();
+  queueTeacherPreferencesSave();
+});
+
+$('#routeModeSelect').addEventListener('change', () => {
+  routeMode = $('#routeModeSelect').value || 'cycling';
+  localStorage.setItem('routeMode', routeMode);
+  applyDistanceOverrides();
+  fillTeacherLocation();
+  renderOrders();
+  queueTeacherPreferencesSave();
+  if (teacherOrigin) {
+    updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(err => toast(err.message));
+  }
+});
+
+$$('[data-login-method]').forEach(button => {
+  button.addEventListener('click', () => setLoginMethod(button.dataset.loginMethod));
+});
+
+$('#sendSmsCode').addEventListener('click', () => {
+  requestSmsCode().catch(err => toast(err.message));
+});
+
+$('#wechatLoginButton').addEventListener('click', startWechatLogin);
+
+$('#refreshOrdersButton').addEventListener('click', () => {
+  refreshOrderList().catch(err => toast(err.message));
+});
+
+$('#unifiedLogin').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await unifiedLogin(form).catch(err => toast(err.message));
+});
+
+$('#autoLogin').addEventListener('change', event => {
+  if (event.currentTarget.checked) $('#rememberPassword').checked = true;
+});
+
+$('#rememberPassword').addEventListener('change', event => {
+  if (event.currentTarget.checked) return;
+  $('#autoLogin').checked = false;
+  clearRememberedPassword($('#unifiedLogin'));
+  localStorage.removeItem(LOGIN_PREFERENCE_KEY);
+});
+
+['name', 'phone'].forEach(fieldName => {
+  $('#unifiedLogin').elements[fieldName].addEventListener('input', () => {
+    clearRememberedPassword($('#unifiedLogin'));
+  });
+});
+
+$('#unifiedLogin').elements.password.addEventListener('focus', event => {
+  if (rememberedCredentialActive) event.currentTarget.select();
+});
+
+$('#unifiedLogin').elements.password.addEventListener('input', event => {
+  if (rememberedCredentialActive && event.currentTarget.value !== REMEMBERED_PASSWORD_MASK) {
+    clearRememberedPassword($('#unifiedLogin'), false);
+  }
+});
+
+$('#identityPasswordForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await changePasswordByIdentity(form).catch(err => toast(err.message));
+});
+
+$('#togglePasswordPanel').addEventListener('click', () => {
+  $('#identityPasswordForm').classList.toggle('hidden');
+  $('#adminLogin').classList.add('hidden');
+});
+
+$('#toggleAdminPanel').addEventListener('click', () => {
+  $('#adminLogin').classList.toggle('hidden');
+  $('#identityPasswordForm').classList.add('hidden');
+});
+
+$$('.close-auth-panel').forEach(button => button.addEventListener('click', () => {
+  button.closest('form').classList.add('hidden');
+}));
+
+$('#logoutButton').addEventListener('click', logout);
+
+$('#adminOrders').addEventListener('change', event => {
+  if (event.target.matches('.admin-order-select')) updateAdminBulkControls('orders');
+});
+
+$('#adminUsers').addEventListener('change', event => {
+  if (event.target.matches('.admin-user-select')) updateAdminBulkControls('users');
+});
+
+$('#selectAllAdminOrders').addEventListener('change', event => {
+  $$('.admin-order-select', $('#adminOrders')).forEach(input => { input.checked = event.currentTarget.checked; });
+  updateAdminBulkControls('orders');
+});
+
+$('#selectAllAdminUsers').addEventListener('change', event => {
+  $$('.admin-user-select', $('#adminUsers')).forEach(input => { input.checked = event.currentTarget.checked; });
+  updateAdminBulkControls('users');
+});
+
+$('#batchDeleteAdminOrders').addEventListener('click', () => {
+  batchDeleteAdminOrders().catch(err => toast(err.message));
+});
+
+$('#batchDeleteAdminUsers').addEventListener('click', () => {
+  batchDeleteAdminUsers().catch(err => toast(err.message));
+});
+
+$('#teacherLocationForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  await updateTeacherDistances(form).catch(err => {
+    $('#teacherLocationStatus').textContent = '路线计算失败，请稍后再试。';
+    toast(err.message);
+  });
+});
+
+$('#clearTeacherLocation').addEventListener('click', clearTeacherDistances);
+
+$('#teacherOrigin').addEventListener('input', queueLocationSuggestions);
+$('#teacherOrigin').addEventListener('focus', queueLocationSuggestions);
+document.addEventListener('click', event => {
+  if (!event.target.closest('.autocomplete-wrap')) hideLocationSuggestions();
+});
+
+$('#orderForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.raw = `${data.district} ${data.place} ${data.grade} ${data.subject} ${data.priceText || data.price || ''} ${data.schedule} ${data.gender} ${data.requirements}`;
+  data.price = Number(data.price || 0);
+  await api('/api/orders', { method: 'POST', body: data }, agencyToken);
+  form.reset();
+  toast('订单已发布');
+  await load();
+});
+
+$('#parseImport').addEventListener('click', async () => {
+  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
+  const data = Object.fromEntries(new FormData($('#importForm')).entries());
+  const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
+  parsedImport = res.parsed || [];
+  renderPreview();
+  toast(`识别出 ${parsedImport.length} 条`);
+});
+
+$('#importForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
+  if (!parsedImport.length) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
+    parsedImport = res.parsed || [];
+  }
+  const res = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+  toast(`已导入 ${res.created.length} 条`);
+  form.text.value = '';
+  parsedImport = [];
+  renderPreview();
+  await load();
+});
+
+$('#settingsForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.maxBikeKm = Number(data.maxBikeKm || 12);
+  await api('/api/settings', { method: 'POST', body: data }, adminToken);
+  toast('设置已保存');
+  await load();
+});
+
+$('#announcementForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  data.active = true;
+  await api('/api/admin/announcement', { method: 'POST', body: data }, adminToken);
+  toast('公告已发布');
+  await load();
+});
+
+$('#withdrawAnnouncement').addEventListener('click', async () => {
+  const form = $('#announcementForm');
+  const data = {
+    title: form.elements.title.value,
+    content: form.elements.content.value,
+    active: false
+  };
+  await api('/api/admin/announcement', { method: 'POST', body: data }, adminToken);
+  toast('公告已撤下');
+  await load();
+});
+
+$('#adminLogin').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = document.getElementById('adminLogin');
+  if (!form) return toast('没有找到管理端登录框，请刷新页面');
+  try {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const path = state.adminConfigured ? '/api/admin/login' : '/api/admin/setup';
+    const result = await api(path, { method: 'POST', body: data });
+    adminToken = result.token;
+    sessionStorage.setItem('adminToken', adminToken);
+    const passwordInput = document.querySelector('#adminLogin [name="password"]');
+    if (passwordInput) passwordInput.value = '';
+    toast(state.adminConfigured ? '管理员登录成功' : '管理员密码设置成功');
+    await load();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+
+$('#contactClose').addEventListener('click', closeAgencyContact);
+$('#copyAgencyContact').addEventListener('click', () => copyAgencyContact().catch(err => toast(err.message)));
+$('#saveAgencyContact').addEventListener('click', saveAgencyContact);
+$('#contactPanel').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeAgencyContact();
+});
+$('#sourceImageClose').addEventListener('click', closeSourceImages);
+$('#sourceImagePrevious').addEventListener('click', () => stepSourceImage(-1));
+$('#sourceImageNext').addEventListener('click', () => stepSourceImage(1));
+$('#sourceImagePanel').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeSourceImages();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
+  if (event.key === 'Escape' && !$('#sourceImagePanel').classList.contains('hidden')) closeSourceImages();
+  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowLeft') stepSourceImage(-1);
+  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowRight') stepSourceImage(1);
+});
+
+$('#feedbackButton').addEventListener('click', openFeedback);
+$('#feedbackButton').addEventListener('mouseenter', () => clearTimeout(feedbackHideTimer));
+$('#feedbackButton').addEventListener('mouseleave', () => {
+  if (!$('#feedbackPanel').classList.contains('hidden')) return;
+  clearTimeout(feedbackHideTimer);
+  feedbackHideTimer = setTimeout(() => $('#feedbackButton').classList.remove('scrolling'), 700);
+});
+$('#feedbackClose').addEventListener('click', closeFeedback);
+$('#feedbackForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  await api('/api/feedback', { method: 'POST', body: data });
+  form.reset();
+  closeFeedback();
+  toast('感谢反馈，开发者会查看');
+});
+
+window.addEventListener('scroll', () => {
+  const button = $('#feedbackButton');
+  if (!button || !$('#feedbackPanel').classList.contains('hidden')) return;
+  button.classList.add('scrolling');
+  clearTimeout(feedbackHideTimer);
+  feedbackHideTimer = setTimeout(() => button.classList.remove('scrolling'), 1600);
+}, { passive: true });
+
+async function initializeApp() {
+  hydrateLoginForm();
+  await loadAuthConfiguration();
+  await load();
+  await handleWechatReturn();
+  const signedIn = Boolean(
+    (state.viewer?.role === 'admin' && adminToken)
+    || (state.viewer && teacherToken && agencyToken)
+  );
+  if (signedIn && teacherToken && !teacherPreferencesLoaded) await loadTeacherPreferences();
+  const preference = readLoginPreference();
+  if (!signedIn && !wechatBindTicket && preference?.autoLogin && preference.hasCredential) {
+    await unifiedLogin($('#unifiedLogin'), { automatic: true });
+  }
+}
+
+initializeApp().catch(err => toast(err.message));
+setInterval(() => refreshPlatformStats().catch(() => {}), 30000);
+window.addEventListener('focus', () => refreshPlatformStats().catch(() => {}));
