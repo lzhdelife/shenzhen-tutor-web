@@ -90,6 +90,13 @@ async function run() {
     assert.equal(batchText.slice(item.rawStart, item.rawEnd), expectedBlocks[index], `diagnostic span ${index}`);
     if (index > 0) assert.ok(item.rawStart >= batch.splitDiagnostics[index - 1].rawEnd, `no overlap at block ${index}`);
   }
+
+  const numberedText = fs.readFileSync(path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt'), 'utf8').trim().replace(/\r/g, '');
+  const numberedExpected = numberedText.split('\n');
+  const numbered = await previewBatch(login.agencyToken, numberedText);
+  assert.equal(numbered.parsed.length, 2, 'preview must split keycap-numbered compact orders');
+  assert.deepEqual(numbered.parsed.map(order => order.raw), numberedExpected);
+  assert.deepEqual(numbered.splitDiagnostics.map(item => item.boundaryReason), ['numbered-order', 'numbered-order']);
   console.log('PASS preview API regression tests');
 }
 

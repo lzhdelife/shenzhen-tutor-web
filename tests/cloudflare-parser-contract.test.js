@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const adapter = require('../cloudflare/parser-adapter');
 
@@ -18,4 +20,15 @@ test('Cloudflare adapter exposes the shared lossless parser contract', async () 
   assert.equal(result.splitDiagnostics.length, 2);
   assert.ok(result.parsed.every(order => Array.isArray(order.structured.diagnostics.uncertainFields)));
   assert.ok(result.parsed.every(order => order.structured.locations.value.every(location => Array.isArray(location.locationQueries))));
+});
+
+test('Cloudflare adapter keeps keycap-numbered compact orders separate', async () => {
+  const text = fs.readFileSync(path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt'), 'utf8').trim().replace(/\r/g, '');
+  const result = await adapter.parseOrders({ text }, {
+    agency: { id: 'synthetic-agency', name: '匿名合成机构' },
+    env: {}
+  });
+  assert.equal(result.parsed.length, 2);
+  assert.deepEqual(result.parsed.map(order => order.raw), text.split('\n'));
+  assert.deepEqual(result.splitDiagnostics.map(item => item.boundaryReason), ['numbered-order', 'numbered-order']);
 });

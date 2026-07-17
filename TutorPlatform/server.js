@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { runParserPipeline } = require('./parser/pipeline');
-const { splitOrdersDetailed } = require('./parser/splitter');
+const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
 const { scoreOrder } = require('../shared/order-score');
 
@@ -863,7 +863,8 @@ function splitImportBlocksSoft(input) {
       }
       continue;
     }
-    const startsNewNumberedBlock = /^(?:【编号】|\[编号\]|家教编号\s*[：:]|编号\s*[：:]|订单\s*[：:]|SZ\d|lw\d|(?:急|妃)\s*\d{8,}|\d{8,}(?=\s*(?:#|地址|地点|$)))/i.test(line);
+    const startsNewNumberedBlock = isNumberedOrderStart(line)
+      || /^(?:【编号】|\[编号\]|家教编号\s*[：:]|编号\s*[：:]|订单\s*[：:]|SZ\d|lw\d|(?:急|妃)\s*\d{8,}|\d{8,}(?=\s*(?:#|地址|地点|$)))/i.test(line);
     const isTitle = startsNewNumberedBlock || titleLine.test(line) || bracketTitle.test(line) || looseTitle.test(line) || codeTitle.test(line) || byTitle.test(line) || urgentTitle.test(line) || numericCodeTitle.test(line) || hashTitle.test(line);
     const isField = fieldLine.test(line);
     const previousNeedsValue = current.length && looksLikeFieldHeader(current[current.length - 1]) && /[:：]\s*$/.test(current[current.length - 1]);

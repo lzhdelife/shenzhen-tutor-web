@@ -1,6 +1,19 @@
 'use strict';
 
 /**
+ * Numbered compact orders copied from chat commonly start with keycap emoji
+ * ("1️⃣") or circled digits. Require grade and subject identity on the same
+ * line so numbered requirement lists inside one order are not split.
+ */
+function isNumberedOrderStart(value) {
+  const line = String(value || '').trim();
+  if (!/^(?:[1-9]\ufe0f?\u20e3|[①②③④⑤⑥⑦⑧⑨⑩])/.test(line)) return false;
+  const hasGrade = /(?:幼儿园|小学|(?:新|准)?小[一二三四五六]|[一二三四五六]年级|(?:新)?初[一二三]|[七八九]年级|(?:新)?高[一二三]|中考|高考)/.test(line);
+  const hasSubject = /(?:语文|数学|英语|物理|化学|生物|数理化|语数英|全科|奥数|科学|编程)/.test(line);
+  return hasGrade && hasSubject;
+}
+
+/**
  * Split raw import text without knowing anything about HTTP, users, storage,
  * maps or field extraction. Blank lines are lossless, high-confidence order
  * boundaries. A caller-supplied soft splitter handles legacy text that has no
@@ -58,11 +71,11 @@ function splitOrdersDetailed(input, options = {}) {
       blockIndex,
       rawStart,
       rawEnd,
-      boundaryReason: /^\s*(?:【|\[|[A-Z]{1,5}\d{4,})/.test(block) ? 'title' : 'heuristic',
-      confidence: 0.75
+      boundaryReason: isNumberedOrderStart(block) ? 'numbered-order' : /^\s*(?:【|\[|[A-Z]{1,5}\d{4,})/.test(block) ? 'title' : 'heuristic',
+      confidence: isNumberedOrderStart(block) ? 0.95 : 0.75
     };
   });
   return { blocks, diagnostics };
 }
 
-module.exports = { splitOrdersDetailed };
+module.exports = { isNumberedOrderStart, splitOrdersDetailed };

@@ -11,6 +11,8 @@ const fixturePath = path.join(__dirname, 'fixtures', 'parser-regressions.jsonl')
 const fixtures = fs.readFileSync(fixturePath, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
 const batchFixturePath = path.join(__dirname, 'fixtures', 'batch-nine-orders.txt');
 const batchFixture = fs.readFileSync(batchFixturePath, 'utf8').trim().replace(/\r/g, '');
+const numberedFixturePath = path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt');
+const numberedFixture = fs.readFileSync(numberedFixturePath, 'utf8').trim().replace(/\r/g, '');
 const counters = { district: [0, 0], place: [0, 0], grade: [0, 0], subject: [0, 0], studentGender: [0, 0], teacherGender: [0, 0], price: [0, 0], priceUnit: [0, 0], phases: [0, 0], evidence: [0, 0], genderConfusions: 0 };
 
 for (const fixture of fixtures) {
@@ -109,3 +111,12 @@ assert.equal(split.diagnostics.length, 9);
 assert.ok(split.diagnostics.every(item => item.boundaryReason === 'blank-line' && item.confidence === 1));
 assert.equal(split.blocks.join('\n\n'), expectedBatchBlocks.join('\n\n'), 'batch normalized coverage must be 100%');
 console.log('PASS batch split regression expectedCount=9 coverage=100%');
+
+const numberedExpected = numberedFixture.split('\n');
+const numberedSplit = platform.splitImportBlocksDetailed(numberedFixture);
+assert.equal(numberedSplit.blocks.length, 2, 'keycap-numbered compact orders must not merge');
+assert.deepEqual(numberedSplit.blocks, numberedExpected, 'keycap-numbered raw orders and order must be preserved');
+assert.deepEqual(numberedSplit.diagnostics.map(item => item.boundaryReason), ['numbered-order', 'numbered-order']);
+assert.ok(numberedSplit.diagnostics.every(item => item.confidence === 0.95));
+assert.equal(numberedSplit.blocks.join('\n'), numberedFixture, 'keycap-numbered normalized coverage must be 100%');
+console.log('PASS numbered compact split regression expectedCount=2 coverage=100%');
