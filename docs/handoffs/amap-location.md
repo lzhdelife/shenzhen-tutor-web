@@ -5,6 +5,7 @@
 - 分支：`codex/amap-location-integration`
 - 基线：`005502fe848530ba5e849c1b93ba891db8bba251`
 - 功能提交：`52091f915a985605cd3c3c8203611d1c46d1b3f9`
+- “我的位置”真实候选增量：`04a686e0ffafc4da04aea8daec7a38e718bc1ce9`
 
 ## 负责路径
 
@@ -17,6 +18,9 @@
 ## 接口与字段变化
 
 - Cloudflare 新增/补齐 `GET /api/location-suggestions?q=&district=`，只返回高德候选；支持区名约束。
+- 候选接口与前端统一使用 `suggestions[]`；每项包含 `name`、`district`、`address`、标准地址 `value` 和 `location`。此前 Worker 的 `candidates` 与前端 `suggestions` 字段错位已修复。
+- “我的位置”输入保持 260ms 防抖，并用请求序号和当前输入值丢弃过期响应。选择候选后保存标准地址及经纬度；路线请求优先直接使用已选经纬度。
+- 无 Key 时下拉显示“高德服务未配置”，不再静默隐藏错误或产生“你输入的位置”占位候选。
 - 新增 `POST /api/orders/:id/location/confirm`，订单所有者或管理员确认候选后保存 `district`、`place`、`address`、`locationPoiId`、`locationCoordinates`、`locationAddress`、`locationConfidence`、`locationVerified`、`locationStatus`。
 - Cloudflare 补齐 `POST /api/distance-preview`，只对已确认坐标计算路线，支持 `walking`、`cycling`、`driving`、`transit`。
 - 地图错误增加稳定代码：`AMAP_NOT_CONFIGURED`、`AMAP_TIMEOUT`、`AMAP_RATE_LIMITED`、`AMAP_API_ERROR` 等。真实路线返回 `status: "verified"` 和 `source: "amap"`。
@@ -27,7 +31,7 @@
 ## 测试结果
 
 - `npm.cmd test`：通过（smoke、解析回归、recognizer contract、preview API）。
-- `npm.cmd run cloudflare:test`：通过，8/8；覆盖地点二选一所需的逐项确认基础、同名候选、区名约束、无 Key、无结果、超时、限流/错误响应和四种路线模式。
+- `npm.cmd run cloudflare:test`：通过，9/9；覆盖“深圳市万科天誉”多个真实候选契约、无 Key 页面错误契约、地点二选一所需的逐项确认基础、同名候选、区名约束、无结果、超时、限流/错误响应和四种路线模式。
 - `npm.cmd run check:secrets`：通过，扫描 55 个已跟踪文件。
 - `git diff --check`：通过。
 
