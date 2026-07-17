@@ -5,6 +5,7 @@
 - 工作分支：`codex/parser-accuracy`
 - 基线提交：`005502f`
 - 功能提交：`bb7bd6b feat: strengthen tutor order parsing evidence`
+- 编号订单切割修复：`cbdbe15 fix: split compact numbered tutor orders`
 - 状态：仅本地提交；未推送、未部署、未合并。
 
 ## 负责范围与修改路径
@@ -12,6 +13,7 @@
 领域负责范围是无损多单切割、订单字段提取、证据与置信度、解析契约和匿名回归测试。
 
 - `TutorPlatform/parser/pipeline.js`：结构化证据、地点查询意图、分阶段时间和不确定字段。
+- `TutorPlatform/parser/splitter.js`：无损边界与 keycap/circled-digit 编号订单起始判定。
 - `TutorPlatform/parser/schema.js`：解析输出 schema。
 - `tests/parser-regressions.js`、`tests/recognizer-contract.js`、`tests/api-preview.js`：公共解析和 9 条永久样例回归。
 - `tests/cloudflare-parser-contract.test.js`：Cloudflare adapter 使用同一公共解析契约的测试。
@@ -40,11 +42,17 @@
   - 9 条批量样例数量、顺序、逐条原文和覆盖率均为 100%。
   - 行政区、明示地点、年级、学科、学生/教师性别、价格和单位均为 100%。
   - 分阶段时间召回率和已填字段证据覆盖率均为 100%；性别混淆为 0。
-- `npm run cloudflare:test`：5/5 通过，包含真实 parser adapter 契约测试。
-- `npm run check:secrets`：通过；交接提交前共扫描 55 个跟踪文件。
+- `npm run cloudflare:test`：6/6 通过，包含真实 parser adapter 及编号紧凑订单契约测试。
+- `npm run check:secrets`：通过；编号订单修复提交前共扫描 56 个跟踪文件。
 - `git diff --check`：通过。
 
 所有回归数据均为匿名合成数据。详细口径见 `docs/PARSER_ACCURACY.md`；样本量较小，不代表线上总体准确率。
+
+### 后续缺陷修复
+
+- 修复无空行的 `1️⃣…` / `2️⃣…` 长单行订单被合并的问题。
+- 公共 splitter 仅在编号后的同一行同时存在年级与学科证据时建立边界，避免把普通编号要求列表误切成订单。
+- 匿名合成回归固定为 2 条，断言数量、顺序、逐条原文、边界原因和 100% 覆盖率。
 
 ## 已知风险与跨领域依赖
 
@@ -58,6 +66,6 @@
 
 1. 先集成主任务最新的协同文档提交，保留 `AGENTS.md` 和 `docs/WORKSTREAMS.md`。
 2. 在集成分支 cherry-pick 功能提交 `bb7bd6b`。
-3. 再 cherry-pick 本交接文档提交，若 `docs/handoffs` 已存在则仅解决文档目录冲突。
+3. cherry-pick 首次交接提交 `ba7e2df`，再 cherry-pick 编号订单切割修复 `cbdbe15` 和最新交接更新提交。
 4. 检查地点工作流是否消费 `structured.locations.value[].locationQueries`、`district` 和 `nearby`，不要把高德调用移入 parser。
 5. 运行 `npm test`、`npm run cloudflare:test`、`npm run check:secrets`，并人工确认解析预览能展开证据、置信度、原文和不确定字段。
