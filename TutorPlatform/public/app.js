@@ -73,6 +73,16 @@ async function api(path, options = {}, token = '') {
   return res.json();
 }
 
+async function passwordProof(password, name, phone) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
+  const salt = encoder.encode(`shenzhen-tutor-v1|${String(name || '').trim()}|${String(phone || '').trim()}`);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 210000 }, key, 256);
+  let binary = '';
+  for (const byte of new Uint8Array(bits)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 function toast(text) {
   const el = $('#toast');
   el.textContent = text;
@@ -1097,6 +1107,7 @@ function storeMemberSession(result) {
 
 async function login(role, form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  data.passwordProof = await passwordProof(data.password, data.name, data.phone);
   const result = await api('/api/login', { method: 'POST', body: { ...data, role } });
   const user = result.user;
   if (role === 'teacher') {
@@ -1151,12 +1162,14 @@ async function unifiedLogin(form, { automatic = false } = {}) {
       });
       wechatBindTicket = '';
     } else {
+      const password = form.elements.password.value;
       result = await api('/api/account/login', {
         method: 'POST',
         body: {
           name,
           phone,
-          password: form.elements.password.value,
+          password,
+          passwordProof: await passwordProof(password, name, phone),
           rememberAccount,
           autoLogin,
           wechatBindTicket
@@ -1194,6 +1207,8 @@ async function unifiedLogin(form, { automatic = false } = {}) {
 
 async function changePasswordByIdentity(form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  data.oldPasswordProof = await passwordProof(data.oldPassword, data.name, data.phone);
+  data.newPasswordProof = await passwordProof(data.newPassword, data.name, data.phone);
   await api('/api/account/password-by-identity', { method: 'POST', body: data });
   invalidateCredentialForIdentity(data.name, data.phone);
   form.reset();
@@ -1288,8 +1303,10 @@ async function changePassword(role, form) {
   const token = role === 'teacher' ? teacherToken : agencyToken;
   if (!token) return toast(role === 'teacher' ? '请先登录老师账号' : '请先登录中介账号');
   const data = Object.fromEntries(new FormData(form).entries());
-  await api('/api/account/password', { method: 'POST', body: data }, token);
   const user = role === 'teacher' ? currentTeacher : currentAgency;
+  data.oldPasswordProof = await passwordProof(data.oldPassword, user?.name, user?.phone);
+  data.newPasswordProof = await passwordProof(data.newPassword, user?.name, user?.phone);
+  await api('/api/account/password', { method: 'POST', body: data }, token);
   invalidateCredentialForIdentity(user?.name, user?.phone);
   form.reset();
   toast('密码已修改');
@@ -1773,6 +1790,7 @@ $('#adminLogin').addEventListener('submit', async event => {
   if (!form) return toast('没有找到管理端登录框，请刷新页面');
   try {
     const data = Object.fromEntries(new FormData(form).entries());
+    data.passwordProof = await passwordProof(data.password, 'admin', '');
     const path = state.adminConfigured ? '/api/admin/login' : '/api/admin/setup';
     const result = await api(path, { method: 'POST', body: data });
     adminToken = result.token;
