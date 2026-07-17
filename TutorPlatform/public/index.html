@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260718-1">
+  <link rel="stylesheet" href="./styles.css?v=20260718-2">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -172,9 +172,28 @@
 
       <section id="agency" class="view">
         <div class="workspace-heading"><div><span class="section-kicker">发单端</span><h2>发布和管理订单</h2></div></div>
-        <div class="columns">
-          <form id="orderForm" class="panel">
-            <h2>手动发布</h2>
+        <form id="importForm" class="panel agency-import-panel">
+          <div class="agency-primary-heading">
+            <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
+            <p>从剪贴板工具复制全部内容，粘贴后先识别预览，再确认导入。</p>
+          </div>
+          <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
+          <div class="actions">
+            <button type="button" id="parseImport" class="primary">识别预览</button>
+            <button type="submit" class="secondary">确认导入</button>
+          </div>
+          <div id="parsePreview" class="preview"></div>
+        </form>
+        <section class="agency-orders-section">
+          <div class="workspace-heading minor"><h2>我发布的订单</h2></div>
+          <div id="agencyOrders"></div>
+        </section>
+        <details class="panel manual-entry-panel">
+          <summary>
+            <span><strong>手动录入</strong><small>低频使用：单独填写一条订单</small></span>
+            <b>展开</b>
+          </summary>
+          <form id="orderForm" class="manual-entry-form">
             <div class="grid">
               <select name="district"></select>
               <input name="place" placeholder="地点，如 后海、蛇口、西乡">
@@ -188,21 +207,7 @@
             <textarea name="requirements" placeholder="学生情况、教师要求和其他备注"></textarea>
             <button type="submit" class="primary">发布订单</button>
           </form>
-
-          <form id="importForm" class="panel">
-            <h2>批量识别微信订单</h2>
-            <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
-            <div class="actions">
-              <button type="button" id="parseImport" class="primary">识别预览</button>
-              <button type="submit" class="secondary">确认导入</button>
-            </div>
-            <div id="parsePreview" class="preview"></div>
-          </form>
-        </div>
-        <section class="agency-orders-section">
-          <div class="workspace-heading minor"><h2>我发布的订单</h2></div>
-          <div id="agencyOrders"></div>
-        </section>
+        </details>
       </section>
 
       <section id="admin" class="view">

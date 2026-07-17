@@ -493,7 +493,34 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .preview-title { margin-bottom: 7px; font-weight: 800; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
 .pill { padding: 4px 8px; border-radius: 999px; background: #edf1f5; font-size: 12px; }
+.agency-import-panel { padding: 20px; }
+.agency-primary-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
+.agency-primary-heading h2 { margin: 4px 0 0; }
+.agency-primary-heading p { max-width: 520px; color: var(--muted); line-height: 1.5; text-align: right; }
+.agency-import-panel textarea.large { min-height: 300px; }
 .agency-orders-section { margin-top: 24px; }
+.manual-entry-panel { margin-top: 28px; padding: 0; overflow: hidden; }
+.manual-entry-panel > summary {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 20px;
+  cursor: pointer;
+  list-style: none;
+  background: #f7f9fb;
+}
+.manual-entry-panel > summary::-webkit-details-marker { display: none; }
+.manual-entry-panel > summary span { display: grid; gap: 5px; }
+.manual-entry-panel > summary strong { font-size: 17px; }
+.manual-entry-panel > summary small { color: var(--muted); }
+.manual-entry-panel > summary b { color: var(--blue); font-size: 13px; }
+.manual-entry-panel[open] > summary { border-bottom: 1px solid var(--line); }
+.manual-entry-panel[open] > summary b { font-size: 0; }
+.manual-entry-panel[open] > summary b::after { content: '收起'; font-size: 13px; }
+.manual-entry-form { padding: 20px; }
+.manual-entry-form > textarea { margin: 10px 0; }
 .admin-row { padding: 11px 0; border-top: 1px solid var(--line); }
 .admin-row:first-child { border-top: 0; }
 .admin-orders-panel { grid-column: 1 / -1; }
@@ -716,6 +743,11 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .announcement-inner { padding: 11px 14px; }
   .workspace-heading h2 { font-size: 21px; }
   .workspace-heading-actions { align-self: center; }
+  .agency-primary-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .agency-primary-heading p { text-align: left; }
+  .agency-import-panel textarea.large { min-height: 240px; }
+  .manual-entry-panel > summary { padding: 14px; }
+  .manual-entry-form { padding: 14px; }
   .refresh-button b { display: none; }
   .refresh-button { width: 36px; padding: 0; justify-content: center; }
   .location-strip { grid-template-columns: 1fr 1fr; }
