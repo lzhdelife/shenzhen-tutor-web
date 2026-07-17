@@ -16,26 +16,10 @@ node_modules/
 
 # TutorPlatform runtime data (contains users, password hashes, orders and images)
 TutorPlatform/data/
-TutorPlatform/public/latest-url.json
-TutorPlatform/public/launch.html
-TutorPlatform/address-page/latest-url.json
-TutorPlatform/PUBLIC-URL.txt
-TutorPlatform/FIXED-ADDRESS-PAGE.txt
-TutorPlatform/临时公网演示.txt
-TutorPlatform/上线说明.txt
-TutorPlatform/正式上线预算方案.txt
 TutorPlatform/README.txt
 
-# The existing regression corpus was captured from real chats and stays local.
+# Local private regression data stays local.
 TutorPlatform/tests/
-TutorOrderWatcher/tests/
-
-# TutorOrderWatcher runtime data and OCR artifacts
-TutorOrderWatcher/data/
-TutorOrderWatcher/temp/
-TutorOrderWatcher/exports/
-TutorOrderWatcher/README.txt
-TutorOrderWatcher/tessdata/*.traineddata
 
 # OS and editor files
 .DS_Store

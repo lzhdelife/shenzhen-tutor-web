@@ -48,12 +48,46 @@
     ], ''));
   }
 
+  function phasedSchedule(text) {
+    const summerMatch = text.match(/暑假(?:开始)?([\s\S]*?)(?=开学(?:后)?|$)/);
+    const schoolMatch = text.match(/开学(?:后)?([\s\S]*)/);
+    if (!summerMatch || !schoolMatch) return null;
+    const summer = summerMatch[1];
+    const school = schoolMatch[1];
+    const weekdays = [...summer.matchAll(/周([一二三四五六日天])/g)].map(match => match[1].replace('天', '日'));
+    const uniqueDays = [...new Set(weekdays)];
+    const time = firstMatch(summer, [
+      /((?:早上?|上午|下午|晚上|晚间)?\s*\d{1,2}\s*点(?:\s*\d{1,2}\s*分)?)/
+    ], '');
+    const summerDuration = firstMatch(summer, [/((?:一次|每次)\s*[一二三四两0-9]+\s*个?小时|[0-9]+(?:\.\d+)?h\/次)/i], '');
+    const schoolDuration = firstMatch(school, [/((?:一次|每次)\s*[一二三四两0-9]+\s*个?小时|[0-9]+(?:\.\d+)?h\/次)/i], '');
+    let summerSummary = /连续上课/.test(summer) ? '暑假连续上课' : '暑假';
+    if (/(?:每)?隔天(?:上)?(?:一|1)次|隔一天(?:上)?(?:一|1)次/.test(summer)) summerSummary = '暑假隔天1次';
+    if (uniqueDays.length) summerSummary = `暑假每周${uniqueDays.join('、')}`;
+    let schoolSummary = '开学后';
+    if (/周末[^，。；;]{0,8}(?:一|1)次|(?:每周)?周末/.test(school)) schoolSummary = '开学后每周末1次';
+    const schoolDay = school.match(/周\s*([1-6一二三四五六])[^，。；;]{0,10}(?:上)?(?:一|1)次/);
+    if (schoolDay) {
+      const day = ({ '1': '一', '2': '二', '3': '三', '4': '四', '5': '五', '6': '六' })[schoolDay[1]] || schoolDay[1];
+      schoolSummary = `开学后每周${day}1次`;
+    }
+    if (summerDuration) summerSummary += `，${summerDuration.replace(/^一次/, '每次')}`;
+    if (schoolDuration) schoolSummary += `，${schoolDuration.replace(/^一次/, '每次')}`;
+    return {
+      start: '暑假开始',
+      count: `${summerSummary}；${schoolSummary}`,
+      slot: time || (/周末/.test(school) ? '周末' : (summerDuration || schoolDuration ? '分阶段时长' : '时间段待定'))
+    };
+  }
+
   function summarizeScheduleText(value) {
     let text = compact(value);
     text = text.replace(
       /每次\s*([0-9一二三四五六七两]+\s*[-~～、，,至到]\s*[0-9一二三四五六七两]+)\s*次(?=[\s\S]*(?:每次|一次)\s*(?:时长\s*[:：]?\s*)?[0-9一二三四两.]+\s*(?:h|小时))/,
       '每周$1次'
     );
+    const phased = phasedSchedule(text);
+    if (phased) return phased;
 
     const start = firstMatch(text, [
       /(暑假|寒假|寒暑假|开学后|现在开始|马上开始|本周开始|下周开始|最近开始|近期开始|这几天就开始|最近试课|[0-9]{1,2}月[0-9]{1,2}[号日]?(?:后|起|开始|上课|试课)?|[0-9]{1,2}\.[0-9]{1,2}\s*[-到至]\s*[0-9]{1,2}\.[0-9]{1,2}|[0-9]{1,2}月[中下旬底初]?(?:开始|上课|试课)?)/

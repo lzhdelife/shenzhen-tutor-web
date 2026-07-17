@@ -2,12 +2,16 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { runParserPipeline } = require('./parser/pipeline');
+const { splitOrdersDetailed } = require('./parser/splitter');
+const { recognizeOrders } = require('./parser/recognizer');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
-const DB_PATH = path.join(ROOT, 'data', 'db.json');
-const SOURCE_IMAGE_DIR = path.join(ROOT, 'data', 'source-images');
+const DATA_DIR = process.env.TUTOR_DATA_DIR ? path.resolve(process.env.TUTOR_DATA_DIR) : path.join(ROOT, 'data');
+const DB_PATH = path.join(DATA_DIR, 'db.json');
+const SOURCE_IMAGE_DIR = path.join(DATA_DIR, 'source-images');
 const MAX_SOURCE_IMAGES = 40;
 const MAX_SOURCE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 30 * 1024 * 1024;
@@ -38,7 +42,12 @@ const LANDMARK_DISTRICTS = {
   桃源村: '南山', 农林: '福田', 华侨城: '南山', 白石洲: '南山', 西丽: '南山',
   后海: '南山', 南油: '南山', 蛇口: '南山', 车公庙: '福田', 香蜜湖: '福田',
   景田: '福田', 岗厦: '福田', 侨香: '福田', 笔架山: '福田', 孖岭: '福田', 布吉: '龙岗', 坂田: '龙岗', 大运: '龙岗',
-  民治: '龙华', 红山: '龙华', 公明: '光明', 西乡: '宝安', 固戍: '宝安'
+  民治: '龙华', 红山: '龙华', 公明: '光明', 西乡: '宝安', 固戍: '宝安', 福永: '宝安', 怀德: '宝安', 流塘: '宝安', 盐田墟: '盐田'
+};
+
+const AMAP_DISTRICT_ADCODES = {
+  罗湖: '440303', 福田: '440304', 南山: '440305', 宝安: '440306',
+  龙岗: '440307', 盐田: '440308', 龙华: '440309', 坪山: '440310', 光明: '440311'
 };
 
 function readDb() {
@@ -532,6 +541,19 @@ function textOf(value) {
   return String(value || '').trim();
 }
 
+function amapServiceKey(settings = {}) {
+  return envValue('AMAP_WEB_SERVICE_KEY') || textOf(settings.amapKey);
+}
+
+function stripLeadingDistrict(value, district = '') {
+  const text = textOf(value);
+  const name = textOf(district).replace(/区$/, '');
+  if (!name) return text;
+  // “盐田墟”是盐田区内的正式地名，不能被误删成单字“墟”。
+  if (name === '盐田' && /^盐田墟/.test(text)) return text;
+  return text.replace(new RegExp(`^${name}区?`), '');
+}
+
 function uniq(list) {
   return [...new Set(list.filter(Boolean))];
 }
@@ -566,7 +588,8 @@ function sanitizeImportedText(value) {
       .replace(/(?<=\d)\s*\/\s*[Kk](?=\s|$)/g, '/天')
       .replace(/(?<=点)\s*一\s*(?=\d)/g, '-')
       .replace(/(\d{2,4})\s*巾(?=\s|$|[，,。；;])/g, '$1/h')
-      .replace(/^(?:情况|要求|时间|科目|地址|薪酬|薪资|课酬|年级学科)\s*[,，]\s*/, match => match.replace(/[,，]/, '：'))
+      .replace(/^(?:情况|要求|时间|上课时间|科目|地址|薪酬|薪资|课酬|报酬|年级学科)\s*[,，]\s*/, match => match.replace(/[,，]/, '：'))
+      .replace(/^(\s*(?:学员地址|辅导地址|上课地址|联系地址|家教地点|地址|地点|辅导科目|科目|学员情况|学生情况|学员|学生|情况|时间安排|时间次数|时间|老师要求|教师要求|教员要求|要求|老师薪水|薪水|课酬|薪酬|薪资|时薪|报酬))\s*[》>★☆*·|｜]\s*/, '$1：')
       .replace(/^[0O囗\s]+(?=今日新单)/, '');
     if (/^(?:.*家教群.*[（(]\d+[）)]|.*一群禁[。.]?|\d{1,2}\s*[:：]\s*\d{2}|(?:全\s*)?\d+\s*条新消息)$/.test(line)) continue;
     if (/肖老师接单|接单\s*\+?\s*[vV]|喜报喜报|招肖肖老师发单|动动手指|拿提成|扫码.*家教群|招小代理|招代理/.test(line)) continue;
@@ -623,7 +646,7 @@ function lineField(text, names) {
 }
 
 function field(text, name) {
-  const reg = new RegExp(`[【\\[]${name}\\s*[：:]?[】\\]]\\s*[：:]?\\s*([\\s\\S]*?)(?=\\n\\s*(?:【|\\[|[\\u4e00-\\u9fa5]{1,8}[：:]|[A-Z]{2,}\\d|深圳S\\d|#)|$)`);
+  const reg = new RegExp(`[【\\[]${name}\\s*[：:]?[】\\]]\\s*[：:]?\\s*([\\s\\S]*?)(?=\\s*[【\\[][^】\\]]{1,18}[】\\]]|\\n\\s*(?:[\\u4e00-\\u9fa5]{1,8}[：:]|[A-Z]{2,}\\d|深圳S\\d|#)|$)`);
   const m = text.match(reg);
   return m ? m[1].trim() : '';
 }
@@ -763,7 +786,7 @@ function cleanLooseOrderBlock(lines) {
     .trim();
 }
 
-function splitImportBlocks(input) {
+function splitImportBlocksSoft(input) {
   const normalized = sanitizeImportedText(input)
     .replace(/\r/g, '')
     .replace(/\u200d/g, '')
@@ -885,6 +908,14 @@ function splitImportBlocks(input) {
   return cleaned.length ? cleaned : [normalized];
 }
 
+function splitImportBlocksDetailed(input) {
+  return splitOrdersDetailed(input, { softSplit: splitImportBlocksSoft });
+}
+
+function splitImportBlocks(input) {
+  return splitImportBlocksDetailed(input).blocks;
+}
+
 function normalizeGrade(value) {
   if (!value) return '';
   return value
@@ -939,10 +970,10 @@ function extractPlace(title, district) {
   let t = textOf(title)
     .replace(/^\s*\d+\s*[、.．)]\s*/, '')
     .replace(/^[#＃]+\s*/, '')
-    .replace(/^深圳市?/, '')
-    .replace(new RegExp(`^${district || ''}区?`), '');
+    .replace(/^深圳市?/, '');
+  t = stripLeadingDistrict(t, district);
   if (/^深圳市?/.test(t)) {
-    t = t.replace(/^深圳市?/, '').replace(new RegExp(`^${district || ''}区?`), '');
+    t = stripLeadingDistrict(t.replace(/^深圳市?/, ''), district);
   }
   t = t.replace(/(?:准|升|新)(?=小|初|高|一|二|三|四|五|六|七|八|九)/g, '');
   t = t.replace(/(幼儿园|幼儿|小[一二三四五六]|一年级|二年级|三年级|四年级|五年级|六年级|小学|初一|初二|初三|初中|高一|高二|高三|高中|成人|大学|全职住家|语文|数学|英语|物理|化学|生物|政治|历史|地理|科学|体育|音乐|美术|书法|油画|p5\.js|编程|陪玩|托管|作业辅导).*$/i, '');
@@ -997,12 +1028,40 @@ function extractStudent(text) {
   return ageLine ? ageLine.replace(/^\d+\s*[、.．)]\s*/, '') : firstMatch(text, /男生|女生|男孩|女孩|男士|女士|成人男性|成人女性|成人/);
 }
 
+function extractStudentGender(text, student = '') {
+  const studentText = textOf(student);
+  if (/女生|女孩|女学生|女学员/.test(studentText)) return '女';
+  if (/男生|男孩|男学生|男学员/.test(studentText)) return '男';
+  const source = textOf(text);
+  if (/(?:学生|学员|孩子|初[一二三]|高[一二三]|小学|年级|毕业)[^，。；;\n]{0,18}(?:女生|女孩)/.test(source)) return '女';
+  if (/(?:学生|学员|孩子|初[一二三]|高[一二三]|小学|年级|毕业)[^，。；;\n]{0,18}(?:男生|男孩)/.test(source)) return '男';
+  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}女(?:[，,。；;\s]|$)/.test(source)) return '女';
+  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}男(?:[，,。；;\s]|$)/.test(source)) return '男';
+  return '';
+}
+
+function extractGradeDescription(text, grade = '') {
+  const source = textOf(text);
+  const juniorGraduate = /初三(?:刚)?毕业|初中(?:刚)?毕业|中考(?:刚)?结束/.test(source);
+  const reviewJunior = /初三[^，。；;\n]{0,20}(?:查漏补缺|复习|巩固)|(?:查漏补缺|复习|巩固)[^，。；;\n]{0,20}初三/.test(source);
+  const previewSenior = /(?:提前)?(?:熟悉|预习|衔接)[^，。；;\n]{0,16}高一|高一[^，。；;\n]{0,16}(?:熟悉|预习|衔接)/.test(source);
+  if (juniorGraduate && reviewJunior && previewSenior) return '初三毕业，复习初三并预习高一';
+  if (juniorGraduate && previewSenior) return '初三毕业，预习高一';
+  return textOf(grade);
+}
+
 function extractSchedule(text) {
-  const labeled = anyField(text, ['家教时间', '时间', '时间安排', '时间次数', '课时次数', '次数', '时间次數']);
+  const labeled = anyField(text, ['家教时间', '上课时间', '时间', '时间安排', '时间次数', '课时次数', '次数', '时间次數']);
   if (labeled) return labeled;
   const numbered = extractNumberedSection(text, 4);
   if (numbered && /(?:\d{1,2}月|一周|每周|每天|连续|上午|下午|晚上|时段|\d+\s*次)/.test(numbered)) return numbered;
   const scheduleLine = textOf(text).split(/\n/).map(line => line.trim()).find(line => /(?:\d{1,2}月\d{1,2}[号日]|一周|每周|每天|上午|下午|晚上)[^\n]*(?:次|小时|h|时段)/i.test(line));
+  const phaseIndex = textOf(text).search(/暑假|暑期/);
+  if (phaseIndex >= 0 && /开学(?:后)?/.test(textOf(text).slice(phaseIndex))) {
+    return textOf(text).slice(phaseIndex)
+      .split(/(?=(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?\s*\d{1,2}号线)|，(?=\s*(?:\d{2,5}\s*[-—~～]|要求|老师要求|课费|报酬|薪酬|【薪酬】|【要求】))/)[0]
+      .trim();
+  }
   return scheduleLine ? scheduleLine.replace(/^\d+\s*[、.．)]\s*/, '') : firstMatch(text, /周[一二三四五六日天末][^，。；;\n]{0,30}|工作日[^，。；;\n]{0,30}|暑期[^，。；;\n]{0,40}|暑假[^，。；;\n]{0,40}|包月[^，。；;\n]{0,30}|明天试课[^，。；;\n]{0,30}|晚上|晚间|下午|上午|寒暑假|寒假/);
 }
 
@@ -1010,8 +1069,8 @@ function extractGender(text) {
   const teacherText = anyField(text, ['要求', '老师要求', '教师要求', '教员要求', '家教要求', '教员']) || extractNumberedSection(text, 5);
   if (teacherText) {
     if (/男女不限|男女皆可|男女都可|男女均可|不限性别/.test(teacherText)) return '不限';
-    if (/女老师|女教员|女大学生|女在校生|女专职|女性|(?:^|[，,、\s])女(?:[，,、\s]|$)/.test(teacherText)) return '女老师';
-    if (/男老师|男教员|男大学生|男大[一二三四]|男在校生|男专职|男性|(?:^|[，,、\s])男(?:[，,、\s]|$)/.test(teacherText)) return '男老师';
+    if (/女老师|女在职老师|女教员|女大学生|女在校生|女专职|女性|(?:^|[，,、\s])女(?:[，,、\s]|$)/.test(teacherText)) return '女老师';
+    if (/男老师|男在职老师|男教员|男大学生|男大[一二三四]|男在校生|男专职|男性|(?:^|[，,、\s])男(?:[，,、\s]|$)/.test(teacherText)) return '男老师';
   }
   if (/男女不限|男女皆可|男女都可|男女均可|男女老师|男女教员|不限/.test(text)) return '不限';
   if (/女老师|女教员/.test(text)) return '女老师';
@@ -1021,6 +1080,132 @@ function extractGender(text) {
 
 function extractRequirements(text) {
   return anyField(text, ['要求', '老师要求', '教师要求', '教员要求', '家教要求', '教员']) || extractNumberedSection(text, 5);
+}
+
+function extractLocationHierarchy(text, explicitLocation = '', district = '') {
+  const source = textOf(text);
+  const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,40})[】\]]/g)].map(match => match[1]);
+  const firstSentence = source.split(/[，,。；;\n]/)[0];
+  const leadingBody = source.replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?\s*(?:【[^】]+】)?/, '').split(/[，,。；;\n]/)[0];
+  const sources = uniq([explicitLocation, ...bracketSources, leadingBody, firstSentence]);
+  const parts = [];
+  const cleanPart = value => {
+    let item = textOf(value)
+      .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
+      .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '')
+      .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|大学|成人)/g, '')
+      .replace(/(?:语数英|数理化|语文|数学|英语|物理|化学|生物|政治|历史|地理|科学|全科|编程|体育)/g, '')
+      .replace(/(?:男生|女生|男孩|女孩|男学员|女学员|学生|学员|孩子|男性|女性|男|女)/g, '')
+      .replace(/(?:刚毕业|毕业|基础.*|想提高.*|需要.*|课费.*|报酬.*|暑假.*|开学.*|上课.*|时间.*|要求.*)$/g, '')
+      .replace(/^(?:地址|地点|上课地址|辅导地点)\s*[:：]?/, '')
+      .replace(/^深圳市?/, '')
+      .replace(/[\s#＃|｜:：]+/g, '')
+      .trim();
+    item = stripLeadingDistrict(item, district);
+    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').trim();
+  };
+  for (const candidateSource of sources) {
+    const cleaned = cleanPart(candidateSource);
+    if (!cleaned || cleaned.length < 2 || cleaned.length > 24) continue;
+    const knownNames = Object.keys(LANDMARK_DISTRICTS).filter(name => cleaned.includes(name));
+    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,10}(?:街道|社区|花园|小区|公馆|家园|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
+    const fullCandidate = cleaned.length <= 16 && !/(一般|提高|成绩|连续|周末|专业|老师|前十|知识点)/.test(cleaned) ? cleaned : '';
+    const names = uniq([fullCandidate, ...knownNames, ...suffixNames]);
+    if (names.length) {
+      for (const name of names) if (!parts.some(part => part.includes(name) || name.includes(part))) parts.push(name);
+    } else if (!/(一般|提高|成绩|连续|周末|专业|老师|前十|知识点)/.test(cleaned)) {
+      parts.push(cleaned);
+    }
+  }
+  const normalizedParts = uniq(parts.map(part => cleanPart(part)).filter(part => part.length >= 2));
+  const place = normalizedParts.join('·');
+  const compactPlace = normalizedParts.join('');
+  const districtPrefix = district ? `深圳市${district}区` : '深圳市';
+  const queries = uniq([
+    compactPlace ? `${districtPrefix}${compactPlace}` : '',
+    compactPlace,
+    normalizedParts.length > 1 ? normalizedParts.slice(-2).join('') : '',
+    normalizedParts.at(-1) || ''
+  ].filter(query => query.length >= 2));
+  return { raw: sources.filter(Boolean).join(' | '), parts: normalizedParts, place, queries };
+}
+
+function canonicalLocationPlace(place, district = '') {
+  const nearby = /附近|周边/.test(place);
+  let value = textOf(place).replace(/附近|周边/g, '');
+  if (district === '宝安' && /^(?:深圳)?(?:国际)?会展(?:中心)?$/.test(value)) value = '深圳国际会展中心';
+  return `${value}${nearby ? '附近' : ''}`;
+}
+
+function extractLocationOptions(text) {
+  const source = textOf(text);
+  const containers = [...source.matchAll(/[【\[]([^】\]]{2,80})[】\]]/g)].map(match => match[1]);
+  const multi = containers.find(value => /或|或者|二选一|均可/.test(value));
+  if (!multi) return [];
+  const segments = multi.replace(/(?:二选一|均可)/g, '').split(/\s*(?:或(?:者)?|、(?=[^、]{2,20}(?:地点|附近|区)))\s*/).filter(Boolean);
+  if (segments.length < 2) return [];
+  return segments.map(segment => {
+    const district = extractDistrict(segment);
+    const hierarchy = extractLocationHierarchy(segment, segment, district);
+    const rawPlace = hierarchy.place || extractPlace(segment, district);
+    const place = canonicalLocationPlace(rawPlace, district);
+    const precisePlace = place.replace(/附近|周边/g, '');
+    return {
+      raw: segment,
+      district,
+      place,
+      nearby: /附近|周边/.test(place),
+      query: `深圳市${district ? `${district}区` : ''}${precisePlace}`,
+      locationQueries: uniq([`深圳市${district ? `${district}区` : ''}${precisePlace}`, precisePlace])
+    };
+  }).filter(option => option.district && option.place.length >= 2);
+}
+
+function extractTransitLocation(text) {
+  const source = textOf(text).replace(/\s+/g, '');
+  const match = source.match(/(罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?(\d{1,2})号线([\u4e00-\u9fff]{2,14}?)(?:地铁站|站)/);
+  if (!match) return null;
+  const district = match[1];
+  const transitLine = `${match[2]}号线`;
+  const body = match[3];
+  const knownAreas = Object.keys(LANDMARK_DISTRICTS)
+    .filter(name => LANDMARK_DISTRICTS[name] === district && body.startsWith(name) && body.length > name.length)
+    .sort((a, b) => b.length - a.length);
+  const area = knownAreas[0] || '';
+  const stationCore = body.slice(area.length) || body;
+  const place = `${stationCore}地铁站`;
+  return {
+    district,
+    area,
+    place,
+    transitLine,
+    raw: match[0],
+    queries: uniq([
+      `深圳市${district}区${area}${place}`,
+      `深圳地铁${transitLine}${stationCore}站`,
+      place
+    ])
+  };
+}
+
+function extractLearningProfile(text) {
+  const source = textOf(text);
+  return {
+    studentLevel: firstMatch(source, /基础薄弱|基础一般|中等|优秀|基础较好/),
+    studentType: firstMatch(source, /艺术生|国际生|双语学校学生|体育生/),
+    optionalSubjects: /后续可能[^，。；;\n]{0,12}(?:历政地|历史.*政治.*地理)/.test(source) ? '历史/政治/地理' : ''
+  };
+}
+
+function extractTeacherRequirementSummary(text, existing = '') {
+  if (textOf(existing)) return textOf(existing);
+  const source = textOf(text);
+  const schools = [];
+  if (/深大|深圳大学/.test(source)) schools.push('深大');
+  if (/哈工大|哈尔滨工业大学/.test(source)) schools.push('哈工大');
+  const traits = [];
+  if (/负责|责任心/.test(source)) traits.push('负责');
+  return [schools.length > 1 ? schools.join('或') : schools[0], ...traits].filter(Boolean).join('、');
 }
 
 function lessonDurationHours(text) {
@@ -1050,46 +1235,55 @@ function extractPrice(text) {
   const salary = anyField(text, ['家教薪酬', '薪酬', '课酬', '老师课费', '课时薪酬', '课时报酬', '课费报酬', '课费薪酬', '课酬薪资', '课酬报酬', '老师薪水', '薪水', '老师报酬', '教师报酬', '老师报酬', '时薪', '报酬', '薪资', '薪资待遇']);
   const source = salary || text;
   let priceText = salary;
-  let hourly = 0;
   let monthly = 0;
+  const validPrice = value => Number(value) >= 50 && Number(value) <= 100000;
   const validHourly = value => Number(value) >= 50 && Number(value) <= 3000;
-  const finish = (value, matchedText, monthValue = 0) => ({
-    price: validHourly(value) ? Math.round(Number(value)) : 0,
+  const finish = (value, matchedText, monthValue = 0, unit = '小时', hourlyValue = value) => ({
+    price: validPrice(value) ? Math.round(Number(value)) : 0,
     priceText: textOf(matchedText || priceText),
-    monthly: monthValue
+    monthly: monthValue,
+    priceUnit: unit,
+    hourlyPrice: validHourly(hourlyValue) ? Math.round(Number(hourlyValue)) : 0,
+    priceApproximate: /左右|约|大概/.test(textOf(matchedText || priceText))
   });
   let m = source.match(/(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)\s*w\s*\/?\s*月/i);
   if (/自报|报价|面议|待定/.test(source)) {
     const quoted = source.match(/(?:老师)?自报(?:价)?(?:\s*\/\s*(?:次|小时|h|2h))?|报价|面议|待定/i);
-    return { price: 0, priceText: textOf(quoted?.[0] || salary), monthly: 0 };
+    return { price: 0, priceText: textOf(quoted?.[0] || salary), monthly: 0, priceUnit: '', hourlyPrice: 0 };
   }
   if (m) {
     monthly = Math.round((Number(m[1]) + Number(m[2])) / 2 * 10000);
-    return finish(0, m[0], monthly);
+    return finish(0, m[0], monthly, '月', 0);
   }
   m = source.match(/(\d{3,6})\s*[-—~～]\s*(\d{3,6})\s*\/?\s*月/);
   if (m) {
     monthly = Math.round((Number(m[1]) + Number(m[2])) / 2);
-    return finish(0, m[0], monthly);
+    return finish(0, m[0], monthly, '月', 0);
   }
-  m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*(?:\/|一次课\/?)\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
-  if (m) return finish((Number(m[1]) + Number(m[2])) / 2 / Number(m[3]), m[0]);
+  m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*(?:\/|一次课\/?)?\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
+  if (m) {
+    const priceMin = Number(m[1]);
+    const priceMax = Number(m[2]);
+    const duration = Number(m[3]);
+    const sessionPrice = (priceMin + priceMax) / 2;
+    return { ...finish(sessionPrice, m[0], 0, `${duration}小时`, sessionPrice / duration), priceMin, priceMax };
+  }
 
   m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*\/?\s*(?:次|节)/i);
   if (m) {
     const duration = lessonDurationHours(text);
     const sessionPrice = (Number(m[1]) + Number(m[2])) / 2;
-    return finish(duration ? sessionPrice / duration : sessionPrice, m[0]);
+    return finish(sessionPrice, m[0], 0, '次', duration ? sessionPrice / duration : 0);
   }
-  m = source.match(/(\d{2,5})\s*(?:元)?\s*\/\s*(?:次|节)/i);
+  m = source.match(/(\d{2,5})\s*(?:元)?\s*(?:左右|约|大概)?\s*(?:\/\s*(?:次|节)|(?:一|每)\s*(?:次|节|次课))/i);
   if (m) {
     const duration = lessonDurationHours(text);
-    return finish(duration ? Number(m[1]) / duration : Number(m[1]), m[0]);
+    return finish(Number(m[1]), m[0], 0, '次', duration ? Number(m[1]) / duration : 0);
   }
   m = source.match(/(\d{2,5})\s*(?:元)?\s*\/\s*天/i);
   if (m) {
     const duration = dailyDurationHours(text);
-    return finish(duration ? Number(m[1]) / duration : 0, m[0]);
+    return finish(Number(m[1]), m[0], 0, '天', duration ? Number(m[1]) / duration : 0);
   }
   m = source.match(/(\d{2,5})\s*[、,，]\s*(\d{2,5})\s*(?:元)?\s*(?:\/\s*(?:小时|时|h)|每小时)/i);
   if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
@@ -1103,7 +1297,7 @@ function extractPrice(text) {
   if (m) return finish(Number(m[1]), m[0]);
   m = salary ? source.match(/(\d{2,5})/) : source.match(/(?:时薪|课酬|薪酬|课费|报酬)[^0-9]{0,8}(\d{2,5})/);
   if (m) return finish(Number(m[1]), m[0]);
-  return { price: 0, priceText: textOf(priceText), monthly: 0 };
+  return { price: 0, priceText: textOf(priceText), monthly: 0, priceUnit: '', hourlyPrice: 0 };
 }
 
 function parseOrder(raw, source = '', agencyId = '') {
@@ -1138,27 +1332,47 @@ function parseOrder(raw, source = '', agencyId = '') {
     || (numberedLocation && /(深圳|罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|酒店|小区|花园|公馆|中心|地铁|附近)/.test(numberedLocation) ? numberedLocation : '')
     || title
     || looseLocationLine;
-  const district = extractDistrict(locationText + '\n' + title + '\n' + text);
-  const place = locationText ? extractPlace(locationText, district) : extractPlace(title, district);
+  const transitLocation = extractTransitLocation(text);
+  const district = transitLocation?.district || extractDistrict(locationText + '\n' + title + '\n' + text);
+  const locationOptions = extractLocationOptions(text);
+  const locationHierarchy = extractLocationHierarchy(text, locationField || looseLocationLine, district);
+  const place = transitLocation
+    ? [transitLocation.area, transitLocation.place].filter(Boolean).join('·')
+    : locationHierarchy.place || (locationText ? extractPlace(locationText, district) : extractPlace(title, district));
   const student = extractStudent(text);
+  const studentGender = extractStudentGender(text, student);
   const subject = extractSubjects(gradeSubjectField) || extractSubjects(looseOrderLine) || extractSubjects(title) || extractSubjects(student) || extractSubjects(text) || '其他';
   let grade = extractGrades(gradeSubjectField) || extractGrades(looseOrderLine) || extractGrades(title + '\n' + student) || extractGrades(title) || '其他';
   if (['小学', '初中', '高中'].includes(grade)) {
     grade = extractGrades(student + '\n' + title) || grade;
   }
+  const gradeDescription = extractGradeDescription(text, grade);
   const schedule = extractSchedule(text);
   const gender = extractGender(text);
   const priceInfo = extractPrice(text);
-  const requirements = extractRequirements(text) || text.replace(/\n/g, ' ').slice(0, 260);
+  const requirements = extractTeacherRequirementSummary(text, extractRequirements(text)) || text.replace(/\n/g, ' ').slice(0, 260);
+  const learningProfile = extractLearningProfile(text);
   const address = buildAddress(district, place, locationText || title);
   return {
     id: 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     agencyId,
-    district, place, address, subject, grade,
+    district, place, placeOriginal: locationHierarchy.raw || place, address, subject, grade, gradeDescription,
+    locationQuery: transitLocation?.queries[0] || locationHierarchy.queries[0] || address,
+    locationQueries: transitLocation?.queries || locationHierarchy.queries,
+    area: transitLocation?.area || '',
+    transitLine: transitLocation?.transitLine || '',
+    locationOptions,
+    locationRelation: locationOptions.length > 1 ? 'OR' : '',
     price: priceInfo.price,
     priceText: priceInfo.priceText,
     monthly: priceInfo.monthly,
-    schedule, gender, student, requirements,
+    priceMin: priceInfo.priceMin || priceInfo.price || 0,
+    priceMax: priceInfo.priceMax || priceInfo.price || 0,
+    priceUnit: priceInfo.priceUnit,
+    hourlyPrice: priceInfo.hourlyPrice,
+    priceApproximate: Boolean(priceInfo.priceApproximate),
+    schedule, gender, student, studentGender, requirements, teacherRequirement: requirements,
+    ...learningProfile,
     source: source || '网站发布',
     raw: original,
     status: 'open',
@@ -1216,20 +1430,20 @@ function estimateKm(district, place) {
 }
 
 function cleanLocationCandidate(value, district = '') {
-  const cleaned = textOf(value)
+  let cleaned = textOf(value)
     .replace(/^[【\[（(《<]+|[】\]）)》>]+$/g, '')
     .replace(/^(?:学员地址|辅导地址|上课地址|联系地址|地址|地点)\s*[:：]?\s*/, '')
     .replace(/^(?:深圳)?[A-Za-z]{0,4}\d{6,}[A-Za-z]?\s*/i, '')
     .replace(/^\d{1,3}(?=深圳市|[\u4e00-\u9fff]{2,4}区)/, '')
-    .replace(/^深圳市?/, '')
-    .replace(new RegExp(`^${textOf(district).replace(/区$/, '')}区?`), '')
+    .replace(/^深圳市?/, '');
+  cleaned = stripLeadingDistrict(cleaned, district)
     .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三四]|[七八九]年级|初中|高[一二三]|高中|大学|成人).*$/i, '')
     .replace(/(?:语文|数学|英语|物理|化学|生物|政治|历史|地理|科学|全科|编程|体育).*$/i, '')
     .replace(/古城附近老师找地方/g, '南头古城')
     .replace(/(?:附近|最近|周边|老师找地方)\s*$/g, '')
     .replace(/^[#＃A-Za-z\d._-]{1,8}\s*(?=[\u4e00-\u9fff])/, '')
-    .replace(/^深圳市?/, '')
-    .replace(new RegExp(`^${textOf(district).replace(/区$/, '')}区?`), '')
+    .replace(/^深圳市?/, '');
+  cleaned = stripLeadingDistrict(cleaned, district)
     .replace(/襄田(?=侨香)/g, '福田')
     .replace(/香密湖/g, '香蜜湖')
     .replace(/此口(?=中心路)/g, '蛇口')
@@ -1367,31 +1581,34 @@ function extractTransitLandmarkQuery(query) {
   return `${prefix}地铁站`;
 }
 
-async function amapPlaceCandidates(settings, query) {
-  const key = settings.amapKey || '';
+async function amapPlaceCandidates(settings, query, districtHint = '') {
+  const key = amapServiceKey(settings);
   if (!key || query.length < 2) return [];
   const candidates = [];
   try {
     const searchQueries = uniq([extractTransitLandmarkQuery(query), query].filter(Boolean));
+    const searchScopes = uniq([AMAP_DISTRICT_ADCODES[districtHint], '440300']);
     const seen = new Set();
-    for (const searchQuery of searchQueries) {
-      const url = `https://restapi.amap.com/v3/place/text?key=${encodeURIComponent(key)}&keywords=${encodeURIComponent(searchQuery)}&city=${encodeURIComponent('深圳')}&citylimit=true&offset=8&page=1&extensions=base&output=JSON`;
-      const data = await fetch(url, { signal: AbortSignal.timeout(7000) }).then(response => response.json());
-      if (data.status !== '1' || !Array.isArray(data.pois)) continue;
-      for (const poi of data.pois) {
-        if (!poi?.name || !poi?.location) continue;
-        const candidateKey = textOf(poi.id) || `${textOf(poi.name)}|${textOf(poi.location)}`;
-        if (seen.has(candidateKey)) continue;
-        seen.add(candidateKey);
-        candidates.push({
-          id: textOf(poi.id),
-          name: textOf(poi.name),
-          district: amapDistrictName(poi.adname),
-          address: Array.isArray(poi.address) ? '' : textOf(poi.address),
-          location: textOf(poi.location),
-          type: textOf(poi.type),
-          rank: candidates.length
-        });
+    for (const searchScope of searchScopes) {
+      for (const searchQuery of searchQueries) {
+        const url = `https://restapi.amap.com/v3/place/text?key=${encodeURIComponent(key)}&keywords=${encodeURIComponent(searchQuery)}&city=${encodeURIComponent(searchScope)}&citylimit=true&offset=12&page=1&extensions=base&output=JSON`;
+        const data = await fetch(url, { signal: AbortSignal.timeout(7000) }).then(response => response.json());
+        if (data.status !== '1' || !Array.isArray(data.pois)) continue;
+        for (const poi of data.pois) {
+          if (!poi?.name || !poi?.location) continue;
+          const candidateKey = textOf(poi.id) || `${textOf(poi.name)}|${textOf(poi.location)}`;
+          if (seen.has(candidateKey)) continue;
+          seen.add(candidateKey);
+          candidates.push({
+            id: textOf(poi.id),
+            name: textOf(poi.name),
+            district: amapDistrictName(poi.adname),
+            address: Array.isArray(poi.address) ? '' : textOf(poi.address),
+            location: textOf(poi.location),
+            type: textOf(poi.type),
+            rank: candidates.length
+          });
+        }
       }
     }
   } catch (_) {}
@@ -1418,7 +1635,7 @@ async function amapPlaceCandidates(settings, query) {
 }
 
 async function amapGeocodeCandidate(settings, query, districtHint) {
-  const key = settings.amapKey || '';
+  const key = amapServiceKey(settings);
   if (!key || query.length < 2) return null;
   try {
     const address = `深圳市${districtHint ? `${districtHint}区` : ''}${query}`;
@@ -1442,12 +1659,55 @@ async function amapGeocodeCandidate(settings, query, districtHint) {
 }
 
 async function resolveOrderLocation(order, settings) {
+  if (Array.isArray(order.locationOptions) && order.locationOptions.length > 1) {
+    const resolvedOptions = [];
+    for (const option of order.locationOptions) {
+      const resolved = await resolveOrderLocation({
+        district: option.district,
+        place: option.place,
+        placeOriginal: option.raw || option.place,
+        address: option.query,
+        locationQuery: option.query,
+        locationQueries: option.locationQueries || [option.query],
+        raw: order.raw
+      }, settings);
+      resolvedOptions.push({
+        ...option,
+        district: resolved.district || option.district,
+        place: resolved.locationVerified ? resolved.place : option.place,
+        poiId: resolved.locationPoiId || '',
+        coordinates: resolved.locationCoordinates || '',
+        confidence: resolved.locationConfidence || 0,
+        verified: Boolean(resolved.locationVerified),
+        candidates: resolved.locationCandidates || []
+      });
+    }
+    order.locationOptions = resolvedOptions;
+    order.locationRelation = 'OR';
+    const primary = resolvedOptions[0];
+    order.district = primary.district;
+    order.place = primary.place;
+    order.address = primary.query;
+    order.locationQuery = primary.query;
+    order.locationCoordinates = primary.coordinates;
+    order.locationPoiId = primary.poiId;
+    order.locationConfidence = primary.confidence;
+    order.locationVerified = resolvedOptions.some(option => option.verified);
+    order.locationStatus = resolvedOptions.every(option => option.verified) ? 'verified' : 'options_unverified';
+    return order;
+  }
+  const normalizedPlace = textOf(order.place);
   const originalPlace = textOf(order.placeOriginal || order.place);
   const districtHint = textOf(order.district).replace(/区$/, '');
-  const query = cleanLocationCandidate(originalPlace || order.address, districtHint);
+  const fallbackQuery = cleanLocationCandidate(order.place || originalPlace || order.address, districtHint);
+  const locationQueries = uniq([...(Array.isArray(order.locationQueries) ? order.locationQueries : []), order.locationQuery, fallbackQuery]
+    .map(value => textOf(value)).filter(value => value.length >= 2));
+  const query = locationQueries[0] || fallbackQuery;
+  order.locationQuery = query;
+  order.locationQueries = locationQueries;
   order.placeOriginal ||= originalPlace;
   const clearResolvedLocation = (status, keepOriginal = true) => {
-    order.place = keepOriginal ? originalPlace : '';
+    order.place = keepOriginal ? normalizedPlace : '';
     order.address = buildAddress(districtHint, order.place, order.raw);
     order.locationVerified = false;
     order.locationStatus = status;
@@ -1455,34 +1715,53 @@ async function resolveOrderLocation(order, settings) {
     order.locationCoordinates = '';
     order.locationAddress = '';
     order.locationConfidence = 0;
+    order.locationCandidates = locationQueries.slice(0, 3).map(name => ({ name, district: districtHint, location: '' }));
   };
-  if (!settings.amapKey || query.length < 2) {
+  if (!amapServiceKey(settings) || query.length < 2) {
     clearResolvedLocation(query ? 'unverified' : 'missing', Boolean(query));
     return order;
   }
-  const candidates = await amapPlaceCandidates(settings, query);
+  const candidates = [];
+  const seenCandidates = new Set();
+  for (const searchQuery of locationQueries.slice(0, 4)) {
+    const found = await amapPlaceCandidates(settings, searchQuery, districtHint);
+    for (const candidate of found) {
+      const key = candidate.id || `${candidate.name}|${candidate.location}`;
+      if (seenCandidates.has(key)) continue;
+      seenCandidates.add(key);
+      candidates.push({ ...candidate, searchQuery });
+    }
+  }
   const consensusDistrict = consensusCandidateDistrict(candidates);
   let best = null;
   let bestScore = -Infinity;
+  const scoredCandidates = [];
   for (const candidate of candidates) {
     const districtMatch = districtHint && candidate.district === districtHint;
     const districtConflict = districtHint && candidate.district && candidate.district !== districtHint;
-    const similarity = locationNameSimilarity(query, candidate.name);
+    const candidateQuery = candidate.searchQuery || query;
+    const similarity = Math.max(...locationQueries.map(searchQuery => locationNameSimilarity(searchQuery, candidate.name)));
     const residentialBonus = /商务住宅;住宅区|住宅小区/.test(candidate.type) ? 18 : 0;
     const requestedTransit = /地铁|公交|车站/.test(query);
     const transitBonus = requestedTransit && /交通设施服务/.test(candidate.type) ? 12 : 0;
-    const explicitTransitMatch = isExplicitTransitCandidateMatch(query, candidate);
+    const explicitTransitMatch = isExplicitTransitCandidateMatch(candidateQuery, candidate);
     const trustedDistrictCorrection = districtConflict && explicitTransitMatch && candidate.district === consensusDistrict;
     const retailRequested = /广场|商场|购物中心|百货|门店|商店/.test(query);
     const unwantedDetail = isUnexpectedLocationDetail(query, candidate);
     const unwantedRetail = !retailRequested && /购物服务/.test(candidate.type);
     const detailPenalty = unwantedDetail ? 80 : unwantedRetail ? 40 : 0;
     const companyPenalty = isUnexpectedCompanyCandidate(query, candidate) ? 145 : 0;
-    const queryCoverage = locationQueryCharacterCoverage(query, candidate);
+    const queryCoverage = locationQueryCharacterCoverage(candidateQuery, candidate);
     const coveragePenalty = queryCoverage < 0.65 && !explicitTransitMatch ? 90 : 0;
     const districtConflictPenalty = districtConflict ? (trustedDistrictCorrection ? 12 : 55) : 0;
+    const broadAreaRequest = /(?:街道|社区|片区|乡|塘)$/.test(ocrComparable(normalizedPlace).replace(/西乡流塘$/, '流塘')) || /·/.test(normalizedPlace);
+    const unwantedSpecificBuilding = broadAreaRequest && /大厦|写字楼|商务中心|产业园|商业城|酒店/.test(candidate.name)
+      && !textOf(normalizedPlace).includes(candidate.name);
+    const administrativeBonus = broadAreaRequest && /社区中心|村庄级地名|普通地名|政府机构|地名地址信息/.test(`${candidate.type}|${candidate.name}`) ? 22 : 0;
     const scoreValue = similarity + residentialBonus + transitBonus + (explicitTransitMatch ? 45 : 0) + (districtMatch ? 24 : 0)
-      - districtConflictPenalty - detailPenalty - companyPenalty - coveragePenalty - (candidate.rank * 1.5);
+      + administrativeBonus - districtConflictPenalty - detailPenalty - companyPenalty - coveragePenalty
+      - (unwantedSpecificBuilding ? 95 : 0) - (candidate.rank * 1.5);
+    scoredCandidates.push({ ...candidate, confidence: Math.max(0, Math.min(100, Math.round(scoreValue))) });
     if (scoreValue > bestScore) {
       best = candidate;
       bestScore = scoreValue;
@@ -1490,6 +1769,18 @@ async function resolveOrderLocation(order, settings) {
   }
   const shortQueryMismatch = ocrComparable(query).length <= 2 && ocrComparable(query) !== ocrComparable(best?.name);
   const trustedBestDistrictCorrection = best && best.district === consensusDistrict && isExplicitTransitCandidateMatch(query, best);
+  const rankedCandidates = scoredCandidates.sort((a, b) => b.confidence - a.confidence);
+  const broadAreaRequest = /·/.test(normalizedPlace) || /(?:街道|社区|片区|乡|塘)$/.test(normalizedPlace);
+  const closeAreaCandidates = rankedCandidates.filter(candidate => candidate.confidence >= (rankedCandidates[0]?.confidence || 0) - 10);
+  const ambiguousArea = broadAreaRequest && candidates.length > 0 && (
+    /大厦|写字楼|商务中心|产业园|商业城|酒店/.test(best?.name || '')
+    || new Set(closeAreaCandidates.map(candidate => ocrComparable(candidate.name))).size >= 2
+  );
+  if (ambiguousArea) {
+    clearResolvedLocation('ambiguous');
+    order.locationCandidates = rankedCandidates.slice(0, 3);
+    return order;
+  }
   const acceptable = best && bestScore >= 52 && !shortQueryMismatch
     && (!districtHint || !best.district || best.district === districtHint || trustedBestDistrictCorrection);
   if (!acceptable) {
@@ -1504,6 +1795,7 @@ async function resolveOrderLocation(order, settings) {
       order.locationCoordinates = geocoded.location;
       order.locationAddress = geocoded.address;
       order.locationConfidence = 65;
+      order.locationCandidates = rankedCandidates.slice(0, 3);
       return order;
     }
     clearResolvedLocation(candidates.length ? 'ambiguous' : 'not_found');
@@ -1518,6 +1810,7 @@ async function resolveOrderLocation(order, settings) {
   order.locationCoordinates = best.location;
   order.locationAddress = best.address;
   order.locationConfidence = Math.max(0, Math.min(100, Math.round(bestScore)));
+  order.locationCandidates = rankedCandidates.slice(0, 3);
   return order;
 }
 
@@ -1567,7 +1860,7 @@ async function locationSuggestions(settings, query) {
     });
   };
 
-  const key = settings.amapKey || '';
+  const key = amapServiceKey(settings);
   if (key) {
     try {
       const url = `https://restapi.amap.com/v3/assistant/inputtips?key=${encodeURIComponent(key)}&keywords=${encodeURIComponent(keywords)}&city=${encodeURIComponent('深圳')}&citylimit=true&datatype=all`;
@@ -1602,7 +1895,7 @@ async function locationSuggestions(settings, query) {
 }
 
 async function routeKm(settings, address, destinationCoordinates = '') {
-  const key = settings.amapKey || '';
+  const key = amapServiceKey(settings);
   const home = settings.routeOrigin || settings.homeAddress || '';
   if (!key || !home || !address) return null;
   const routes = await routeOptions(settings, home, destinationCoordinates || address, ['cycling']);
@@ -1668,7 +1961,7 @@ function routeRequest(mode, key, origin, destination) {
 }
 
 async function routeOptions(settings, originAddress, destinationAddress, requestedModes = ROUTE_MODES) {
-  const key = settings.amapKey || '';
+  const key = amapServiceKey(settings);
   if (!key || !originAddress || !destinationAddress) return {};
   const modes = [...new Set((Array.isArray(requestedModes) ? requestedModes : [requestedModes])
     .map(sanitizeRouteMode))];
@@ -1712,6 +2005,13 @@ function score(order, settings) {
 
 async function enrichOrder(order, settings) {
   await resolveOrderLocation(order, settings);
+  order.structured = await runParserPipeline({ rawText: order.raw, ruleOrder: order });
+  if (Array.isArray(order.locationOptions) && order.locationOptions.length > 1) {
+    order.locationOptions = await mapWithConcurrency(order.locationOptions, 2, async option => {
+      const routes = await routeOptions(settings, settings.routeOrigin || settings.homeAddress || '', option.coordinates || option.query, ['cycling']);
+      return { ...option, routeOptions: routes };
+    });
+  }
   if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
   const routed = await routeKm(settings, order.address, order.locationCoordinates);
   if (routed) {
@@ -1741,8 +2041,25 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 async function previewDistances(settings, origin, orders, requestedMode = 'cycling') {
   const mode = sanitizeRouteMode(requestedMode);
   const scopedSettings = { ...settings, routeOrigin: textOf(origin) };
-  const originCoordinates = settings.amapKey ? await geocode(settings.amapKey, scopedSettings.routeOrigin) : '';
+  const key = amapServiceKey(settings);
+  const originCoordinates = key ? await geocode(key, scopedSettings.routeOrigin) : '';
   return mapWithConcurrency(orders, 2, async order => {
+    if (Array.isArray(order.locationOptions) && order.locationOptions.length > 1) {
+      const locationOptionRoutes = await mapWithConcurrency(order.locationOptions, 2, async option => ({
+        ...option,
+        routeOptions: await routeOptions(scopedSettings, originCoordinates || scopedSettings.routeOrigin, option.coordinates || option.query, [mode])
+      }));
+      const available = locationOptionRoutes.map(option => option.routeOptions?.[mode]).filter(Boolean).sort((a, b) => a.km - b.km);
+      const preferred = available[0] || {};
+      return {
+        id: order.id,
+        distanceKm: preferred.km || '',
+        routeMode: preferred.mode || '多地点待计算',
+        routeOptions: preferred.km ? { [mode]: preferred } : {},
+        locationOptionRoutes,
+        score: score({ ...order, distanceKm: preferred.km || '' }, scopedSettings)
+      };
+    }
     if (order.locationVerified === false && ['ambiguous', 'not_found', 'missing'].includes(order.locationStatus)) {
       return {
         id: order.id,
@@ -1779,7 +2096,7 @@ function sanitizeTeacherPreferences(value = {}) {
     district: new Set(LISTS.districts),
     subject: new Set(['语文', '数学', '英语', '物理', '化学', '生物', '历史', '政治', '地理', '体育', '其他']),
     grade: new Set(['小学', '初中', '高中', '其他']),
-    gender: new Set(['男老师', '女老师', '男女不限'])
+    gender: new Set(['男老师', '女老师', '男女不限', '教师性别未说明'])
   };
   const selected = {};
   for (const group of Object.keys(allowed)) {
@@ -2354,9 +2671,18 @@ async function handleApi(req, res) {
     const agency = requireRole(req, res, 'agency');
     if (!agency) return;
     const data = await bodyJson(req);
-    const chunks = dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id);
-    const parsed = chunks.map(chunk => parseOrder(chunk, agency.name, agency.id));
-    return send(res, 200, { parsed });
+    const result = await recognizeOrders({
+      text: data.text || '',
+      source: agency.name,
+      agencyId: agency.id,
+      settings: db.settings
+    }, {
+      splitDetailed: splitImportBlocksDetailed,
+      parseRuleOrder: parseOrder,
+      resolveLocation: resolveOrderLocation,
+      buildStructured: runParserPipeline
+    });
+    return send(res, 200, result);
   }
 
   if (req.method === 'POST' && url.pathname === '/api/import') {
@@ -2476,7 +2802,7 @@ async function handleApi(req, res) {
     if (!allowed) return send(res, 403, { error: '你只能管理自己发布的订单' });
     const allowedFields = actor.role === 'admin'
       ? ['status']
-      : ['status', 'district', 'place', 'address', 'subject', 'grade', 'price', 'priceText', 'monthly', 'schedule', 'gender', 'student', 'requirements', 'raw'];
+      : ['status', 'district', 'place', 'placeOriginal', 'address', 'subject', 'grade', 'gradeDescription', 'price', 'priceMin', 'priceMax', 'priceUnit', 'hourlyPrice', 'priceText', 'monthly', 'schedule', 'gender', 'student', 'studentGender', 'requirements', 'raw'];
     for (const key of allowedFields) {
       if (Object.prototype.hasOwnProperty.call(data, key)) order[key] = data[key];
     }
@@ -2515,13 +2841,14 @@ const server = http.createServer((req, res) => {
 
 if (require.main === module) {
   server.listen(PORT, () => {
-    console.log(`家教平台已启动：http://localhost:${PORT}`);
+    console.log(`深圳家教接单平台已启动：http://localhost:${PORT}`);
     console.log('局域网访问：把 localhost 换成这台电脑的局域网 IP。');
   });
 }
 
 module.exports = {
   splitImportBlocks,
+  splitImportBlocksDetailed,
   dedupeImportBlocks,
   importBlockRichness,
   parseOrder,

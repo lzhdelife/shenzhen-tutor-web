@@ -1,11 +1,11 @@
 {
-  "name": "shenzhen-tutor-platform",
+  "name": "shenzhen-tutor-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Tutor order platform and Windows WeChat OCR importer",
+  "description": "深圳家教接单平台 Web 应用",
   "scripts": {
     "start": "node TutorPlatform/server.js",
-    "test": "node tests/smoke.js",
+    "test": "node tests/smoke.js && node tests/parser-regressions.js && node tests/recognizer-contract.js && node tests/api-preview.js",
     "check:secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1"
   },
   "engines": {

@@ -3,7 +3,6 @@
 ## 不得提交的内容
 
 - `TutorPlatform/data/` 中的用户、订单、密码散列、记住登录令牌和订单原图。
-- `TutorOrderWatcher/data/`、`temp/`、`exports/` 中的账号配置、地图 Key、截图、OCR 文字、群名和导出表格。
 - 腾讯云、微信开放平台、高德、Cloudflare 或其他服务的密钥和 Token。
 - 真实手机号、密码、聊天记录、微信截图及可识别个人或家庭的信息。
 
@@ -20,7 +19,6 @@ npm run check:secrets
 - 密码使用 Node.js `scrypt` 加盐散列后写入本地 JSON，不保存明文。
 - Bearer 会话保存在 Node.js 进程内，服务重启后失效。
 - “记住登录”只把随机令牌放在 `HttpOnly`、`SameSite=Lax` Cookie 中，数据库只保存令牌散列。
-- OCR 助手不会读取微信数据库或调用个人微信接口，只操作当前可见窗口并截屏识别。
 
 当前实现仍是原型：缺少完整的登录限流、审计日志、数据库并发控制、生产级密钥管理和集中监控。不要在未完成 `docs/DEPLOYMENT.md` 中生产改造项的情况下承载大量真实用户。
 

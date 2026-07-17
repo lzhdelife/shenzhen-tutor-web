@@ -35,7 +35,7 @@ const TEACHER_FILTER_OPTIONS = {
   district: [],
   subject: [...K12_FILTER_SUBJECTS, '其他'],
   grade: ['小学', '初中', '高中', '其他'],
-  gender: ['男老师', '女老师', '男女不限']
+  gender: ['男老师', '女老师', '男女不限', '教师性别未说明']
 };
 const teacherFilterSelections = {
   district: new Set(),
@@ -289,6 +289,14 @@ function selectedRoute(order) {
 }
 
 function routeText(order) {
+  const optionRoutes = distanceOverrides[order.id]?.locationOptionRoutes || order.locationOptions || [];
+  if (Array.isArray(optionRoutes) && optionRoutes.length > 1) {
+    const summaries = optionRoutes.map((option, index) => {
+      const route = option.routeOptions?.[routeMode];
+      return route?.km ? `${index + 1}：${route.km}公里/约${route.minutes || '-'}分钟` : `${index + 1}：待计算`;
+    });
+    return summaries.join('；');
+  }
   if (order.locationVerified === false && ['ambiguous', 'not_found', 'missing'].includes(order.locationStatus)) {
     return '地点待核实，距离暂不可计算';
   }
@@ -437,13 +445,13 @@ function renderBadges() {
 
 function genderBucket(order) {
   const requirement = requirementSource(order);
-  const text = repairCommonOcr(`${order.gender || ''} ${requirement || order.raw || ''}`);
-  const wantsFemale = /女老师|女教员|女大学生|女生优先|女老师优先|性别\s*女|(?:^|[，；：\s])女(?:[，、；\s]|$)/.test(text);
-  const wantsMale = /男老师|男教员|男大学生|男生优先|男老师优先|性别\s*男|(?:^|[，；：\s])男(?:[，、；\s]|$)/.test(text);
+  const text = repairCommonOcr(`${order.gender || ''} ${requirement || ''}`);
+  const wantsFemale = /女老师|女教员|女大学生|女老师优先|教师性别\s*女/.test(text);
+  const wantsMale = /男老师|男教员|男大学生|男老师优先|教师性别\s*男/.test(text);
   if (wantsMale && !wantsFemale) return '男老师';
   if (wantsFemale && !wantsMale) return '女老师';
   if (/男女不限|性别不限|不限性别|男女都可|男老师女老师都可以/.test(text)) return '男女不限';
-  return '男女不限';
+  return '教师性别未说明';
 }
 
 function subjectBuckets(order) {
@@ -484,7 +492,7 @@ function filteredOrders() {
     .filter(o => matchesSelection(subjectBuckets(o), teacherFilterSelections.subject))
     .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
-    .filter(o => !minPrice || Number(o.price) >= minPrice || Number(o.monthly) >= minPrice)
+    .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) && Number(o.distanceKm) <= maxKm))
     .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
 }
@@ -577,10 +585,14 @@ function priceLabel(o) {
     .replace(/^(?:老师薪水|老师课费|课时价格|课费报酬|课费薪酬|薪酬|课酬|薪资|时薪)\s*[:：]?\s*/, '')
     .split(/(?:学生|学员|老师要求|教员要求|要求|地址|地点|科目|时间)\s*[:：]/)[0]
     .trim();
+  if (Number(o.priceMin) && Number(o.priceMax) && Number(o.priceMin) !== Number(o.priceMax) && o.priceUnit) {
+    return `${o.priceMin}-${o.priceMax}元/${o.priceUnit}`;
+  }
+  if (Number(o.price) >= 50 && o.priceUnit) return `${o.price}元/${o.priceUnit}`;
   const direct = text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*(?:元|万|[kKwW])?\s*(?:\/|每|一)\s*(?:小时|时|h|次|节|天|月|2h)/i)
     || text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*元\s*(?:左右)?/i)
     || text.match(/\d+(?:\.\d+)?\s*[-~～—至到]\s*\d+(?:\.\d+)?\s*[万wWkK]\s*\/?\s*月/i);
-  if (direct) return compactText(direct[0]).replace(/\s+/g, '');
+  if (direct) return compactText(direct[0]).replace(/\s+/g, '').replace(/元?一次(?:课)?$/, '元/次');
 
   const ranges = [...text.matchAll(/(\d{2,6}\s*[-~～—至到一]\s*\d{2,6})/g)];
   if (ranges.length && /一次课|每次|\/次/.test(text)) return `${ranges.at(-1)[1].replace(/\s+/g, '')}/次`;
@@ -607,9 +619,9 @@ function displayPlace(order) {
     .replace(/深圳市/g, '')
     .replace(/^\d{1,2}(?=[\u4e00-\u9fff]{2,4}区)/, '')
     .replace(/^[^\u4e00-\u9fff0-9]+/, '')
-    .replace(new RegExp(`^${district}区?`), '')
+    .replace(new RegExp(`^${district}区?(?!墟)`), '')
     .replace(/^(?:次|地址|地点)\s*[:：]\s*/, '')
-    .replace(new RegExp(`^${district}区?`), '')
+    .replace(new RegExp(`^${district}区?(?!墟)`), '')
     .replace(/\s+(?:时间|次数|科目|学生|学员|老师|要求)\s*[:：].*$/, '')
     .replace(/\s*[:：]\s*(?:局蒙|男生|女生|男孩|女孩).*$/, '')
     .replace(/[|｜].*$/, '')
@@ -649,7 +661,7 @@ function fieldFromRaw(raw, names) {
 }
 
 function splitSchedule(order) {
-  const extracted = fieldFromRaw(order.raw, ['时间安排', '时间次数', '次数', '时间']);
+  const extracted = fieldFromRaw(order.raw, ['上课时间', '时间安排', '时间次数', '次数', '时间']);
   const text = cleanDisplayText(extracted || order.schedule || '', 150)
     .split(/(?:薪酬|课酬|薪资|时薪|老师薪水|老师要求|教员要求|要求|地点|地址|科目|学生|学员)\s*[:：]/)[0]
     .trim();
@@ -675,10 +687,11 @@ function studentSummary(order) {
     .replace(/[，,、\s]*(?:要|需|需要)(?:男|女)老师.*$/, '')
     .trim();
   if (!usefulChineseText(student) || structuredFieldCount(student) > 1 || /家教群|新消息|接单/.test(student)) student = '';
-  const grade = categoryLabel(order.grade, state.lists.grades, '年级待定');
+  const grade = cleanDisplayText(order.gradeDescription || '', 40) || categoryLabel(order.grade, state.lists.grades, '年级待定');
   const subject = categoryLabel(order.subject, state.lists.subjects, '科目待定');
   if (student.replace(/^(?:准|新)/, '') === grade) student = '';
-  const gradeSubject = `${grade} / ${subject}`;
+  const gender = order.studentGender ? `；学生：${order.studentGender}` : '';
+  const gradeSubject = `${grade} / ${subject}${gender}`;
   return student && !/学生信息待定/.test(student) ? `${gradeSubject}；${student}` : gradeSubject;
 }
 
@@ -729,12 +742,23 @@ function teacherDisplayName(name) {
 }
 
 function orderDisplayMeta(o) {
+  if (Array.isArray(o.locationOptions) && o.locationOptions.length > 1) {
+    const labels = o.locationOptions.slice(0, 3).map((option, index) => {
+      const place = cleanDisplayText(option.place || '', 40).replace(/^深圳国际会展中心/, '国际会展中心');
+      return `${['①', '②', '③'][index] || `${index + 1}.`}${option.district || ''}·${place}`;
+    });
+    const grade = cleanDisplayText(o.gradeDescription || '', 40) || categoryLabel(o.grade, state.lists.grades, '年级待定');
+    const subject = categoryLabel(o.subject, state.lists.subjects, '科目待定');
+    const location = `地点二选一：${labels.join(' ')}`;
+    return { district: '', place: '', location, grade, subject, title: `${location} | ${grade} ${subject}` };
+  }
   const district = state.lists.districts.includes(String(o.district || '').replace(/区$/, ''))
     ? String(o.district).replace(/区$/, '')
     : '';
   const place = displayPlace(o);
-  const location = `${district}${place}`.replace(/区区/g, '区') || '位置待定';
-  const grade = categoryLabel(o.grade, state.lists.grades, '年级待定');
+  const locationBase = `${district ? `${district}区·` : ''}${place}`.replace(/区·区/g, '区·') || '位置待定';
+  const location = o.transitLine ? `${locationBase}（${cleanDisplayText(o.transitLine, 12)}）` : locationBase;
+  const grade = cleanDisplayText(o.gradeDescription || '', 40) || categoryLabel(o.grade, state.lists.grades, '年级待定');
   const subject = categoryLabel(o.subject, state.lists.subjects, '科目待定');
   const title = `${location} | ${grade} ${subject}`;
   return { district, place, location, grade, subject, title };
@@ -938,16 +962,35 @@ function previewCard(o, index) {
   const meta = orderDisplayMeta(o);
   const schedule = splitSchedule(o);
   const notes = miscNotes(o);
+  const candidates = !o.locationVerified && Array.isArray(o.locationCandidates)
+    ? o.locationCandidates.slice(0, 3).filter(candidate => candidate?.name)
+    : [];
   return `<div class="preview-card">
     <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
     <div class="meta">
       <span class="pill">${escapeHtml(priceLabel(o))}</span>
-      <span class="pill">${escapeHtml(`${schedule.start} · ${schedule.count}`)}</span>
+      <span class="pill">${escapeHtml(`${schedule.start} · ${schedule.count} · ${schedule.slot}`)}</span>
       <span class="pill">${escapeHtml(genderBucket(o))}</span>
       <span class="pill">${escapeHtml(studentSummary(o))}</span>
     </div>
+    ${candidates.length ? `<div class="raw">地点待确认：${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
   </div>`;
+}
+
+function selectPreviewLocationCandidate(orderIndex, candidateIndex) {
+  const order = parsedImport[orderIndex];
+  const candidate = order?.locationCandidates?.[candidateIndex];
+  if (!order || !candidate) return;
+  order.district = String(candidate.district || order.district || '').replace(/区$/, '');
+  order.place = candidate.name;
+  order.address = `深圳市${order.district ? `${order.district}区` : ''}${candidate.name}`;
+  order.locationCoordinates = candidate.location || '';
+  order.locationPoiId = candidate.id || '';
+  order.locationConfidence = candidate.confidence || 0;
+  order.locationVerified = Boolean(candidate.location);
+  order.locationStatus = candidate.location ? 'selected' : 'selected_unverified';
+  renderPreview();
 }
 
 function renderPreview() {

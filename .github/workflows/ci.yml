@@ -22,10 +22,6 @@ jobs:
       - name: Run synthetic tests
         run: npm test
 
-      - name: Check PowerShell syntax
-        shell: powershell
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-powershell-syntax.ps1
-
       - name: Scan tracked files for secrets and private runtime data
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1

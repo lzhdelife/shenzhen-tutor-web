@@ -22,7 +22,7 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `homeAddress` | string | 管理端默认出发地 |
-| `amapKey` | string | 高德 Web 服务 Key，敏感数据 |
+| `amapKey` | string | 本地兼容用的高德 Web 服务 Key；生产环境优先使用 `AMAP_WEB_SERVICE_KEY` |
 | `maxBikeKm` | number | 历史默认骑行范围，当前路线 UI 仍沿用该配置 |
 | `adminPasswordHash` | string | `salt:scryptHex`，敏感数据 |
 
@@ -82,12 +82,18 @@
 | `address` | string | 用于地理编码的完整地址 |
 | `subject` | string | 一个或多个科目文本 |
 | `grade` | string | 规范化年级 |
-| `price` | number | 换算后的参考时薪 |
+| `gradeDescription` | string | 保留“复习初三并预习高一”等跨阶段教学语义 |
+| `price` | number | 原始计价单位下的代表价格（区间取中值） |
+| `priceMin` / `priceMax` | number | 原始价格区间；单价时两者相同 |
+| `priceUnit` | string | `小时`、`次`、`2小时`、`天`或`月`等原始计价单位 |
+| `hourlyPrice` | number | 仅在能可靠换算时提供的参考时薪 |
+| `priceApproximate` | boolean | 原文是否包含“左右/约/大概” |
 | `priceText` | string | 原始课酬文本 |
 | `monthly` | number | 包月订单的月薪，普通订单通常为 0 |
 | `schedule` | string | 开始日期、频率、时段和时长原文摘要 |
 | `gender` | string | `男老师`、`女老师`、`不限` 或空 |
 | `student` | string | 学生性别、成绩和情况 |
+| `studentGender` | string | 学生性别，与教师性别严格分离 |
 | `requirements` | string | 教师能力、院校、经验和其他要求 |
 | `raw` | string | 清洗后的订单原文 |
 
@@ -102,6 +108,10 @@
 | `locationCoordinates` | string? | `longitude,latitude` |
 | `locationAddress` | string? | 高德候选地址 |
 | `locationConfidence` | number? | 本地匹配评分 |
+| `locationQuery` / `locationQueries` | string/string[] | 按区、街道/片区、社区/小区组合的高德查询 |
+| `locationCandidates` | array | 低置信度时保留给预览人工选择的 2–3 个候选 |
+| `locationOptions` | array | “A 或 B/二选一/均可”订单的多个地点；每项独立保存 POI、坐标、置信度和路线 |
+| `locationRelation` | string | 多地点关系，当前为 `OR` |
 | `distanceKm` | number/string | 默认路线或估算距离 |
 | `routeMode` | string | 实际路线标签或“估算/地点待核实” |
 | `score` | number | 当前设置下的匹配分数，可重新计算 |
@@ -165,19 +175,6 @@
 | `expiresAt` | number | Unix 毫秒时间戳，默认 30 天 |
 
 服务会在使用时清理过期记录并轮换令牌，最多保留最近 500 条。
-
-## OCR 助手本地数据
-
-`TutorOrderWatcher/data/config.json` 保存非密码配置，字段见 `examples/TutorOrderWatcher-config.example.json`。同目录还可能出现：
-
-- `orders.csv`：助手本地简化订单列表。
-- `geocache.json`：高德地理编码缓存。
-- `last_capture.png`：最后一次微信正文截图。
-- `last_ocr.txt`：最后一次 OCR 文字。
-- `read_groups.json`：群名及最后成功读取时间。
-- 调试搜索结果和诊断文件。
-
-这些文件包含真实位置、手机号、群名和聊天内容，全部禁止提交。
 
 ## 迁移注意事项
 

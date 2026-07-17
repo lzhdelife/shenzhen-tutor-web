@@ -7,10 +7,7 @@ try {
     if (-not $tracked.Count) { throw 'No tracked files found. Initialize Git before running this check.' }
 
     $forbiddenPaths = @(
-        '^TutorPlatform/data/',
-        '^TutorOrderWatcher/(data|temp|exports)/',
-        '^TutorPlatform/public/(latest-url\.json|launch\.html)$',
-        '^TutorPlatform/address-page/latest-url\.json$'
+        '^TutorPlatform/data/'
     )
     $textExtensions = @('.js', '.json', '.md', '.html', '.css', '.ps1', '.bat', '.txt', '.yml', '.yaml', '.env', '')
     $patterns = [ordered]@{

@@ -7,7 +7,7 @@
 - 普通 API 使用 `Authorization: Bearer <token>`。
 - 老师、中介和管理员 Token 由登录接口返回，只保存在服务进程内存中。
 - 自动登录使用名为 `tutor_remember` 的 `HttpOnly` Cookie，浏览器请求需保持同源 Cookie。
-- OCR 助手使用 `/api/login` 获取中介 Token，再调用 `/api/import`。
+- 批量导入使用中介 Token 调用 `/api/import`。
 
 错误通常返回：
 
@@ -30,7 +30,7 @@
 | POST | `/api/auth/wechat/complete` | 公共 + ticket | 完成已绑定微信登录 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
-| POST | `/api/login` | 公共 | 兼容单角色登录，OCR 助手当前使用此接口 |
+| POST | `/api/login` | 公共 | 兼容单角色登录 |
 | POST | `/api/feedback` | 公共 | 提交问题反馈，最多保留最近 200 条 |
 
 ### 统一密码登录
@@ -62,7 +62,7 @@ Content-Type: application/json
 
 不存在的“名称 + 手机号”会在当前实现中自动注册。生产系统应把注册与登录分开。
 
-### OCR 兼容登录
+### 单角色兼容登录
 
 ```http
 POST /api/login
@@ -70,7 +70,7 @@ Content-Type: application/json
 
 {
   "role": "agency",
-  "name": "微信自动采集",
+  "name": "示例中介",
   "phone": "<11位手机号>",
   "password": "<至少6位密码>"
 }
@@ -131,6 +131,8 @@ Content-Type: application/json
 
 ### 批量导入
 
+`POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics }`。`splitDiagnostics` 中每项包含 `blockIndex`、`rawStart`、`rawEnd`、`boundaryReason` 和 `confidence`。预览不会去重或静默丢弃字段不完整的原文。
+
 最简单的请求：
 
 ```json
@@ -139,15 +141,15 @@ Content-Type: application/json
 }
 ```
 
-OCR 助手使用的完整形式：
+带原图的完整形式：
 
 ```json
 {
-  "text": "<跨屏合并后的 OCR 文字>",
+  "text": "<包含一条或多条订单的文字>",
   "images": ["data:image/png;base64,..."],
   "pages": [
     {
-      "text": "<这一屏 OCR 文字>",
+      "text": "<与该图片对应的文字>",
       "image": "data:image/png;base64,..."
     }
   ]

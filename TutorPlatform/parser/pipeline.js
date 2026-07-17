@@ -1,0 +1,57 @@
+'use strict';
+
+const { sourced } = require('./schema');
+const { extractWithAI } = require('./ai-provider');
+const { validateStructuredOrder } = require('./validator');
+const { redactForAI } = require('./privacy');
+
+const PARSER_VERSION = '2.0.0';
+const evidence = (raw, pattern) => String(raw || '').match(pattern)?.[0] || '';
+const subjects = value => String(value || '').split(/[\/、，,]+/).map(item => item.trim()).filter(Boolean);
+
+function schedulePhases(raw) {
+  const text = String(raw || '');
+  const phases = [];
+  const summer = text.match(/暑假([\s\S]*?)(?=开学(?:后|之后)?|$)/);
+  const school = text.match(/开学(?:后|之后)?([\s\S]*)/);
+  if (summer) phases.push({ phase: '暑假', rawEvidence: summer[0], frequency: /隔天/.test(summer[1]) ? '隔天1次' : evidence(summer[1], /每周[^，。；;]{1,18}|连续上课/), weekdays: [...summer[1].matchAll(/周([一二三四五六日天])/g)].map(m => m[1]), timeOfDay: evidence(summer[1], /早\d{1,2}点|上午|下午|晚上/), durationPerLesson: Number(evidence(summer[1], /\d+(?=\s*(?:个)?小时)/)) || null, lessonCount: null, confidence: 0.9, source: 'rule' });
+  if (school) phases.push({ phase: '开学后', rawEvidence: school[0], frequency: /周末/.test(school[1]) ? '每周末1次' : evidence(school[1], /周\s*[1-6一二三四五六][^，。；;]{0,8}(?:一|1)次/), weekdays: [...school[1].matchAll(/周\s*([1-6一二三四五六])/g)].map(m => m[1]), timeOfDay: evidence(school[1], /上午|下午|晚上/), durationPerLesson: Number(evidence(school[1], /\d+(?=\s*(?:个)?小时)/)) || null, lessonCount: null, confidence: 0.9, source: 'rule' });
+  return phases;
+}
+
+function buildRuleStructuredOrder(ruleOrder, rawText) {
+  const raw = String(rawText || ruleOrder.raw || '');
+  const locationList = Array.isArray(ruleOrder.locationOptions) && ruleOrder.locationOptions.length
+    ? ruleOrder.locationOptions
+    : [{ raw: ruleOrder.placeOriginal || ruleOrder.place, district: ruleOrder.district, area: ruleOrder.area || '', place: ruleOrder.place, transitLine: ruleOrder.transitLine || '', nearby: /附近|周边/.test(ruleOrder.place || ''), poiId: ruleOrder.locationPoiId || '', coordinates: ruleOrder.locationCoordinates || '', verified: Boolean(ruleOrder.locationVerified), ambiguityCandidates: ruleOrder.locationCandidates || [] }];
+  return {
+    rawText: raw,
+    normalizedText: String(ruleOrder.raw || raw),
+    parserVersion: PARSER_VERSION,
+    locations: { relation: ruleOrder.locationRelation || 'AND', value: locationList, rawEvidence: locationList.map(item => item.raw).filter(Boolean).join(' 或 '), confidence: ruleOrder.locationVerified ? 0.98 : 0.65, source: ruleOrder.locationVerified ? 'amap' : 'rule' },
+    gradeCurrent: sourced(ruleOrder.grade || '', evidence(raw, /幼儿园|[一二三四五六]年级|初[一二三]|高[一二三]|大学|成人/), ruleOrder.grade && ruleOrder.grade !== '其他' ? 0.95 : 0.2),
+    gradeNext: sourced(/预习高一|熟悉高一/.test(raw) ? '高一' : '', evidence(raw, /预习高一|熟悉高一/), /预习高一|熟悉高一/.test(raw) ? 0.95 : 0),
+    gradeContext: sourced(ruleOrder.gradeDescription || ruleOrder.grade || '', evidence(raw, /初三(?:刚)?毕业[^，。；;]*/), 0.9),
+    subjectsCurrent: sourced(subjects(ruleOrder.subject), evidence(raw, /语数英|数理化|语文|数学|英语|物理|化学|生物/), 0.95),
+    subjectsPossible: sourced(subjects(ruleOrder.optionalSubjects), evidence(raw, /后续可能[^，。；;]*/), ruleOrder.optionalSubjects ? 0.95 : 0),
+    subjectContext: sourced(ruleOrder.optionalSubjects ? '后续可能增加' : '', evidence(raw, /后续可能[^，。；;]*/), ruleOrder.optionalSubjects ? 0.9 : 0),
+    studentGender: sourced(ruleOrder.studentGender || '', evidence(raw, /女生|女孩|男生|男孩|(?:高|初)[一二三]\s*[男女]/), ruleOrder.studentGender ? 0.95 : 0),
+    studentAge: sourced(null, '', 0), studentLevel: sourced(ruleOrder.studentLevel || '', ruleOrder.studentLevel || '', ruleOrder.studentLevel ? 0.9 : 0), studentType: sourced(ruleOrder.studentType || '', ruleOrder.studentType || '', ruleOrder.studentType ? 0.9 : 0), studentSchool: sourced('', '', 0), studentSituation: sourced(ruleOrder.student || '', ruleOrder.student || '', ruleOrder.student ? 0.75 : 0),
+    teacherGender: sourced(ruleOrder.gender || '', evidence(raw, /女老师|男老师|男女不限/), ruleOrder.gender ? 0.95 : 0), teacherSchools: sourced(subjects(evidence(raw, /深大(?:或者|或)哈工大|深圳大学|哈尔滨工业大学/).replace(/或者|或/g, '/')), evidence(raw, /深大(?:或者|或)哈工大|深圳大学|哈尔滨工业大学/), 0.9), teacherDegree: sourced('', '', 0), teacherExperience: sourced(evidence(raw, /有经验|经验丰富/), evidence(raw, /有经验|经验丰富/), 0.8), teacherType: sourced(evidence(raw, /在职老师|大学生|专业家教老师/), evidence(raw, /在职老师|大学生|专业家教老师/), 0.8), teacherTraits: sourced(subjects(evidence(raw, /认真负责|负责|有责任心/)), evidence(raw, /认真负责|负责|有责任心/), 0.85),
+    priceMin: sourced(ruleOrder.priceMin || null, ruleOrder.priceText || evidence(raw, /\d{2,5}[^，。；;]{0,12}(?:小时|次|节|月)/), ruleOrder.price ? 0.98 : 0), priceMax: sourced(ruleOrder.priceMax || null, ruleOrder.priceText || '', ruleOrder.price ? 0.98 : 0), priceApproximate: sourced(Boolean(ruleOrder.priceApproximate), ruleOrder.priceText || '', ruleOrder.price ? 0.98 : 0), priceUnit: sourced(ruleOrder.priceUnit || '', ruleOrder.priceText || '', ruleOrder.priceUnit ? 0.99 : 0), durationPerLesson: sourced((() => { const match = String(ruleOrder.priceUnit || '').match(/^(\d+(?:\.\d+)?)小时$/); return match ? Number(match[1]) : null; })(), ruleOrder.priceText || '', ruleOrder.priceUnit?.includes('小时') ? 0.8 : 0),
+    schedulePhases: schedulePhases(ruleOrder.schedule || raw), requirements: sourced(subjects(ruleOrder.requirements), ruleOrder.requirements || '', ruleOrder.requirements ? 0.75 : 0), notes: sourced('', '', 0), contactInfo: { redacted: redactForAI(raw) !== raw },
+    diagnostics: { aiStatus: 'disabled', issues: [] }
+  };
+}
+
+async function runParserPipeline({ rawText, ruleOrder }) {
+  const structured = buildRuleStructuredOrder(ruleOrder, rawText);
+  const ai = await extractWithAI(structured.normalizedText);
+  structured.diagnostics.aiStatus = ai?._providerError ? 'error' : ai ? 'used' : 'disabled';
+  structured.aiExtraction = ai && !ai._providerError ? ai : null;
+  const validated = validateStructuredOrder(structured);
+  validated.order.diagnostics.issues = validated.issues;
+  return validated.order;
+}
+
+module.exports = { PARSER_VERSION, buildRuleStructuredOrder, runParserPipeline };
