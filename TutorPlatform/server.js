@@ -2788,14 +2788,21 @@ const server = http.createServer((req, res) => {
   }
 });
 
-if (require.main === module) {
+function startServer() {
+  if (server.listening) return server;
   server.listen(PORT, () => {
     console.log(`深圳家教接单平台已启动：http://localhost:${PORT}`);
     console.log('局域网访问：把 localhost 换成这台电脑的局域网 IP。');
   });
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
 }
 
 module.exports = {
+  startServer,
   splitImportBlocks,
   splitImportBlocksDetailed,
   dedupeImportBlocks,

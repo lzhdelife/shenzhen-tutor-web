@@ -21,4 +21,4 @@ if (fs.existsSync(localEnvironment)) {
   }
 }
 
-require('../TutorPlatform/server.js');
+require('../TutorPlatform/server.js').startServer();
