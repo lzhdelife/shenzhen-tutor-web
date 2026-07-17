@@ -21,12 +21,14 @@ for (const fixture of fixtures) {
   const structured = buildRuleStructuredOrder(order, fixture.raw);
   if (expected.district) { counters.district[1]++; if (order.district === expected.district) counters.district[0]++; assert.equal(order.district, expected.district, fixture.id); }
   if (expected.placeIncludes) { counters.place[1]++; const ok = expected.placeIncludes.every(value => order.place.includes(value)); if (ok) counters.place[0]++; assert.equal(ok, true, `${fixture.id}: ${order.place}`); }
+  if (expected.placeOriginal) assert.equal(order.placeOriginal, expected.placeOriginal, `${fixture.id}:placeOriginal`);
   for (const field of ['grade', 'subject', 'studentGender', 'gender', 'price', 'priceMin', 'priceMax', 'priceUnit', 'optionalSubjects', 'studentLevel', 'studentType', 'transitLine', 'locationRelation']) {
     const expectedKey = field === 'gender' ? 'teacherGender' : field;
     if (Object.prototype.hasOwnProperty.call(expected, expectedKey)) assert.equal(order[field], expected[expectedKey], `${fixture.id}:${field}`);
   }
   if (expected.priceUnit) { counters.priceUnit[1]++; if (order.priceUnit === expected.priceUnit) counters.priceUnit[0]++; }
   if (expected.locationOptionCount) assert.equal(order.locationOptions.length, expected.locationOptionCount, fixture.id);
+  if (expected.locationQueryIncludes) assert.ok(expected.locationQueryIncludes.every(value => order.locationQueries.includes(value)), `${fixture.id}: ${order.locationQueries.join(' | ')}`);
   if (expected.scheduleIncludes) { counters.phases[1]++; const ok = expected.scheduleIncludes.every(value => order.schedule.includes(value)); if (ok) counters.phases[0]++; assert.equal(ok, true, `${fixture.id}: ${order.schedule}`); }
   if (!expected.teacherGender && order.gender) counters.genderConfusions++;
   assert.equal(structured.parserVersion, '2.1.0');

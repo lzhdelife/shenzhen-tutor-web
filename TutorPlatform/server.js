@@ -775,7 +775,7 @@ function extractLooseLocationLine(text) {
   const lines = textOf(text).split(/\n/).map(line => line.trim()).filter(Boolean);
   return lines.find(line => (
     line.length <= 80
-    && /(\d{1,2}号线|地铁站|小区|花园|村|附近|街道|中心|公馆|家园|学校|医院|酒店)/.test(line)
+    && /(\d{1,2}号线|地铁站|小区|花园|村|附近|街道|(?:路|大道|街|巷)(?:口|段)?|中心|公馆|家园|华府|学校|医院|酒店)/.test(line)
     && !/(课酬|薪酬|元\/?小时|老师要求|教师要求)/.test(line)
   )) || '';
 }
@@ -1093,6 +1093,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const parts = [];
   const cleanPart = value => {
     let item = textOf(value)
+      .replace(/^(?:[1-9]\ufe0f?\u20e3|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '')
       .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
       .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '')
       .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|大学|成人)/g, '')
@@ -1110,7 +1111,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
     const cleaned = cleanPart(candidateSource);
     if (!cleaned || cleaned.length < 2 || cleaned.length > 24) continue;
     const knownNames = Object.keys(LANDMARK_DISTRICTS).filter(name => cleaned.includes(name));
-    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,10}(?:街道|社区|花园|小区|公馆|家园|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
+    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,12}(?:街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
     const fullCandidate = cleaned.length <= 16 && !/(一般|提高|成绩|连续|周末|专业|老师|前十|知识点)/.test(cleaned) ? cleaned : '';
     const names = uniq([fullCandidate, ...knownNames, ...suffixNames]);
     if (names.length) {
@@ -1122,14 +1123,19 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const normalizedParts = uniq(parts.map(part => cleanPart(part)).filter(part => part.length >= 2));
   const place = normalizedParts.join('·');
   const compactPlace = normalizedParts.join('');
+  const searchablePlace = compactPlace.replace(/[·•・]/g, '');
+  const poiAfterRoad = searchablePlace.match(/(?:路|大道|街|巷)([^路街巷]{2,}(?:花园|小区|公馆|家园|华府|大厦|公寓|苑|城|村))$/)?.[1] || '';
   const districtPrefix = district ? `深圳市${district}区` : '深圳市';
   const queries = uniq([
-    compactPlace ? `${districtPrefix}${compactPlace}` : '',
+    searchablePlace ? `${districtPrefix}${searchablePlace}` : '',
+    poiAfterRoad ? `${districtPrefix}${poiAfterRoad}` : '',
+    searchablePlace,
+    poiAfterRoad,
     compactPlace,
     normalizedParts.length > 1 ? normalizedParts.slice(-2).join('') : '',
     normalizedParts.at(-1) || ''
   ].filter(query => query.length >= 2));
-  return { raw: sources.filter(Boolean).join(' | '), parts: normalizedParts, place, queries };
+  return { raw: textOf(explicitLocation) || sources.filter(Boolean).join(' | '), parts: normalizedParts, place, queries };
 }
 
 function canonicalLocationPlace(place, district = '') {
