@@ -131,6 +131,11 @@ assert.equal(platform.validMainlandPhone(syntheticPhone + syntheticPhone), false
 assert.equal(platform.sanitizeRouteMode('walking'), 'walking');
 assert.equal(platform.sanitizeRouteMode('unsupported'), 'cycling');
 
+const scoreExample = { district: '福田', subject: '物理', grade: '高三', price: 200 };
+const distanceWeightedScores = [2, 8, 12, 18, 30].map(distanceKm => platform.score({ ...scoreExample, distanceKm }, { maxBikeKm: 12 }));
+assert.deepEqual(distanceWeightedScores, [95, 83, 75, 55, 30]);
+assert.ok(distanceWeightedScores[0] - distanceWeightedScores.at(-1) >= 60, 'distance should be a dominant scoring factor');
+
 async function runLocationChecks() {
   const originalFetch = global.fetch;
   global.fetch = async url => {
@@ -145,10 +150,18 @@ async function runLocationChecks() {
             : keywords.includes('会展')
               ? { id: 'convention-poi', name: '深圳国际会展中心', adname: '宝安区', address: '展城路1号', location: '113.776000,22.707000', type: '科教文化服务;会展中心;会展中心' }
               : { id: 'synthetic-poi', name: '共和花园', adname: '宝安区', address: '西乡街道', location: '113.850000,22.580000', type: '商务住宅;住宅区;住宅小区' };
+      const pois = keywords === '福田区'
+        ? [{ id: 'district-default', name: '福田区人民政府', adname: '福田区', address: '福民路123号', location: '114.055000,22.522000', type: '政府机构及社会团体;政府机关;区县级政府及事业单位' }]
+        : keywords.includes('默认地点社区')
+        ? [
+            { id: 'default-first', name: '默认地点社区一期', adname: '福田区', address: '测试路1号', location: '114.050000,22.530000', type: '商务住宅;住宅区;住宅小区' },
+            { id: 'default-second', name: '默认地点社区二期', adname: '福田区', address: '测试路2号', location: '114.051000,22.531000', type: '商务住宅;住宅区;住宅小区' }
+          ]
+        : [poi];
       return {
         json: async () => ({
           status: '1',
-          pois: [poi]
+          pois
         })
       };
     }
@@ -178,6 +191,31 @@ async function runLocationChecks() {
     assert.equal(resolvedAlternatives.locationOptions.length, 2);
     assert.equal(resolvedAlternatives.locationOptions[0].coordinates, '113.895000,22.493000');
     assert.equal(resolvedAlternatives.locationOptions[1].coordinates, '113.776000,22.707000');
+
+    const defaulted = await platform.resolveOrderLocation({
+      district: '福田',
+      place: '默认地点社区',
+      placeOriginal: '默认地点社区',
+      locationQuery: '默认地点社区',
+      locationQueries: ['默认地点社区'],
+      raw: '福田区默认地点社区，高三物理'
+    }, { amapWebServiceKey: 'synthetic-test-value' });
+    assert.equal(defaulted.locationVerified, true);
+    assert.equal(defaulted.locationStatus, 'defaulted');
+    assert.equal(defaulted.locationPoiId, 'default-first');
+    assert.equal(defaulted.locationCoordinates, '114.050000,22.530000');
+    assert.equal(defaulted.locationCandidates.length, 2);
+
+    const genericDefault = await platform.resolveOrderLocation({
+      district: '福田',
+      place: '具体地点未提供',
+      placeOriginal: '具体地点未提供',
+      raw: '福田区，高三物理，具体地点未提供'
+    }, { amapWebServiceKey: 'synthetic-test-value' });
+    assert.equal(genericDefault.locationVerified, true);
+    assert.equal(genericDefault.locationStatus, 'defaulted');
+    assert.equal(genericDefault.locationPoiId, 'district-default');
+    assert.equal(genericDefault.locationCoordinates, '114.055000,22.522000');
   } finally {
     global.fetch = originalFetch;
   }

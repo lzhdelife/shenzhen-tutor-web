@@ -3,6 +3,7 @@
 const { createRepository } = require('./storage.js');
 const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
 const { createAmapService } = require('./amap-service.js');
+const { scoreOrder } = require('../shared/order-score.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -223,20 +224,22 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request), origin = text(data.origin);
           if (!origin) return error('请填写你的位置');
           const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed');
+          const settings = await repo.getSettings();
           const distances = [];
           for (const order of orders) {
             const destinations = Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => ({ option, value: option.coordinates }))
               : order.locationVerified && order.locationCoordinates ? [{ value: order.locationCoordinates }] : [];
             if (!destinations.length) {
-              distances.push({ id: order.id, status: 'location_unconfirmed', distanceKm: '', routeOptions: {}, locationOptionRoutes: [] });
+              distances.push({ id: order.id, status: 'location_unconfirmed', distanceKm: '', routeOptions: {}, locationOptionRoutes: [], score: scoreOrder(order, settings) });
               continue;
             }
             const routed = [];
             for (const destination of destinations) routed.push({ ...destination, route: await amap.route(origin, destination.value, data.mode) });
             const best = routed.slice().sort((a, b) => a.route.km - b.route.km)[0];
             distances.push({ id: order.id, status: 'verified', distanceKm: best.route.km, routeMode: best.route.label,
-              routeOptions: { [best.route.mode]: best.route }, locationOptionRoutes: routed.map(item => ({ ...item.option, routeOptions: { [item.route.mode]: item.route } })) });
+              routeOptions: { [best.route.mode]: best.route }, locationOptionRoutes: routed.map(item => ({ ...item.option, routeOptions: { [item.route.mode]: item.route } })),
+              score: scoreOrder({ ...order, distanceKm: best.route.km }, settings) });
           }
           return json({ status: 'verified', distances });
         }

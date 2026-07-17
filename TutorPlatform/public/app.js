@@ -850,13 +850,13 @@ function previewCard(o, index) {
   const meta = orderDisplayMeta(o);
   const schedule = splitSchedule(o);
   const notes = miscNotes(o);
-  const candidates = !o.locationVerified && Array.isArray(o.locationCandidates)
+  const candidates = (!o.locationVerified || o.locationStatus === 'defaulted') && Array.isArray(o.locationCandidates)
     ? o.locationCandidates.slice(0, 3).filter(candidate => candidate?.name)
     : [];
   const optionCandidates = Array.isArray(o.locationOptions) ? o.locationOptions.map((option, optionIndex) => ({
     optionIndex,
     label: `${optionIndex + 1}：${option.district || ''}${option.place || ''}`,
-    candidates: option.verified ? [] : (Array.isArray(option.candidates) ? option.candidates.slice(0, 3).filter(candidate => candidate?.name) : [])
+    candidates: option.verified && option.status !== 'defaulted' ? [] : (Array.isArray(option.candidates) ? option.candidates.slice(0, 3).filter(candidate => candidate?.name) : [])
   })).filter(item => item.candidates.length) : [];
   return `<div class="preview-card">
     <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
@@ -866,7 +866,7 @@ function previewCard(o, index) {
       <span class="pill">${escapeHtml(genderBucket(o))}</span>
       <span class="pill">${escapeHtml(studentSummary(o))}</span>
     </div>
-    ${candidates.length ? `<div class="raw">地点待确认：${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
+    ${candidates.length ? `<div class="raw">${o.locationStatus === 'defaulted' ? '已默认选择第一项，可改：' : '地点待确认：'}${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
     ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate(${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
   </div>`;
@@ -900,6 +900,7 @@ function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidate
   option.address = `深圳市${option.district ? `${option.district}区` : ''}${candidate.address || candidate.name}`;
   option.confidence = candidate.confidence || 100;
   option.verified = true;
+  option.status = 'confirmed';
   order.locationVerified = order.locationOptions.some(item => item.verified);
   order.locationStatus = order.locationOptions.every(item => item.verified) ? 'confirmed' : 'options_unverified';
   renderPreview();

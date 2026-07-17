@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { runParserPipeline } = require('./parser/pipeline');
 const { splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
+const { scoreOrder } = require('../shared/order-score');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -1536,6 +1537,10 @@ function normalizeResolvedLocationName(query, value) {
   return name;
 }
 
+function isGenericLocationValue(value) {
+  return /^(?:深圳市?)?(?:(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?)?[·:：-]?(?:具体)?(?:地点|地址)?(?:未提供|未知|待定|待确认|不详)$/.test(textOf(value).replace(/\s+/g, ''));
+}
+
 function isExplicitTransitCandidateMatch(query, candidate) {
   const requested = textOf(query);
   const candidateText = `${candidate?.name || ''}|${candidate?.type || ''}`;
@@ -1679,6 +1684,7 @@ async function resolveOrderLocation(order, settings) {
         coordinates: resolved.locationCoordinates || '',
         confidence: resolved.locationConfidence || 0,
         verified: Boolean(resolved.locationVerified),
+        status: resolved.locationStatus || '',
         candidates: resolved.locationCandidates || []
       });
     }
@@ -1699,10 +1705,13 @@ async function resolveOrderLocation(order, settings) {
   const normalizedPlace = textOf(order.place);
   const originalPlace = textOf(order.placeOriginal || order.place);
   const districtHint = textOf(order.district).replace(/区$/, '');
-  const fallbackQuery = cleanLocationCandidate(order.place || originalPlace || order.address, districtHint);
+  const fallbackQuery = isGenericLocationValue(normalizedPlace)
+    ? (districtHint ? `${districtHint}区` : '')
+    : cleanLocationCandidate(order.place || originalPlace || order.address, districtHint);
   const locationQueries = uniq([...(Array.isArray(order.locationQueries) ? order.locationQueries : []), order.locationQuery, fallbackQuery]
-    .map(value => textOf(value)).filter(value => value.length >= 2));
+    .map(value => textOf(value)).filter(value => value.length >= 2 && !isGenericLocationValue(value)));
   const query = locationQueries[0] || fallbackQuery;
+  const usesDistrictFallback = Boolean(districtHint && query === `${districtHint}区` && isGenericLocationValue(normalizedPlace));
   order.locationQuery = query;
   order.locationQueries = locationQueries;
   order.placeOriginal ||= originalPlace;
@@ -1776,14 +1785,38 @@ async function resolveOrderLocation(order, settings) {
     /大厦|写字楼|商务中心|产业园|商业城|酒店/.test(best?.name || '')
     || new Set(closeAreaCandidates.map(candidate => ocrComparable(candidate.name))).size >= 2
   );
+  const useCandidate = (candidate, status) => {
+    order.district = candidate.district || districtHint;
+    order.place = normalizeResolvedLocationName(query, candidate.name);
+    order.address = `深圳市${order.district ? `${order.district}区` : ''}${order.place}`;
+    order.locationVerified = Boolean(candidate.location);
+    order.locationStatus = status;
+    order.locationPoiId = candidate.id || '';
+    order.locationCoordinates = candidate.location || '';
+    order.locationAddress = candidate.address || '';
+    order.locationConfidence = Number(candidate.confidence || 0);
+    order.locationCandidates = rankedCandidates.slice(0, 3);
+    return order;
+  };
   if (ambiguousArea) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!districtHint || !candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
     clearResolvedLocation('ambiguous');
     order.locationCandidates = rankedCandidates.slice(0, 3);
     return order;
   }
   const acceptable = best && bestScore >= 52 && !shortQueryMismatch
     && (!districtHint || !best.district || best.district === districtHint || trustedBestDistrictCorrection);
+  if (usesDistrictFallback) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
+  }
   if (!acceptable) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!districtHint || !candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
     const geocoded = await amapGeocodeCandidate(settings, query, districtHint);
     if (geocoded) {
       order.district = geocoded.district || districtHint;
@@ -1972,20 +2005,7 @@ async function routeOptions(settings, originAddress, destinationAddress, request
 }
 
 function score(order, settings) {
-  let value = 45;
-  if (['宝安', '南山'].includes(order.district)) value += 14;
-  if (/数学|物理|化学/.test(order.subject || '')) value += 18;
-  if (/初|高|中考|高考/.test(order.grade || '')) value += 10;
-  if (order.price >= 180 || order.monthly >= 20000) value += 12;
-  else if (order.price && order.price < 140) value -= 12;
-  const km = Number(order.distanceKm);
-  const max = Number(settings.maxBikeKm || 12);
-  if (km) {
-    if (km <= 5) value += 16;
-    else if (km <= max) value += 9;
-    else value -= 16;
-  }
-  return Math.max(0, Math.min(100, Math.round(value)));
+  return scoreOrder(order, settings);
 }
 
 async function enrichOrder(order, settings) {
@@ -2423,6 +2443,15 @@ async function handleApi(req, res) {
     const origin = textOf(data.origin);
     if (!origin) return send(res, 400, { error: '请填写你的位置' });
     const openOrders = db.orders.filter(order => order.status !== 'closed');
+    const unresolved = openOrders.filter(order => order.locationVerified === false
+      && order.district
+      && (isGenericLocationValue(order.place) || (order.locationCandidates || []).some(candidate => candidate?.location)));
+    let defaultedExistingLocation = false;
+    await mapWithConcurrency(unresolved, 2, async order => {
+      await resolveOrderLocation(order, db.settings);
+      if (order.locationVerified) defaultedExistingLocation = true;
+    });
+    if (defaultedExistingLocation) writeDb(db);
     const distances = await previewDistances(db.settings, origin, openOrders, data.mode);
     return send(res, 200, { distances });
   }
@@ -2825,6 +2854,7 @@ module.exports = {
   isUnexpectedCompanyCandidate,
   isUnexpectedLocationDetail,
   normalizeResolvedLocationName,
+  isGenericLocationValue,
   isExplicitTransitCandidateMatch,
   consensusCandidateDistrict,
   locationQueryCharacterCoverage,
