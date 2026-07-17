@@ -7,6 +7,7 @@
 - 功能提交：`bb7bd6b feat: strengthen tutor order parsing evidence`
 - 编号订单切割修复：`cbdbe15 fix: split compact numbered tutor orders`
 - 道路与楼盘地点修复：`095fe4e fix: preserve road and property location evidence`
+- 括号标题地点隔离修复：`3d0296c fix: isolate bracketed location evidence`
 - 状态：仅本地提交；未推送、未部署、未合并。
 
 ## 负责范围与修改路径
@@ -55,6 +56,7 @@
 - 公共 splitter 仅在编号后的同一行同时存在年级与学科证据时建立边界，避免把普通编号要求列表误切成订单。
 - 匿名合成回归固定为 2 条，断言数量、顺序、逐条原文、边界原因和 100% 覆盖率。
 - 修复独立地点行“行政区 + 道路 + `·` 分隔楼盘（如某某华府）”落成“具体地点未提供”的问题；保留展示原文，并额外生成去间隔点的“区+道路+楼盘”和“区+楼盘”查询文本供地点工作流使用。
+- 修复括号标题中的真实地点被 `【薪酬】` 等后续字段标签及“暑假单”前缀污染的问题；地点层现在只接受含行政区、道路、片区或楼盘特征的候选证据。
 
 ## 已知风险与跨领域依赖
 
