@@ -5,7 +5,7 @@
 ## 永久回归集
 
 - `tests/fixtures/batch-nine-orders.txt`：9 条订单，断言数量、顺序、逐条原文、切割区间和 100% 覆盖率。
-- `tests/fixtures/parser-regressions.jsonl`：6 类高风险表达，覆盖区+小区/地铁站、道路+楼盘、跨片区二选一、“附近”、跨学段、当前/可能科目、两类性别、区间/按次/按时价格和暑假/开学后阶段。
+- `tests/fixtures/parser-regressions.jsonl`：7 类高风险表达，覆盖区+小区/地铁站、道路+楼盘、标题地点与字段标签隔离、跨片区二选一、“附近”、跨学段、当前/可能科目、两类性别、区间/按次/按时价格和暑假/开学后阶段。
 - `tests/fixtures/numbered-compact-orders.txt`：2 条无空行、keycap emoji 编号的长单行订单，防止后一条合并污染前一条。
 - Node API、公共 recognizer 和 Cloudflare adapter 分别执行契约测试，禁止适配层自建解析规则。
 

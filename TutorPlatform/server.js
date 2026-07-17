@@ -1086,14 +1086,28 @@ function extractRequirements(text) {
 
 function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const source = textOf(text);
-  const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,40})[】\]]/g)].map(match => match[1]);
+  const looksLikeLocationEvidence = value => {
+    const candidate = textOf(value);
+    if (/^(?:编号|学生|学员|学生情况|学员情况|时间|次数|薪酬|薪资|薪水|课酬|要求|老师要求|教师要求|教员要求|成绩)$/.test(candidate)) return false;
+    return /(深圳|罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|坂田|西乡|福永|街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘|(?:路|大道|街|巷)(?:口|段)?)/.test(candidate);
+  };
+  const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,80})[】\]]/g)]
+    .map(match => match[1])
+    .filter(looksLikeLocationEvidence);
   const firstSentence = source.split(/[，,。；;\n]/)[0];
   const leadingBody = source.replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?\s*(?:【[^】]+】)?/, '').split(/[，,。；;\n]/)[0];
-  const sources = uniq([explicitLocation, ...bracketSources, leadingBody, firstSentence]);
+  const sources = uniq([
+    explicitLocation,
+    ...bracketSources,
+    looksLikeLocationEvidence(leadingBody) ? leadingBody : '',
+    looksLikeLocationEvidence(firstSentence) ? firstSentence : ''
+  ]);
   const parts = [];
   const cleanPart = value => {
     let item = textOf(value)
       .replace(/^(?:[1-9]\ufe0f?\u20e3|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '')
+      .replace(/^[【\[]\s*[A-Z]?\s*/i, '')
+      .replace(/[】\]]\s*$/, '')
       .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
       .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '')
       .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|大学|成人)/g, '')
@@ -1105,7 +1119,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
       .replace(/[\s#＃|｜:：]+/g, '')
       .trim();
     item = stripLeadingDistrict(item, district);
-    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').trim();
+    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
   };
   for (const candidateSource of sources) {
     const cleaned = cleanPart(candidateSource);
