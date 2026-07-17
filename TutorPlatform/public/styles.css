@@ -357,6 +357,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .suggestion-item:last-child { border-bottom: 0; }
 .suggestion-item:hover, .suggestion-item.active { background: var(--soft-blue); color: #173f9f; }
 .suggestion-item small { display: block; margin-top: 3px; color: var(--muted); font-weight: 400; }
+.suggestion-status { padding: 12px; color: var(--danger); background: #fff8f7; }
 
 .toolbar {
   display: grid;

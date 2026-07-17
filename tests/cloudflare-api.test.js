@@ -34,16 +34,43 @@ function memoryRepository() {
   };
 }
 
-function harness(extra = {}) {
+function harness(extra = {}, envOverrides = {}) {
   const repo = memoryRepository();
   const worker = createWorker({ createRepository: () => repo, ...extra });
   const call = (path, init = {}) => worker.fetch(new Request(`https://example.test${path}`, {
     ...init,
     headers: { 'content-type': 'application/json', ...(init.headers || {}) },
     body: init.body && typeof init.body !== 'string' ? JSON.stringify(init.body) : init.body
-  }), { AUTH_PEPPER: 'unit-test-pepper', ASSETS: { fetch: () => new Response('asset') } }, {});
+  }), { AUTH_PEPPER: 'unit-test-pepper', ASSETS: { fetch: () => new Response('asset') }, ...envOverrides }, {});
   return { repo, call };
 }
+
+test('万科天誉地点下拉返回多个真实候选且无 Key 明确失败', async () => {
+  const pois = [
+    { id: 'vanke-longgang', name: '万科天誉花园', adname: '龙岗区', address: '龙岗大道与吉祥路交汇处', location: '114.2471,22.7208', type: '商务住宅;住宅区' },
+    { id: 'vanke-plaza', name: '万科广场(龙岗店)', adname: '龙岗区', address: '龙翔大道7188号', location: '114.2463,22.7201', type: '购物服务;商场' }
+  ];
+  const configured = harness({ fetchImpl: async url => {
+    assert.match(decodeURIComponent(url), /深圳市万科天誉/);
+    return new Response(JSON.stringify({ status: '1', pois }), { status: 200, headers: { 'content-type': 'application/json' } });
+  } }, { AMAP_WEB_SERVICE_KEY: 'synthetic-test-value' });
+  const response = await configured.call('/api/location-suggestions?q=%E6%B7%B1%E5%9C%B3%E5%B8%82%E4%B8%87%E7%A7%91%E5%A4%A9%E8%AA%89');
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, 'candidates');
+  assert.equal(body.suggestions.length, 2);
+  assert.deepEqual(body.suggestions.map(item => [item.name, item.district, item.address]), [
+    ['万科天誉花园', '龙岗', '龙岗大道与吉祥路交汇处'],
+    ['万科广场(龙岗店)', '龙岗', '龙翔大道7188号']
+  ]);
+  assert.equal(body.suggestions[0].value, '深圳市龙岗区龙岗大道与吉祥路交汇处');
+  assert.equal(body.suggestions[0].location, '114.2471,22.7208');
+
+  const missing = harness();
+  const missingResponse = await missing.call('/api/location-suggestions?q=%E6%B7%B1%E5%9C%B3%E5%B8%82%E4%B8%87%E7%A7%91%E5%A4%A9%E8%AA%89');
+  assert.equal(missingResponse.status, 503);
+  assert.deepEqual(await missingResponse.json(), { error: '高德服务未配置', code: 'AMAP_NOT_CONFIGURED', details: {} });
+});
 
 test('account login creates paired roles and persists only token hashes', async () => {
   const { repo, call } = harness();

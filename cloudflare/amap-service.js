@@ -12,7 +12,7 @@ function serviceError(code, message, status = 502, details = {}) {
 function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
   const secret = text(key);
   function configured() {
-    if (!secret) throw serviceError('AMAP_NOT_CONFIGURED', '地图服务尚未配置', 503);
+    if (!secret) throw serviceError('AMAP_NOT_CONFIGURED', '高德服务未配置', 503);
   }
   async function request(path, params) {
     configured();
@@ -40,10 +40,12 @@ function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
     const hint = districtName(district);
     if (keywords.length < 2) throw serviceError('INVALID_LOCATION_QUERY', '地点关键词至少需要两个字', 400);
     const data = await request('/v3/place/text', { keywords, city: '440300', citylimit: 'true', offset: '12', page: '1', extensions: 'base' });
-    const values = (Array.isArray(data.pois) ? data.pois : []).filter(poi => poi?.name && coordinates(poi.location)).map(poi => ({
-      id: text(poi.id), name: text(poi.name), district: districtName(poi.adname), address: Array.isArray(poi.address) ? '' : text(poi.address),
-      location: text(poi.location), type: text(poi.type), source: 'amap'
-    })).filter(candidate => !hint || !candidate.district || candidate.district === hint);
+    const values = (Array.isArray(data.pois) ? data.pois : []).filter(poi => poi?.name && coordinates(poi.location)).map(poi => {
+      const name = text(poi.name), district = districtName(poi.adname), address = Array.isArray(poi.address) ? '' : text(poi.address);
+      return { id: text(poi.id), name, district, address, location: text(poi.location), type: text(poi.type), source: 'amap',
+        label: [name, district ? `${district}区` : '', address].filter(Boolean).join(' · '),
+        value: `深圳市${district ? `${district}区` : ''}${address || name}` };
+    }).filter(candidate => !hint || !candidate.district || candidate.district === hint);
     return { status: values.length ? 'candidates' : 'not_found', candidates: values.slice(0, 8) };
   }
   function confirm(candidate, district = '') {

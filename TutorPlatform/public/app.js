@@ -10,6 +10,8 @@ let routeMode = localStorage.getItem('routeMode') || 'cycling';
 let distanceOverrides = {};
 let activeView = sessionStorage.getItem('activeView') || 'teacher';
 let locationSuggestionTimer = 0;
+let locationSuggestionRequest = 0;
+let selectedOriginCoordinates = localStorage.getItem('teacherOriginCoordinates') || '';
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
 let rememberedCredentialActive = false;
@@ -1211,7 +1213,7 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
   routeMode = $('#routeModeSelect').value || 'cycling';
   localStorage.setItem('routeMode', routeMode);
   $('#teacherLocationStatus').textContent = '正在计算路线...';
-  const res = await api('/api/distance-preview', { method: 'POST', body: { origin, mode: routeMode } }, teacherToken);
+  const res = await api('/api/distance-preview', { method: 'POST', body: { origin: selectedOriginCoordinates || origin, mode: routeMode } }, teacherToken);
   for (const item of res.distances || []) {
     const previous = distanceOverrides[item.id] || {};
     distanceOverrides[item.id] = {
@@ -1222,6 +1224,7 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
   }
   teacherOrigin = origin;
   localStorage.setItem('teacherOrigin', origin);
+  if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
   applyDistanceOverrides();
   fillTeacherLocation();
   renderOrders();
@@ -1233,6 +1236,8 @@ function clearTeacherDistances() {
   teacherOrigin = '';
   distanceOverrides = {};
   localStorage.removeItem('teacherOrigin');
+  selectedOriginCoordinates = '';
+  localStorage.removeItem('teacherOriginCoordinates');
   fillTeacherLocation();
   queueTeacherPreferencesSave();
   load().catch(err => toast(err.message));
@@ -1247,7 +1252,9 @@ function hideLocationSuggestions() {
 async function showLocationSuggestions(query) {
   const root = $('#originSuggestions');
   if (String(query || '').trim().length < 2) return hideLocationSuggestions();
+  const requestId = ++locationSuggestionRequest;
   const result = await api(`/api/location-suggestions?q=${encodeURIComponent(query.trim())}`);
+  if (requestId !== locationSuggestionRequest || $('#teacherOrigin').value.trim() !== query.trim()) return;
   const suggestions = result.suggestions || [];
   root.innerHTML = '';
   for (const suggestion of suggestions) {
@@ -1262,6 +1269,10 @@ async function showLocationSuggestions(query) {
     button.append(name, detail);
     button.addEventListener('click', () => {
       $('#teacherOrigin').value = suggestion.value || suggestion.label;
+      teacherOrigin = suggestion.value || suggestion.label;
+      selectedOriginCoordinates = suggestion.location || '';
+      localStorage.setItem('teacherOrigin', teacherOrigin);
+      if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
       hideLocationSuggestions();
     });
     root.appendChild(button);
@@ -1269,11 +1280,22 @@ async function showLocationSuggestions(query) {
   root.classList.toggle('hidden', !suggestions.length);
 }
 
+function showLocationSuggestionError(message) {
+  const root = $('#originSuggestions');
+  root.innerHTML = '';
+  const status = document.createElement('div');
+  status.className = 'suggestion-status';
+  status.setAttribute('role', 'status');
+  status.textContent = message || '地点候选加载失败';
+  root.appendChild(status);
+  root.classList.remove('hidden');
+}
+
 function queueLocationSuggestions() {
   clearTimeout(locationSuggestionTimer);
   const query = $('#teacherOrigin').value;
   locationSuggestionTimer = setTimeout(() => {
-    showLocationSuggestions(query).catch(() => hideLocationSuggestions());
+    showLocationSuggestions(query).catch(error => showLocationSuggestionError(error.message));
   }, 260);
 }
 
@@ -1496,7 +1518,11 @@ $('#teacherLocationForm').addEventListener('submit', async event => {
 
 $('#clearTeacherLocation').addEventListener('click', clearTeacherDistances);
 
-$('#teacherOrigin').addEventListener('input', queueLocationSuggestions);
+$('#teacherOrigin').addEventListener('input', () => {
+  selectedOriginCoordinates = '';
+  localStorage.removeItem('teacherOriginCoordinates');
+  queueLocationSuggestions();
+});
 $('#teacherOrigin').addEventListener('focus', queueLocationSuggestions);
 document.addEventListener('click', event => {
   if (!event.target.closest('.autocomplete-wrap')) hideLocationSuggestions();

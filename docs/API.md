@@ -55,6 +55,8 @@ Content-Type: application/json
 
 不存在的“名称 + 手机号”会在当前实现中自动注册。生产系统应把注册与登录分开。
 
+地点候选成功响应为 `{ "status": "candidates", "suggestions": [...] }`。每个候选包含 `name`、`district`、`address`、`location`，以及可直接填入“我的位置”的标准地址 `value`。前端必须展示名称、区和地址供用户选择；无 Key 返回 HTTP 503、`AMAP_NOT_CONFIGURED` 和“高德服务未配置”，不生成占位候选。
+
 ### 单角色兼容登录
 
 ```http

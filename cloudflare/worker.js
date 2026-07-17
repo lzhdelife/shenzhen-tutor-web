@@ -215,7 +215,7 @@ function createWorker(dependencies = {}) {
         }
         if (method === 'GET' && path === '/api/location-suggestions') {
           const result = await amap.candidates(url.searchParams.get('q'), url.searchParams.get('district'));
-          return json(result);
+          return json({ status: result.status, suggestions: result.candidates });
         }
         if (method === 'POST' && path === '/api/distance-preview') {
           const teacher = await requireRole(repo, request, 'teacher');
