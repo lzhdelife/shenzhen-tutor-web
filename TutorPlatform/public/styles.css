@@ -515,7 +515,17 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .agency-primary-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
 .agency-primary-heading h2 { margin: 4px 0 0; }
 .agency-primary-heading p { max-width: 520px; color: var(--muted); line-height: 1.5; text-align: right; }
-.agency-import-panel textarea.large { min-height: 300px; }
+.import-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.import-input-column,
+.import-preview-column { min-width: 0; display: flex; flex-direction: column; }
+.import-preview-column { padding-left: 16px; border-left: 1px solid var(--line); }
+.import-column-title { min-height: 28px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.import-column-title strong { font-size: 15px; }
+.import-column-title span { color: var(--muted); font-size: 12px; text-align: right; }
+.agency-import-panel .import-input-column textarea.large { min-height: 360px; margin: 0; resize: vertical; }
+.agency-import-panel .import-input-column .actions { margin-top: 12px; }
+.agency-import-panel .import-preview-column .preview { min-height: 415px; max-height: 515px; align-content: start; margin-top: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9fb; }
+.import-preview-empty { min-height: 390px; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
 .agency-orders-section { margin-top: 24px; }
 .agency-orders-section #agencyOrders { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .agency-orders-section .admin-row { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
@@ -743,6 +753,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .location-status { grid-column: 1 / -1; }
   .toolbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .columns { grid-template-columns: 1fr; }
+  .import-workspace { grid-template-columns: 1fr; }
+  .import-preview-column { padding-top: 16px; padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
 }
 
 @media (max-width: 700px) {
@@ -766,7 +778,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .workspace-heading-actions { align-self: center; }
   .agency-primary-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
   .agency-primary-heading p { text-align: left; }
-  .agency-import-panel textarea.large { min-height: 240px; }
+  .agency-import-panel .import-input-column textarea.large { min-height: 240px; }
+  .agency-import-panel .import-preview-column .preview { min-height: 260px; max-height: 420px; }
+  .import-preview-empty { min-height: 235px; }
   .manual-entry-panel > summary { padding: 14px; }
   .manual-entry-form { padding: 14px; }
   .refresh-button b { display: none; }

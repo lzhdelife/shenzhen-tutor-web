@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260718-3">
+  <link rel="stylesheet" href="./styles.css?v=20260718-4">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -175,14 +175,22 @@
         <form id="importForm" class="panel agency-import-panel">
           <div class="agency-primary-heading">
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
-            <p>从剪贴板工具复制全部内容，粘贴后先识别预览，再确认导入。</p>
+            <p>左侧粘贴剪贴板内容，右侧核对识别结果，再确认导入。</p>
           </div>
-          <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
-          <div class="actions">
-            <button type="button" id="parseImport" class="primary">识别预览</button>
-            <button type="submit" class="secondary">确认导入</button>
+          <div class="import-workspace">
+            <div class="import-input-column">
+              <div class="import-column-title"><strong>粘贴原文</strong><span>支持一条或多条订单</span></div>
+              <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
+              <div class="actions">
+                <button type="button" id="parseImport" class="primary">识别预览</button>
+                <button type="submit" class="secondary">确认导入</button>
+              </div>
+            </div>
+            <div class="import-preview-column">
+              <div class="import-column-title"><strong>识别结果</strong><span>逐条检查地点、年级、科目和课酬</span></div>
+              <div id="parsePreview" class="preview"><div class="import-preview-empty">识别后，结构化结果会显示在这里。</div></div>
+            </div>
           </div>
-          <div id="parsePreview" class="preview"></div>
         </form>
         <section class="agency-orders-section">
           <div class="workspace-heading minor">
