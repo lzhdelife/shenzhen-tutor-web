@@ -3,7 +3,7 @@
 ## 环境要求
 
 - Node.js 20 或更高版本。
-- 网站只使用 Node.js 标准库，不需要安装 npm 依赖。
+- Node 本地服务只使用标准库；Cloudflare 本地工具由 `npm.cmd install` 安装。
 
 ## 启动网站
 
@@ -13,7 +13,7 @@ npm.cmd start
 
 也可在 `TutorPlatform` 目录双击 `start.bat`。默认地址为 <http://localhost:8787>。
 
-`npm.cmd start` 和 `start.bat` 会自动读取仓库根目录中被 Git 忽略的 `.env.local`。首次配置高德时，双击 `TutorPlatform/配置本地高德Key.bat`，按提示粘贴高德 Web 服务 Key，然后重新启动网站。
+`npm.cmd start` 和 `start.bat` 会自动读取仓库根目录中被 Git 忽略的 `.env.local`。首次配置高德时，双击 `TutorPlatform/配置本地高德Key.bat`，按提示输入 Web 服务 Key、Web端（JS API）Key和安全密钥，然后重新启动网站。
 
 ```powershell
 $env:PORT = '9000'
@@ -26,6 +26,7 @@ node TutorPlatform/server.js
 
 ```powershell
 npm.cmd test
+npm.cmd run cloudflare:test
 npm.cmd run check:secrets
 ```
 
@@ -37,7 +38,7 @@ npm.cmd run check:secrets
 
 ## 修改检查清单
 
-- 解析规则：测试多单拆分、半单暂缓、重复订单和原图匹配。
+- 解析规则：测试多单拆分、非订单文本分类、弱字段订单、重复订单和原文无损覆盖。
 - 权限：测试未登录、老师、订单所有者、其他中介、管理员五种情况。
 - 数据字段：兼容缺失字段的旧 JSON，并更新 `docs/DATA_MODEL.md`。
 - API：更新 `docs/API.md`。
