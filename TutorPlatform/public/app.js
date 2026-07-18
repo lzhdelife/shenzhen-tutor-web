@@ -12,6 +12,12 @@ let activeView = sessionStorage.getItem('activeView') || 'teacher';
 let locationSuggestionTimer = 0;
 let locationSuggestionRequest = 0;
 let selectedOriginCoordinates = localStorage.getItem('teacherOriginCoordinates') || '';
+let teacherViewMode = localStorage.getItem('teacherViewMode') === 'map' ? 'map' : 'list';
+let orderMap = null;
+let orderMapCluster = null;
+let orderMapInfoWindow = null;
+let orderMapApi = null;
+let orderMapLocations = null;
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
 let activeRawText = '';
@@ -94,6 +100,7 @@ function toast(text) {
 }
 
 async function load() {
+  orderMapLocations = null;
   state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
   applyDistanceOverrides();
   fillSelects();
@@ -695,7 +702,7 @@ function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
 
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
-  return `<article class="card">
+  return `<article class="card" id="order-card-${escapeHtml(o.id)}">
     <div class="card-head">
       <div>
         <div class="title">${escapeHtml(meta.title)}</div>
@@ -716,6 +723,113 @@ function renderOrders() {
   $('#orders').innerHTML = list.length ? list.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
   const count = $('#orderCount');
   if (count) count.textContent = `共 ${list.length} 条`;
+  if (teacherViewMode === 'map') renderOrderMap(list).catch(error => showOrderMapStatus(error.message));
+}
+
+function showOrderMapStatus(message = '') {
+  const status = $('#orderMapStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle('hidden', !message);
+}
+
+function orderMapPoints(orders, locationsByOrder = orderMapLocations || new Map()) {
+  const points = [];
+  for (const order of orders) {
+    const locations = locationsByOrder.get(order.id) || [];
+    locations.forEach((coordinates, optionIndex) => {
+      const match = String(coordinates || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
+      if (!match) return;
+      points.push({ lnglat: [Number(match[1]), Number(match[2])], order, optionIndex: locations.length > 1 ? optionIndex : -1 });
+    });
+  }
+  return points;
+}
+
+async function loadOrderMapLocations() {
+  if (orderMapLocations) return orderMapLocations;
+  const result = await api('/api/map-orders', {}, teacherToken);
+  orderMapLocations = new Map((result.orders || []).map(order => [order.id, order.locations || []]));
+  return orderMapLocations;
+}
+
+async function loadOrderMapApi() {
+  if (orderMapApi) return orderMapApi;
+  if (!window.AMapLoader) throw new Error('高德地图加载器不可用，请检查网络后重试');
+  const config = await api('/api/map-config');
+  if (!config.configured) throw new Error(config.reason || '高德地图 JS API 尚未配置');
+  window._AMapSecurityConfig = { serviceHost: config.serviceHost };
+  orderMapApi = await window.AMapLoader.load({ key: config.key, version: config.version || '2.0', plugins: ['AMap.MarkerCluster'] });
+  return orderMapApi;
+}
+
+function openMapOrder(point, marker) {
+  const AMap = orderMapApi;
+  const meta = orderDisplayMeta(point.order);
+  const content = document.createElement('div');
+  content.className = 'map-order-popup';
+  const title = document.createElement('strong');
+  title.textContent = meta.title;
+  const summary = document.createElement('div');
+  summary.textContent = `${priceLabel(point.order)} · ${routeText(point.order)}`;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = '查看订单详情';
+  button.addEventListener('click', () => focusOrderFromMap(point.order.id));
+  content.append(title, summary, button);
+  orderMapInfoWindow ||= new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28) });
+  orderMapInfoWindow.setContent(content);
+  orderMapInfoWindow.open(orderMap, marker.getPosition());
+}
+
+async function renderOrderMap(orders = filteredOrders()) {
+  showOrderMapStatus('正在加载订单地图…');
+  const AMap = await loadOrderMapApi();
+  await loadOrderMapLocations();
+  orderMap ||= new AMap.Map('orderMap', { zoom: 11, center: [114.0579, 22.5431], viewMode: '2D', mapStyle: 'amap://styles/whitesmoke' });
+  if (orderMapCluster) {
+    orderMapCluster.setMap(null);
+    orderMapCluster = null;
+  }
+  const points = orderMapPoints(orders);
+  if (!points.length) {
+    showOrderMapStatus('当前筛选结果中没有已确认坐标的订单');
+    return;
+  }
+  orderMapCluster = new AMap.MarkerCluster(orderMap, points, {
+    gridSize: 60,
+    renderMarker(context) {
+      const position = context.marker.getPosition();
+      const point = context.data?.order ? context.data : points.find(item => (
+        Math.abs(item.lnglat[0] - Number(position?.lng)) < 0.000001
+        && Math.abs(item.lnglat[1] - Number(position?.lat)) < 0.000001
+      ));
+      if (!point?.order) return;
+      context.marker.setTitle(orderDisplayMeta(point.order).title);
+      context.marker.on('click', () => openMapOrder(point, context.marker));
+    }
+  });
+  orderMap.setFitView();
+  showOrderMapStatus('');
+}
+
+function setTeacherViewMode(mode) {
+  teacherViewMode = mode === 'map' ? 'map' : 'list';
+  localStorage.setItem('teacherViewMode', teacherViewMode);
+  $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
+  $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
+  $('#showOrderList').classList.toggle('active', teacherViewMode === 'list');
+  $('#showOrderMap').classList.toggle('active', teacherViewMode === 'map');
+  if (teacherViewMode === 'map') renderOrderMap().catch(error => showOrderMapStatus(error.message));
+}
+
+function focusOrderFromMap(orderId) {
+  setTeacherViewMode('list');
+  const card = document.getElementById(`order-card-${orderId}`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('highlight');
+  setTimeout(() => card.classList.remove('highlight'), 1800);
 }
 
 function renderAdmin() {
@@ -1764,6 +1878,8 @@ $('#feedbackForm').addEventListener('submit', async event => {
   closeFeedback();
   toast('感谢反馈，开发者会查看');
 });
+$('#showOrderList').addEventListener('click', () => setTeacherViewMode('list'));
+$('#showOrderMap').addEventListener('click', () => setTeacherViewMode('map'));
 
 window.addEventListener('scroll', () => {
   const button = $('#feedbackButton');
@@ -1784,6 +1900,7 @@ clipboardAutomationToggle.addEventListener('change', () => {
 async function initializeApp() {
   hydrateLoginForm();
   await load();
+  setTeacherViewMode(teacherViewMode);
   const signedIn = Boolean(
     (state.viewer?.role === 'admin' && adminToken)
     || (state.viewer && teacherToken && agencyToken)

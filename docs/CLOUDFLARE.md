@@ -29,10 +29,14 @@ npx.cmd wrangler d1 create shenzhen-tutor-prod
 npx.cmd wrangler d1 migrations apply shenzhen-tutor-prod --remote
 npx.cmd wrangler secret put SESSION_SIGNING_SECRET
 npx.cmd wrangler secret put AMAP_WEB_SERVICE_KEY
+npx.cmd wrangler secret put AMAP_JS_API_KEY
+npx.cmd wrangler secret put AMAP_JS_SECURITY_CODE
 npm.cmd run cloudflare:deploy
 ```
 
 `AMAP_WEB_SERVICE_KEY` 只允许通过 `wrangler secret put` 配置，不得放入 `wrangler.jsonc`、前端或 D1。未配置时地点接口返回 `AMAP_NOT_CONFIGURED`；部署验收应覆盖候选、确认保存和四种路线模式，并以响应中的 `source: "amap"` / `status: "verified"` 判断真实调用成功。
+
+地图底图必须另外申请服务平台为“Web端（JS API）”的 Key。`AMAP_JS_API_KEY` 应在高德控制台限制正式域名；`AMAP_JS_SECURITY_CODE` 不发送到浏览器，由 Worker 的 `/_AMapService` 同源代理使用。它们不能与 Web 服务 Key 混用。
 
 先使用 `*.workers.dev` 验收。Cloudflare zone 激活后，再为 Worker 添加 `tutor.liuzonghao.top` Custom Domain。正式环境必须保持 `SMS_DEV_MODE=0`。
 

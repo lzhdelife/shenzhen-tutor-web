@@ -72,6 +72,44 @@ test('万科天誉地点下拉返回多个真实候选且无 Key 明确失败', 
   assert.deepEqual(await missingResponse.json(), { error: '高德服务未配置', code: 'AMAP_NOT_CONFIGURED', details: {} });
 });
 
+test('地图配置仅公开 JS API Key 并通过同源代理保护安全密钥', async () => {
+  const missing = harness();
+  assert.deepEqual(await (await missing.call('/api/map-config')).json(), { configured: false, reason: '高德地图 JS API 尚未配置' });
+
+  let proxiedUrl = '';
+  const configured = harness({ fetchImpl: async url => {
+    proxiedUrl = url;
+    return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+  } }, { AMAP_JS_API_KEY: 'synthetic-js-key', AMAP_JS_SECURITY_CODE: 'synthetic-security-value' });
+  const config = await (await configured.call('/api/map-config')).json();
+  assert.deepEqual(config, { configured: true, key: 'synthetic-js-key', version: '2.0', serviceHost: 'https://example.test/_AMapService' });
+  assert.equal(JSON.stringify(config).includes('synthetic-security-value'), false);
+
+  const proxyResponse = await configured.call('/_AMapService/v3/place/text?keywords=test');
+  assert.equal(proxyResponse.status, 200);
+  const target = new URL(proxiedUrl);
+  assert.equal(target.origin, 'https://restapi.amap.com');
+  assert.equal(target.searchParams.get('jscode'), 'synthetic-security-value');
+});
+
+test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪精确地址', async () => {
+  const { call } = harness();
+  const name = '地图测试老师', phone = ['137', '0013', '7000'].join(''), password = 'secret1';
+  const login = await (await call('/api/account/login', { method: 'POST', body: { name, phone, password, passwordProof: await clientPasswordProof(password, name, phone) } })).json();
+  const order = await (await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: {
+    district: '南山', place: '测试小区', address: '深圳市南山区测试路1号', status: 'open', locationVerified: true,
+    locationCoordinates: '113.9000,22.5000', locationAddress: '测试路1号'
+  } })).json();
+  assert.equal((await call('/api/map-orders')).status, 401);
+  const mapBody = await (await call('/api/map-orders', { headers: { authorization: `Bearer ${login.teacherToken}` } })).json();
+  assert.deepEqual(mapBody.orders, [{ id: order.id, locations: ['113.9000,22.5000'] }]);
+  const teacherState = await (await call('/api/state', { headers: { authorization: `Bearer ${login.teacherToken}` } })).json();
+  assert.equal('locationCoordinates' in teacherState.orders[0], false);
+  assert.equal('address' in teacherState.orders[0], false);
+  assert.equal('locationCandidates' in teacherState.orders[0], false);
+  assert.equal('structured' in teacherState.orders[0], false);
+});
+
 test('account login creates paired roles and persists only token hashes', async () => {
   const { repo, call } = harness();
   const name = '测试用户', phone = ['138', '0013', '8000'].join(''), password = 'secret1';

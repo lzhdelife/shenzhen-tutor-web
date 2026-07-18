@@ -20,6 +20,29 @@ function json(body, status = 200, headers = {}) {
 
 function error(message, status = 400) { return json({ error: message }, status); }
 function text(value) { return String(value == null ? '' : value).trim(); }
+function mapConfigured(env) { return Boolean(text(env.AMAP_JS_API_KEY) && text(env.AMAP_JS_SECURITY_CODE)); }
+
+async function proxyAmapJsService(request, env, fetchImpl = fetch) {
+  if (!mapConfigured(env)) return error('高德地图 JS API 尚未配置', 503);
+  if (request.method !== 'GET') return error('地图代理只接受 GET 请求', 405);
+  const incoming = new URL(request.url);
+  const suffix = incoming.pathname.replace(/^\/_AMapService\/?/, '');
+  if (!/^(?:v3|v4|v5)\/[A-Za-z0-9_./-]+$/.test(suffix) || suffix.includes('..')) return error('地图代理路径无效', 400);
+  const host = suffix.startsWith('v4/map/styles') ? 'https://webapi.amap.com/'
+    : suffix.startsWith('v3/vectormap') ? 'https://fmap01.amap.com/' : 'https://restapi.amap.com/';
+  const target = new URL(suffix, host);
+  target.search = incoming.search;
+  target.searchParams.set('jscode', text(env.AMAP_JS_SECURITY_CODE));
+  try {
+    const upstream = await fetchImpl(target.toString(), { headers: { accept: request.headers.get('accept') || '*/*' } });
+    return new Response(upstream.body, { status: upstream.status, headers: {
+      'content-type': upstream.headers.get('content-type') || 'application/json',
+      'cache-control': upstream.headers.get('cache-control') || 'private, max-age=300'
+    } });
+  } catch (_) {
+    return error('高德地图代理暂时不可用', 503);
+  }
+}
 function publicUser(user) { return user ? { id: user.id, role: user.role, name: user.name, phone: user.phone || '' } : null; }
 function validPhone(phone) { return /^1[3-9]\d{9}$/.test(phone); }
 
@@ -144,6 +167,14 @@ function cleanOrder(order, applications, viewer) {
   const canSee = viewer && (viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId));
   const copy = { ...order, applicantCount: applications.length, applicants: canSee ? applications : [] };
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
+  if (!canSee) {
+    delete copy.address; delete copy.locationAddress; delete copy.locationCoordinates;
+    delete copy.locationQuery; delete copy.locationQueries; delete copy.locationCandidates; delete copy.structured;
+    copy.locationOptions = (copy.locationOptions || []).map(option => {
+      const { address: _address, coordinates: _coordinates, candidates: _candidates, query: _query, locationQueries: _queries, routeOptions: _routes, ...safe } = option;
+      return safe;
+    });
+  }
   return copy;
 }
 
@@ -154,6 +185,7 @@ function createWorker(dependencies = {}) {
       const url = new URL(request.url), path = url.pathname, method = request.method.toUpperCase();
       const amap = createAmapService({ key: env.AMAP_WEB_SERVICE_KEY, fetchImpl: dependencies.fetchImpl || fetch, timeoutMs: dependencies.amapTimeoutMs || 7000 });
       try {
+        if (path.startsWith('/_AMapService/')) return proxyAmapJsService(request, env, dependencies.fetchImpl || fetch);
         if (!path.startsWith('/api/')) return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
         if (method === 'OPTIONS') return new Response(null, { status: 204 });
         if (method === 'POST' && path === '/api/account/login') return pairedLogin(repo, request, await bodyJson(request), env);
@@ -194,6 +226,22 @@ function createWorker(dependencies = {}) {
         }
 
         const viewer = await actorOf(repo, request);
+        if (method === 'GET' && path === '/api/map-config') {
+          return json(mapConfigured(env)
+            ? { configured: true, key: text(env.AMAP_JS_API_KEY), version: '2.0', serviceHost: `${url.origin}/_AMapService` }
+            : { configured: false, reason: '高德地图 JS API 尚未配置' });
+        }
+        if (method === 'GET' && path === '/api/map-orders') {
+          const teacher = await requireRole(repo, request, 'teacher');
+          if (!teacher) return error('请先以老师身份登录', 401);
+          const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status === 'open').map(order => ({
+            id: order.id,
+            locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+              ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
+              : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
+          })).filter(order => order.locations.length);
+          return json({ orders });
+        }
         if (method === 'GET' && path === '/api/state') {
           const state = await repo.getPublicState();
           const visibleOrders = viewer ? await repo.listOrders({ limit: 500 }) : (state.orders || []);

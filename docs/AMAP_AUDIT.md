@@ -15,3 +15,10 @@
 - `/api/distance-preview` 只为已确认且有经纬度的地点调用高德路线，支持步行、骑行、开车和公共交通；返回 `source: "amap"` 与 `status: "verified"`，失败不回退成本地估算。
 - Key 只从 Node 环境变量或 Cloudflare Worker Secret `AMAP_WEB_SERVICE_KEY` 读取。浏览器、Node 设置数据库和 D1 均不接收或返回 Key。
 - 合成测试注入 HTTP 响应，不访问真实高德，也不包含真实 Key。
+
+## 订单地图扩展
+
+- 老师端支持列表/地图切换，地图仅加载开放订单中已确认的坐标，并使用 `AMap.MarkerCluster` 聚合。
+- 地图标记弹层只展示现有订单摘要，可跳回并高亮列表卡片；地点二选一可产生两个关联点。
+- Web端（JS API）Key 与 Web 服务 Key 分离。浏览器 Key 由 `/api/map-config` 提供并应绑定域名，安全密钥只由 Node/Worker 的 `/_AMapService` 同源代理使用。
+- 精确坐标从老师鉴权的 `/api/map-orders` 最小接口获取；非订单所有者的普通状态响应会裁剪精确地址和坐标。

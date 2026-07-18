@@ -6,6 +6,7 @@
 - 基线：`005502fe848530ba5e849c1b93ba891db8bba251`
 - 功能提交：`52091f915a985605cd3c3c8203611d1c46d1b3f9`
 - “我的位置”真实候选增量：`04a686e0ffafc4da04aea8daec7a38e718bc1ce9`
+- 老师端聚合订单地图：`a5e76267208d9ec2db4a0f33eb1ae8a5444f22d0`
 
 ## 负责路径
 
@@ -27,6 +28,9 @@
 - 地点二选一的 `locationOptions[]` 可逐项确认并保存 `poiId`、`coordinates`、`address`、`confidence`、`verified`。
 - 删除浏览器/Node 设置中的 `amapKey` 输入和持久化；唯一配置名为服务端 `AMAP_WEB_SERVICE_KEY`。
 - 取消路线失败时的本地估算伪装；失败或未配置时距离为空并带明确状态。
+- 老师页新增列表/地图切换和 `AMap.MarkerCluster` 聚合；标记弹层可返回并高亮原订单卡片，地点二选一可显示两个坐标点。
+- 新增 `GET /api/map-config`、老师鉴权的 `GET /api/map-orders` 和 `/_AMapService/*` 安全代理。地图需要独立的 `AMAP_JS_API_KEY` 与 `AMAP_JS_SECURITY_CODE`，不可复用 Web 服务 Key。
+- 非订单所有者的 `/api/state` 响应裁剪精确地址、坐标及候选坐标；地图坐标通过最小鉴权接口提供。
 
 ## 测试结果
 
@@ -41,6 +45,7 @@
 - Cloudflare 路线预览当前按订单串行处理目的地，订单量很大时可能触发 Worker 执行时长或高德配额限制；后续可在保持错误语义的前提下增加受控并发/缓存。
 - Node 旧 `db.json` 若残留 `amapKey`，运行时不会读取；管理员下一次保存设置时会删除。不要为了清理而读取或提交真实运行数据。
 - `/api/location-suggestions` 是公共接口，生产环境应在网关或 Worker 增加与业务流量相称的限流。
+- 地图底图依赖高德线上 JS API；集成后必须在桌面和移动端验收聚合、标记点击与返回卡片。
 
 ## 主任务集成顺序
 
@@ -48,5 +53,6 @@
 2. 合并本分支 tip（包含功能提交及本交接文档），或先 cherry-pick `52091f9` 再 cherry-pick 后续交接提交。
 3. 若主任务同时修改 `cloudflare/worker.js` 或 `TutorPlatform/public/app.js`，保留本分支地点接口、错误代码、Secret 边界和候选确认字段；登录、解析规则与整体视觉以主任务版本为准。
 4. 重新运行三条测试命令和 D1 本地迁移测试。
-5. 部署前由运维执行 `npx.cmd wrangler secret put AMAP_WEB_SERVICE_KEY`；不要把值写入代码或配置文件。
-6. 使用非生产测试地点验收“解析 → 候选 → 人工确认 → D1 保存 → 四种路线”，确认响应为真实 `amap/verified` 后再发布。
+5. 部署前由运维分别配置 `AMAP_WEB_SERVICE_KEY`、`AMAP_JS_API_KEY`、`AMAP_JS_SECURITY_CODE` 三个 Secret；不要把值写入代码或配置文件。
+6. 使用非生产测试地点验收“解析 → 候选 → 人工确认 → D1 保存 → 四种路线”，确认响应为真实 `amap/verified`。
+7. 打开老师页地图，验收聚合、筛选同步、弹层返回卡片、地点二选一双点、无坐标订单不落点及移动端布局后再发布。

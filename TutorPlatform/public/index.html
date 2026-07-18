@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260718-5">
+  <link rel="stylesheet" href="./styles.css?v=20260718-6">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -109,6 +109,10 @@
           <div><span class="section-kicker">接单端</span><h2>适合你的家教单</h2></div>
           <div class="workspace-heading-actions">
             <span id="orderCount" class="count-label"></span>
+            <div class="view-toggle" role="group" aria-label="订单展示方式">
+              <button id="showOrderList" class="secondary active" type="button">列表</button>
+              <button id="showOrderMap" class="secondary" type="button">地图</button>
+            </div>
             <button id="refreshOrdersButton" class="refresh-button" type="button" title="刷新家教单" aria-label="刷新家教单"><span aria-hidden="true">↻</span><b>刷新</b></button>
           </div>
         </div>
@@ -168,6 +172,10 @@
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
         </div>
         <div id="orders" class="order-list"></div>
+        <section id="orderMapPanel" class="order-map-panel hidden" aria-label="订单地图">
+          <div id="orderMap" class="order-map"></div>
+          <div id="orderMapStatus" class="order-map-status" role="status">正在准备地图…</div>
+        </section>
       </section>
 
       <section id="agency" class="view">
@@ -315,7 +323,8 @@
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260718-7"></script>
+  <script src="./app.js?v=20260718-8"></script>
 </body>
 </html>

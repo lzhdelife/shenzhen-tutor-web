@@ -22,6 +22,8 @@
 | GET | `/api/state` | 可选登录 | 返回页面状态；管理员可看到用户/反馈，中介所有者可看到申请人 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
 | GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
+| GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
+| GET | `/api/map-orders` | teacher | 仅返回开放订单 ID 与已确认坐标，不返回门牌地址或学生信息 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
@@ -56,6 +58,8 @@ Content-Type: application/json
 不存在的“名称 + 手机号”会在当前实现中自动注册。生产系统应把注册与登录分开。
 
 地点候选成功响应为 `{ "status": "candidates", "suggestions": [...] }`。每个候选包含 `name`、`district`、`address`、`location`，以及可直接填入“我的位置”的标准地址 `value`。前端必须展示名称、区和地址供用户选择；无 Key 返回 HTTP 503、`AMAP_NOT_CONFIGURED` 和“高德服务未配置”，不生成占位候选。
+
+地图使用独立的高德 Web端（JS API）Key。`/api/map-config` 只在 `AMAP_JS_API_KEY` 和 `AMAP_JS_SECURITY_CODE` 同时存在时返回 `configured: true`；安全密钥仅由 `/_AMapService/*` 同源代理追加到高德请求。普通订单状态会裁剪非订单所有者可见的精确地址和经纬度，老师地图通过鉴权后的 `/api/map-orders` 获取最小坐标集合。
 
 ### 单角色兼容登录
 

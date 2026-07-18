@@ -2229,14 +2229,27 @@ function sanitizeTeacherPreferences(value = {}) {
 function publicDb(db, viewer = null) {
   const orders = db.orders.map(order => {
     const copy = { ...order, score: score(order, db.settings) };
-    const canSeeApplicants = viewer && (
+    const ownsPreciseLocation = viewer && (
       viewer.role === 'admin' ||
       (viewer.role === 'agency' && order.agencyId === viewer.id)
     );
     copy.applicantCount = order.applicants?.length || 0;
-    copy.applicants = canSeeApplicants ? (order.applicants || []) : [];
+    copy.applicants = ownsPreciseLocation ? (order.applicants || []) : [];
     delete copy.sourceImages;
     delete copy.importFingerprint;
+    if (!ownsPreciseLocation) {
+      delete copy.address;
+      delete copy.locationAddress;
+      delete copy.locationCoordinates;
+      delete copy.locationQuery;
+      delete copy.locationQueries;
+      delete copy.locationCandidates;
+      delete copy.structured;
+      copy.locationOptions = (copy.locationOptions || []).map(option => {
+        const { address: _address, coordinates: _coordinates, candidates: _candidates, query: _query, locationQueries: _queries, routeOptions: _routes, ...safe } = option;
+        return safe;
+      });
+    }
     return copy;
   });
   return {
@@ -2290,6 +2303,26 @@ async function handleApi(req, res) {
     const repaired = await repairPersistedOpenOrderLocations(db);
     if (repaired) writeDb(db);
     return send(res, 200, publicDb(db, sessionOf(req)));
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/map-config') {
+    const key = envValue('AMAP_JS_API_KEY');
+    const securityCode = envValue('AMAP_JS_SECURITY_CODE');
+    return send(res, 200, key && securityCode
+      ? { configured: true, key, version: '2.0', serviceHost: `${url.origin}/_AMapService` }
+      : { configured: false, reason: '高德地图 JS API 尚未配置' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/map-orders') {
+    const teacher = requireRole(req, res, 'teacher');
+    if (!teacher) return;
+    const orders = db.orders.filter(order => order.status === 'open').map(order => ({
+      id: order.id,
+      locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+        ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
+        : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
+    })).filter(order => order.locations.length);
+    return send(res, 200, { orders });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/clipboard/capture') {
@@ -3020,9 +3053,36 @@ async function handleApi(req, res) {
   send(res, 404, { error: '接口不存在' });
 }
 
+async function handleAmapJsProxy(req, res) {
+  const securityCode = envValue('AMAP_JS_SECURITY_CODE');
+  if (!envValue('AMAP_JS_API_KEY') || !securityCode) return send(res, 503, { error: '高德地图 JS API 尚未配置' });
+  if (req.method !== 'GET') return send(res, 405, { error: '地图代理只接受 GET 请求' });
+  const incoming = new URL(req.url, `http://localhost:${PORT}`);
+  const suffix = incoming.pathname.replace(/^\/_AMapService\/?/, '');
+  if (!/^(?:v3|v4|v5)\/[A-Za-z0-9_./-]+$/.test(suffix) || suffix.includes('..')) return send(res, 400, { error: '地图代理路径无效' });
+  const host = suffix.startsWith('v4/map/styles') ? 'https://webapi.amap.com/'
+    : suffix.startsWith('v3/vectormap') ? 'https://fmap01.amap.com/' : 'https://restapi.amap.com/';
+  const target = new URL(suffix, host);
+  target.search = incoming.search;
+  target.searchParams.set('jscode', securityCode);
+  try {
+    const upstream = await fetch(target, { headers: { accept: req.headers.accept || '*/*' }, signal: AbortSignal.timeout(8000) });
+    const body = Buffer.from(await upstream.arrayBuffer());
+    res.writeHead(upstream.status, {
+      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      'Cache-Control': upstream.headers.get('cache-control') || 'private, max-age=300'
+    });
+    res.end(body);
+  } catch (_) {
+    return send(res, 503, { error: '高德地图代理暂时不可用' });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
-  if (req.url.startsWith('/api/')) {
+  if (req.url.startsWith('/_AMapService/')) {
+    handleAmapJsProxy(req, res).catch(err => send(res, 500, { error: err.message }));
+  } else if (req.url.startsWith('/api/')) {
     handleApi(req, res).catch(err => send(res, 500, { error: err.message }));
   } else {
     serveStatic(req, res);

@@ -1,4 +1,6 @@
 # Copy this file to .dev.vars for local Worker development only.
 # Never commit .dev.vars or real credentials.
 AMAP_WEB_SERVICE_KEY=
+AMAP_JS_API_KEY=
+AMAP_JS_SECURITY_CODE=
 SESSION_SIGNING_SECRET=
