@@ -183,7 +183,7 @@
         <form id="importForm" class="panel agency-import-panel">
           <div class="agency-primary-heading">
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
-            <p>左侧粘贴剪贴板内容，右侧核对识别结果，再确认导入。</p>
+            <p>粘贴后点击一次即可完成识别和导入；剪贴板桥接器送来的内容会自动处理。</p>
           </div>
           <div class="clipboard-automation-bar">
             <label><input id="clipboardAutomationEnabled" type="checkbox" checked> 自动接收并导入剪贴板订单</label>
@@ -194,8 +194,7 @@
               <div class="import-column-title"><strong>粘贴原文</strong><span>支持一条或多条订单</span></div>
               <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
               <div class="actions">
-                <button type="button" id="parseImport" class="primary">识别预览</button>
-                <button type="submit" class="secondary">确认导入</button>
+                <button type="submit" id="parseAndImport" class="primary">识别并导入</button>
               </div>
             </div>
             <div class="import-preview-column">
@@ -325,6 +324,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260718-8"></script>
+  <script src="./app.js?v=20260718-9"></script>
 </body>
 </html>

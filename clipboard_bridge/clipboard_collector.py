@@ -13,7 +13,7 @@ import uuid
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 
 APP_NAME = "深圳家教剪贴板桥接器"
@@ -97,24 +97,19 @@ class ClipboardBridgeApp:
     def __init__(self, root):
         self.root = root
         self.data_file = app_data_dir() / "records.json"
-        self.settings_file = app_data_dir() / "settings.json"
-        self.settings = self._load_json(self.settings_file, {})
         self.records = self._load_json(self.data_file, [])
         if not isinstance(self.records, list):
             self.records = []
-        self.service_url = tk.StringVar(value=self.settings.get("serviceUrl", DEFAULT_SERVICE_URL))
-        self.open_site_on_start = tk.BooleanVar(value=self.settings.get("openSiteOnStart", True))
-        self.client = BridgeClient(self.service_url.get())
+        self.client = BridgeClient(DEFAULT_SERVICE_URL)
         self.collecting = True
         self.last_clipboard = self._read_clipboard()
-        self.suppressed_text = None
         self.inflight = set()
         self.tasks = queue.Queue()
         self.results = queue.Queue()
 
         self.root.title(APP_NAME)
-        self.root.geometry("1080x650")
-        self.root.minsize(760, 480)
+        self.root.geometry("820x520")
+        self.root.minsize(680, 420)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self._build_ui()
         self._normalize_records()
@@ -145,20 +140,21 @@ class ClipboardBridgeApp:
         self.toggle_button.pack(side="right", padx=(8, 20), ipadx=8, ipady=4)
         ttk.Button(header, text="打开发单端", command=self.open_website).pack(side="right", ipadx=8, ipady=4)
 
-        options = tk.Frame(self.root, bg="#eef2f6", height=50)
-        options.pack(fill="x")
-        options.pack_propagate(False)
-        tk.Label(options, text="本地网站", bg="#eef2f6", font=("Microsoft YaHei UI", 9, "bold")).pack(side="left", padx=(20, 7))
-        ttk.Entry(options, textvariable=self.service_url, width=34).pack(side="left")
-        ttk.Checkbutton(options, text="启动时自动打开发单端", variable=self.open_site_on_start).pack(side="left", padx=14)
-        tk.Label(options, text="打开程序后即可在手机复制，原文会自动进入网站", bg="#eef2f6", fg="#66717d",
-                 font=("Microsoft YaHei UI", 9)).pack(side="right", padx=20)
+        instruction = tk.Label(
+            self.root,
+            text="保持本程序运行：手机复制文字 → 网站自动识别并导入",
+            bg="#eef2f6",
+            fg="#334155",
+            font=("Microsoft YaHei UI", 10),
+            anchor="w",
+            padx=20,
+            pady=12,
+        )
+        instruction.pack(fill="x")
 
         toolbar = tk.Frame(self.root, bg="#f4f6f8")
         toolbar.pack(fill="x", padx=16, pady=(12, 9))
-        ttk.Button(toolbar, text="立即重试", command=self.retry_all).pack(side="left", padx=(0, 7))
-        ttk.Button(toolbar, text="复制全部", command=self.copy_all).pack(side="left", padx=(0, 7))
-        ttk.Button(toolbar, text="删除选中", command=self.delete_selected).pack(side="left")
+        ttk.Button(toolbar, text="重试失败项", command=self.retry_all).pack(side="left")
         self.count_label = tk.Label(toolbar, text="0 条", bg="#f4f6f8", fg="#66717d", font=("Microsoft YaHei UI", 10))
         self.count_label.pack(side="right")
 
@@ -169,8 +165,8 @@ class ClipboardBridgeApp:
             self.tree.heading(key, text=title)
         self.tree.column("time", width=90, anchor="center", stretch=False)
         self.tree.column("status", width=120, anchor="center", stretch=False)
-        self.tree.column("content", width=560, anchor="w")
-        self.tree.column("error", width=260, anchor="w")
+        self.tree.column("content", width=410, anchor="w")
+        self.tree.column("error", width=190, anchor="w")
         scroll = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -208,9 +204,7 @@ class ClipboardBridgeApp:
         current = self._read_clipboard()
         if self.collecting and current and current != self.last_clipboard:
             self.last_clipboard = current
-            if current != self.suppressed_text:
-                self._add_record(current)
-            self.suppressed_text = None
+            self._add_record(current)
         elif current:
             self.last_clipboard = current
         self.root.after(300, self._poll_clipboard)
@@ -295,8 +289,7 @@ class ClipboardBridgeApp:
             if kind == "startup_ok":
                 self.connection_label.configure(text="本地网站已连接", fg="#178653")
                 self.footer_label.configure(text="已开始监听。手机复制后，网页会自动识别并导入。")
-                if self.open_site_on_start.get():
-                    self.open_website()
+                self.open_website()
                 self.retry_all(silent=True)
             elif kind == "startup_error":
                 self.connection_label.configure(text="本地网站未连接", fg="#b3261e")
@@ -335,7 +328,6 @@ class ClipboardBridgeApp:
         self.root.after(5000, self._retry_pending)
 
     def retry_all(self, silent=False):
-        self.client = BridgeClient(self.service_url.get().strip() or DEFAULT_SERVICE_URL)
         count = 0
         for record in self.records:
             if record["status"] in (STATUS_PENDING, STATUS_RETRY):
@@ -351,28 +343,8 @@ class ClipboardBridgeApp:
         self.footer_label.configure(text="正在监听 Windows 剪贴板。" if self.collecting else "采集已暂停，已保存的原文仍会继续发送。")
 
     def open_website(self):
-        base = (self.service_url.get().strip() or DEFAULT_SERVICE_URL).replace("127.0.0.1", "localhost")
+        base = DEFAULT_SERVICE_URL.replace("127.0.0.1", "localhost")
         webbrowser.open(f"{base}/?view=agency")
-
-    def copy_all(self):
-        if not self.records:
-            return
-        combined = "\n\n".join(record["text"] for record in self.records)
-        self.suppressed_text = combined
-        self.last_clipboard = combined
-        self.root.clipboard_clear()
-        self.root.clipboard_append(combined)
-        self.root.update()
-
-    def delete_selected(self):
-        selected = set(self.tree.selection())
-        if not selected:
-            return
-        if not messagebox.askyesno(APP_NAME, f"删除选中的 {len(selected)} 条本地记录吗？"):
-            return
-        self.records = [record for record in self.records if record["id"] not in selected]
-        self._save_records()
-        self._refresh_rows()
 
     def _record(self, record_id):
         return next((record for record in self.records if record.get("id") == record_id), None)
@@ -399,10 +371,6 @@ class ClipboardBridgeApp:
             return fallback
 
     def on_close(self):
-        self.settings_file.write_text(json.dumps({
-            "serviceUrl": self.service_url.get().strip() or DEFAULT_SERVICE_URL,
-            "openSiteOnStart": self.open_site_on_start.get(),
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
         self.root.destroy()
 
 

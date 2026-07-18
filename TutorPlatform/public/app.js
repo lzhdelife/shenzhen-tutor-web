@@ -27,6 +27,7 @@ let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
 let clipboardBridgeBusy = false;
+let clipboardBridgeUnavailable = false;
 let backgroundStateRefreshTimer = 0;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
@@ -77,7 +78,9 @@ async function api(path, options = {}, token = '') {
   if (!res.ok) {
     let message = '请求失败';
     try { message = (await res.json()).error || message; } catch {}
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -1332,7 +1335,21 @@ function setClipboardAutomationStatus(message, tone = '') {
   status.textContent = message;
 }
 
+async function parseAndImportText(text) {
+  const rawText = String(text || '').trim();
+  if (!rawText) throw new Error('请先粘贴订单文字');
+  const parsed = await api('/api/parse', { method: 'POST', body: { text: rawText } }, agencyToken);
+  parsedImport = parsed.parsed || [];
+  renderPreview();
+  if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
+  const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+  mergeCreatedOrders(imported.created || []);
+  scheduleBackgroundStateRefresh();
+  return { imported, parsedCount: parsedImport.length };
+}
+
 async function pollClipboardInbox() {
+  if (clipboardBridgeUnavailable) return;
   const enabled = $('#clipboardAutomationEnabled')?.checked;
   if (!enabled) {
     setClipboardAutomationStatus('自动接收已暂停');
@@ -1357,24 +1374,23 @@ async function pollClipboardInbox() {
       setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
       const textarea = $('#importForm').elements.text;
       textarea.value = item.text;
-      const parsed = await api('/api/parse', { method: 'POST', body: { text: item.text } }, agencyToken);
-      parsedImport = parsed.parsed || [];
-      renderPreview();
-      if (!parsedImport.length) throw new Error('这条剪贴板内容没有识别出订单');
-      const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
-      mergeCreatedOrders(imported.created || []);
+      const { imported, parsedCount } = await parseAndImportText(item.text);
       await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
         created: imported.created?.length || 0,
         duplicatesSkipped: imported.duplicatesSkipped || 0
       } }, agencyToken);
       const created = imported.created?.length || 0;
       const skipped = Number(imported.duplicatesSkipped || 0) + Number(imported.incompleteSkipped || 0);
-      setClipboardAutomationStatus(created ? `自动导入完成：新增 ${created} 条订单` : `已处理：${skipped || parsedImport.length} 条重复或无效内容已跳过`);
+      setClipboardAutomationStatus(created ? `自动导入完成：新增 ${created} 条订单` : `已处理：${skipped || parsedCount} 条重复或无效内容已跳过`);
       toast(created ? `剪贴板已自动导入 ${created} 条` : '剪贴板内容已处理，没有新增订单');
       activeItem = null;
     }
-    scheduleBackgroundStateRefresh();
   } catch (error) {
+    if (error.status === 404 && !activeItem) {
+      clipboardBridgeUnavailable = true;
+      setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
+      return;
+    }
     if (activeItem?.captureId) {
       await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/fail`, {
         method: 'POST',
@@ -1764,31 +1780,23 @@ $('#orderForm').addEventListener('submit', async event => {
   await load();
 });
 
-$('#parseImport').addEventListener('click', async () => {
-  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  const data = Object.fromEntries(new FormData($('#importForm')).entries());
-  const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
-  parsedImport = res.parsed || [];
-  renderPreview();
-  toast(`识别出 ${parsedImport.length} 条`);
-});
-
 $('#importForm').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;
   if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  if (!parsedImport.length) {
-    const data = Object.fromEntries(new FormData(form).entries());
-    const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
-    parsedImport = res.parsed || [];
+  const button = $('#parseAndImport');
+  button.disabled = true;
+  button.textContent = '正在识别并导入…';
+  try {
+    const { imported, parsedCount } = await parseAndImportText(form.text.value);
+    const created = imported.created?.length || 0;
+    toast(created ? `已识别并导入 ${created} 条` : `已识别 ${parsedCount} 条，没有新增订单`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '识别并导入';
   }
-  const res = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
-  toast(`已导入 ${res.created.length} 条`);
-  mergeCreatedOrders(res.created || []);
-  form.text.value = '';
-  parsedImport = [];
-  renderPreview();
-  scheduleBackgroundStateRefresh();
 });
 
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
