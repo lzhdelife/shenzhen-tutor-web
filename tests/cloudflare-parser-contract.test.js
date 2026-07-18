@@ -14,12 +14,22 @@ test('Cloudflare adapter exposes the shared lossless parser contract', async () 
     env: {}
   });
 
-  assert.equal(result.parserVersion, '2.1.0');
+  assert.equal(result.parserVersion, '2.2.0');
   assert.deepEqual(result.parsed.map(order => order.raw), [first, second]);
   assert.deepEqual(result.parsed.map(order => order.structured.rawText), [first, second]);
   assert.equal(result.splitDiagnostics.length, 2);
   assert.ok(result.parsed.every(order => Array.isArray(order.structured.diagnostics.uncertainFields)));
   assert.ok(result.parsed.every(order => order.structured.locations.value.every(location => Array.isArray(location.locationQueries))));
+});
+
+test('Cloudflare adapter reports non-order preamble without importing it', async () => {
+  const text = fs.readFileSync(path.join(__dirname, 'fixtures', 'mixed-preamble-order.txt'), 'utf8').trim().replace(/\r/g, '');
+  const result = await adapter.parseOrders({ text }, {
+    agency: { id: 'synthetic-agency', name: '匿名合成机构' }, env: {}
+  });
+  assert.equal(result.parsed.length, 1);
+  assert.equal(result.ignoredBlocks.length, 1);
+  assert.equal(result.ignoredBlocks[0].rawText, text.split('\n\n')[0]);
 });
 
 test('Cloudflare adapter keeps keycap-numbered compact orders separate', async () => {

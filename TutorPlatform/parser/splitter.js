@@ -1,5 +1,7 @@
 'use strict';
 
+const { isExplicitOrderStart } = require('./classifier');
+
 /**
  * Numbered compact orders copied from chat commonly start with keycap emoji
  * ("1️⃣") or circled digits. Require grade and subject identity on the same
@@ -53,6 +55,34 @@ function splitOrdersDetailed(input, options = {}) {
         rawEnd: item.rawEnd,
         boundaryReason: 'blank-line',
         confidence: 1
+      }))
+    };
+  }
+
+  // A copied source/group label may sit directly above an explicit order id
+  // without a blank line. Preserve both spans so the classifier can report
+  // the preamble as ignored instead of merging it into the order.
+  const explicitStarts = [...original.matchAll(/^.*$/gm)]
+    .filter(match => match.index > 0 && isExplicitOrderStart(match[0]))
+    .map(match => match.index);
+  if (explicitStarts.length) {
+    const boundaries = [0, ...explicitStarts, original.length];
+    const items = [];
+    for (let index = 0; index < boundaries.length - 1; index++) {
+      const start = boundaries[index];
+      const end = boundaries[index + 1];
+      const slice = original.slice(start, end);
+      const leading = slice.match(/^\s*/)?.[0].length || 0;
+      const trailing = slice.match(/\s*$/)?.[0].length || 0;
+      const rawStart = start + leading;
+      const rawEnd = Math.max(rawStart, end - trailing);
+      if (rawEnd > rawStart) items.push({ raw: original.slice(rawStart, rawEnd), rawStart, rawEnd });
+    }
+    return {
+      blocks: items.map(item => item.raw),
+      diagnostics: items.map((item, blockIndex) => ({
+        blockIndex, rawStart: item.rawStart, rawEnd: item.rawEnd,
+        boundaryReason: blockIndex ? 'explicit-order-title' : 'preamble', confidence: 0.95
       }))
     };
   }

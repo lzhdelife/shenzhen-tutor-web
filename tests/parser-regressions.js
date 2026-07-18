@@ -32,7 +32,7 @@ for (const fixture of fixtures) {
   if (expected.locationQueryIncludes) assert.ok(expected.locationQueryIncludes.every(value => order.locationQueries.includes(value)), `${fixture.id}: ${order.locationQueries.join(' | ')}`);
   if (expected.scheduleIncludes) { counters.phases[1]++; const ok = expected.scheduleIncludes.every(value => order.schedule.includes(value)); if (ok) counters.phases[0]++; assert.equal(ok, true, `${fixture.id}: ${order.schedule}`); }
   if (!expected.teacherGender && order.gender) counters.genderConfusions++;
-  assert.equal(structured.parserVersion, '2.1.0');
+  assert.equal(structured.parserVersion, '2.2.0');
   assert.equal(structured.rawText, fixture.raw);
   assert.ok(structured.normalizedText, `${fixture.id}: normalized text available alongside lossless rawText`);
   assert.equal(structured.locations.rawEvidence.length > 0, true, `${fixture.id}: location evidence`);

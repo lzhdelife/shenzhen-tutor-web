@@ -5,7 +5,7 @@ const { extractWithAI } = require('./ai-provider');
 const { validateStructuredOrder } = require('./validator');
 const { redactForAI } = require('./privacy');
 
-const PARSER_VERSION = '2.1.0';
+const PARSER_VERSION = '2.2.0';
 const evidence = (raw, pattern) => String(raw || '').match(pattern)?.[0] || '';
 const subjects = value => String(value || '').split(/[\/、，,]+/).map(item => item.trim()).filter(Boolean);
 const uniq = values => [...new Set(values.filter(Boolean))];

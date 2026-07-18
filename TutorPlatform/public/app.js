@@ -5,6 +5,7 @@ let teacherToken = sessionStorage.getItem('teacherToken') || '';
 let agencyToken = sessionStorage.getItem('agencyToken') || '';
 let adminToken = sessionStorage.getItem('adminToken') || '';
 let parsedImport = [];
+let ignoredImportBlocks = [];
 let teacherOrigin = localStorage.getItem('teacherOrigin') || '';
 let routeMode = localStorage.getItem('routeMode') || 'cycling';
 let distanceOverrides = {};
@@ -1062,9 +1063,12 @@ function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidate
 }
 
 function renderPreview() {
-  $('#parsePreview').innerHTML = parsedImport.length
+  const ignoredNotice = ignoredImportBlocks.length
+    ? `<div class="parse-warning">已忽略 ${ignoredImportBlocks.length} 段非订单文本。原文仍保留在解析响应中，可修改后重新识别。</div>`
+    : '';
+  $('#parsePreview').innerHTML = ignoredNotice + (parsedImport.length
     ? parsedImport.map(previewCard).join('')
-    : '<div class="raw">还没有识别结果。</div>';
+    : '<div class="raw">没有识别到有效订单。</div>');
 }
 
 function readLoginPreference() {
@@ -1340,6 +1344,7 @@ async function parseAndImportText(text) {
   if (!rawText) throw new Error('请先粘贴订单文字');
   const parsed = await api('/api/parse', { method: 'POST', body: { text: rawText } }, agencyToken);
   parsedImport = parsed.parsed || [];
+  ignoredImportBlocks = parsed.ignoredBlocks || [];
   renderPreview();
   if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
   const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);

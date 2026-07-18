@@ -133,7 +133,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 ### 批量导入
 
-`POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics }`。`splitDiagnostics` 中每项包含 `blockIndex`、`rawStart`、`rawEnd`、`boundaryReason` 和 `confidence`。预览不会去重或静默丢弃字段不完整的原文。
+`POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics, ignoredBlocks }`。`splitDiagnostics` 中每项包含 `blockIndex`、`sourceBlockIndex`、`rawStart`、`rawEnd`、`boundaryReason`、`classification` 和 `confidence`。每段切割文本先经过订单最小证据分类；有效订单进入 `parsed[]`，群名、闲聊、广告前缀等非订单文本进入 `ignoredBlocks[]`，其中保留原文、跨度、分类证据和忽略原因。预览不会去重，也不会静默丢弃被忽略原文。
 
 每个 `parsed[]` 项包含统一的 `structured` 契约。可抽取字段使用 `{ value, rawEvidence, confidence, source }`；`structured.locations.value[]` 同时保留地点原文、行政区、展示地点、`query/locationQueries`、附近语义和二选一关系。`structured.schedulePhases[]` 保留阶段、开始时间、频次、星期、时段、单次时长和课次范围。`structured.diagnostics.uncertainFields[]` 必须在导入前展示给用户确认。解析层只生成地点证据和查询文本，不负责调用地图服务。
 
