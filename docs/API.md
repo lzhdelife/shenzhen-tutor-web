@@ -1,6 +1,6 @@
 # HTTP API
 
-基础地址默认是 `http://localhost:8787`。请求和响应使用 JSON，图片读取接口除外。
+基础地址默认是 `http://localhost:8787`。请求和响应使用 JSON。
 
 ## 认证方式
 
@@ -9,7 +9,7 @@
 - 自动登录使用名为 `tutor_remember` 的 `HttpOnly` Cookie，浏览器请求需保持同源 Cookie。
 - 批量导入使用中介 Token 调用 `/api/import`。
 
-错误通常返回：
+错误通常返回；地图上游错误还会包含稳定的 `code` 和不含密钥的 `details`：
 
 ```json
 { "error": "可读的错误消息" }
@@ -21,13 +21,9 @@
 | --- | --- | --- | --- |
 | GET | `/api/state` | 可选登录 | 返回页面状态；管理员可看到用户/反馈，中介所有者可看到申请人 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
-| GET | `/api/location-suggestions?q=` | 公共 | 地点输入候选，优先高德，缺少 Key 时返回有限本地候选 |
-| GET | `/api/auth/config` | 公共 | 短信/微信登录是否启用及验证码时限 |
-| POST | `/api/auth/sms/send` | 公共 | 发送 6 位短信验证码 |
-| POST | `/api/auth/sms/verify` | 公共 | 验证码登录/注册一对老师和中介身份 |
-| GET | `/api/auth/wechat/start` | 公共 | 跳转微信开放平台二维码 |
-| GET | `/api/auth/wechat/callback` | 微信回调 | 换取微信身份，跳回登录页 |
-| POST | `/api/auth/wechat/complete` | 公共 + ticket | 完成已绑定微信登录 |
+| GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
+| GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
+| GET | `/api/map-orders` | teacher | 仅返回开放订单 ID 与已确认坐标，不返回门牌地址或学生信息 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
@@ -44,8 +40,7 @@ Content-Type: application/json
   "phone": "<11位手机号>",
   "password": "<至少6位密码>",
   "rememberAccount": true,
-  "autoLogin": false,
-  "wechatBindTicket": ""
+  "autoLogin": false
 }
 ```
 
@@ -61,6 +56,10 @@ Content-Type: application/json
 ```
 
 不存在的“名称 + 手机号”会在当前实现中自动注册。生产系统应把注册与登录分开。
+
+地点候选成功响应为 `{ "status": "candidates", "suggestions": [...] }`。每个候选包含 `name`、`district`、`address`、`location`，以及可直接填入“我的位置”的标准地址 `value`。前端必须展示名称、区和地址供用户选择；无 Key 返回 HTTP 503、`AMAP_NOT_CONFIGURED` 和“高德服务未配置”，不生成占位候选。
+
+地图使用独立的高德 Web端（JS API）Key。`/api/map-config` 只在 `AMAP_JS_API_KEY` 和 `AMAP_JS_SECURITY_CODE` 同时存在时返回 `configured: true`；安全密钥仅由 `/_AMapService/*` 同源代理追加到高德请求。普通订单状态会裁剪非订单所有者可见的精确地址和经纬度，老师地图通过鉴权后的 `/api/map-orders` 获取最小坐标集合。
 
 ### 单角色兼容登录
 
@@ -98,6 +97,8 @@ Content-Type: application/json
 
 `mode` 可为 `walking`、`cycling`、`driving`、`transit`。
 
+Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap"`。未确认地点返回 `location_unconfirmed`，无 Key、超时、限流和高德错误分别返回 `AMAP_NOT_CONFIGURED`、`AMAP_TIMEOUT`、`AMAP_RATE_LIMITED`、`AMAP_API_ERROR`，不会回退成“已验证”距离。
+
 偏好结构：
 
 ```json
@@ -123,36 +124,24 @@ Content-Type: application/json
 | --- | --- | --- | --- |
 | POST | `/api/orders` | agency | 手工创建一条订单 |
 | POST | `/api/parse` | agency | 拆分并预览粘贴文字，不写数据库 |
-| POST | `/api/import` | agency | 批量解析/导入文本或已解析订单，可携带原图 |
-| POST | `/api/orders/:id/source-images` | owner agency/admin | 替换该订单的一张原图 |
-| GET | `/api/orders/:id/source-images/:index` | 任意登录用户 | 读取原图二进制 |
+| POST | `/api/import` | agency | 批量解析/导入文本或已解析订单 |
 | PATCH | `/api/orders/:id` | owner agency/admin | 中介编辑自己的订单；管理员只能改状态 |
-| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单和未被引用的原图 |
+| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单 |
+| POST | `/api/orders/:id/location/confirm` | owner agency/admin | 确认高德候选并保存标准地址、POI 和经纬度 |
+
+候选确认请求为 `{ "candidate": { "id", "name", "district", "address", "location" }, "district": "南山" }`。服务端校验经纬度和区名冲突，成功后写入 `locationStatus: "confirmed"`。
 
 ### 批量导入
 
-`POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics }`。`splitDiagnostics` 中每项包含 `blockIndex`、`rawStart`、`rawEnd`、`boundaryReason` 和 `confidence`。预览不会去重或静默丢弃字段不完整的原文。
+`POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics, ignoredBlocks }`。`splitDiagnostics` 中每项包含 `blockIndex`、`sourceBlockIndex`、`rawStart`、`rawEnd`、`boundaryReason`、`classification` 和 `confidence`。每段切割文本先经过订单最小证据分类；有效订单进入 `parsed[]`，群名、闲聊、广告前缀等非订单文本进入 `ignoredBlocks[]`，其中保留原文、跨度、分类证据和忽略原因。预览不会去重，也不会静默丢弃被忽略原文。
+
+每个 `parsed[]` 项包含统一的 `structured` 契约。可抽取字段使用 `{ value, rawEvidence, confidence, source }`；`structured.locations.value[]` 同时保留地点原文、行政区、展示地点、`query/locationQueries`、附近语义和二选一关系。`structured.schedulePhases[]` 保留阶段、开始时间、频次、星期、时段、单次时长和课次范围。`structured.diagnostics.uncertainFields[]` 必须在导入前展示给用户确认。解析层只生成地点证据和查询文本，不负责调用地图服务。
 
 最简单的请求：
 
 ```json
 {
   "text": "<包含一条或多条订单的文字>"
-}
-```
-
-带原图的完整形式：
-
-```json
-{
-  "text": "<包含一条或多条订单的文字>",
-  "images": ["data:image/png;base64,..."],
-  "pages": [
-    {
-      "text": "<与该图片对应的文字>",
-      "image": "data:image/png;base64,..."
-    }
-  ]
 }
 ```
 
@@ -167,8 +156,6 @@ Content-Type: application/json
   "incompleteSkipped": 0
 }
 ```
-
-限制：请求体约 30 MiB；单张 Data URL 解码后最大 8 MiB；每次最多处理 40 张候选图；每条订单最终只保留一张原图。
 
 ### 修改权限
 
@@ -195,7 +182,7 @@ Content-Type: application/json
 | POST | `/api/admin/batch-delete-orders` | admin | 最多接收 5000 个订单 ID |
 | POST | `/api/admin/batch-delete-users` | admin | 删除选中身份、关联订单/申请/会话 |
 | POST | `/api/admin/announcement` | admin | 发布或撤下公告 |
-| POST | `/api/settings` | admin | 保存默认地址、高德 Key 和距离参数 |
+| POST | `/api/settings` | admin | 保存默认地址和距离参数；不接收高德 Key |
 | POST | `/api/admin/reconcile-locations` | admin | 对指定或全部订单重新核验地点 |
 
 批量删除订单请求：
@@ -219,7 +206,7 @@ Content-Type: application/json
 - 老师：订单不包含申请人明细。
 - 中介：自己的订单包含申请人明细，其他订单不包含。
 - 管理员：所有申请人、用户列表和反馈列表可见。
-- `passwordHash`、`adminPasswordHash`、`amapKey`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。
+- `passwordHash`、`adminPasswordHash`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。高德 Key 仅存在于服务端环境/Secret，任何 API 都不返回。
 
 ## CORS 和浏览器说明
 

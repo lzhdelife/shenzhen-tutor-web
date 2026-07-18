@@ -15,12 +15,21 @@ const evidenceField = valueSchema => ({
 const STRING_FIELD = evidenceField({ type: 'string' });
 const STRING_ARRAY_FIELD = evidenceField({ type: 'array', items: { type: 'string' } });
 const NUMBER_FIELD = evidenceField({ anyOf: [{ type: 'number' }, { type: 'null' }] });
+const LOCATION_FIELD = evidenceField({ type: 'array', items: { type: 'object' } });
 
 const PARSER_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['gradeCurrent', 'gradeNext', 'gradeContext', 'subjectsCurrent', 'subjectsPossible', 'studentGender', 'teacherGender', 'priceUnit', 'requirements', 'notes'],
+  required: ['rawText', 'normalizedText', 'parserVersion', 'locations', 'gradeCurrent', 'gradeNext', 'gradeContext', 'subjectsCurrent', 'subjectsPossible', 'studentGender', 'teacherGender', 'priceUnit', 'schedulePhases', 'requirements', 'notes', 'diagnostics'],
   properties: {
+    rawText: { type: 'string' },
+    normalizedText: { type: 'string' },
+    parserVersion: { type: 'string' },
+    locations: {
+      ...LOCATION_FIELD,
+      required: [...LOCATION_FIELD.required, 'relation'],
+      properties: { ...LOCATION_FIELD.properties, relation: { type: 'string', enum: ['AND', 'OR'] } }
+    },
     gradeCurrent: STRING_FIELD,
     gradeNext: STRING_FIELD,
     gradeContext: STRING_FIELD,
@@ -44,8 +53,12 @@ const PARSER_JSON_SCHEMA = {
     priceApproximate: evidenceField({ type: 'boolean' }),
     priceUnit: STRING_FIELD,
     durationPerLesson: NUMBER_FIELD,
+    schedulePhases: { type: 'array', items: { type: 'object' } },
     requirements: STRING_ARRAY_FIELD,
-    notes: STRING_FIELD
+    notes: STRING_FIELD,
+    contactInfo: { type: 'object' },
+    diagnostics: { type: 'object' },
+    aiExtraction: { anyOf: [{ type: 'object' }, { type: 'null' }] }
   }
 };
 

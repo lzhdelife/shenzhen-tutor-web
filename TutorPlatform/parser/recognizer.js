@@ -1,6 +1,7 @@
 'use strict';
 
 const { PARSER_VERSION } = require('./pipeline');
+const { classifyOrderBlock } = require('./classifier');
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const result = new Array(items.length);
@@ -35,10 +36,26 @@ async function recognizeOrders(request, dependencies) {
   const buildStructured = requireDependency(dependencies, 'buildStructured');
   const resolveLocation = dependencies?.resolveLocation;
   const split = splitDetailed(request?.text || '');
+  const acceptedBlocks = [];
+  const ignoredBlocks = [];
+  split.blocks.forEach((rawText, sourceBlockIndex) => {
+    const diagnostic = split.diagnostics[sourceBlockIndex];
+    const classification = classifyOrderBlock(rawText);
+    if (classification.accepted) {
+      acceptedBlocks.push({ rawText, diagnostic, sourceBlockIndex, classification });
+    } else {
+      ignoredBlocks.push({
+        rawText,
+        reason: classification.reason,
+        evidence: classification.evidence,
+        diagnostic: { ...diagnostic, sourceBlockIndex, classification: 'ignored' }
+      });
+    }
+  });
 
   // Preview intentionally does not deduplicate. Dropping or merging a raw block
   // before the user confirms it is more harmful than showing a possible duplicate.
-  const parsed = await mapWithConcurrency(split.blocks, 3, async rawText => {
+  const parsed = await mapWithConcurrency(acceptedBlocks, 3, async ({ rawText }) => {
     const order = parseRuleOrder(rawText, request?.source || '', request?.agencyId || '');
     if (typeof resolveLocation === 'function') {
       await resolveLocation(order, request?.settings || {});
@@ -50,7 +67,13 @@ async function recognizeOrders(request, dependencies) {
   return {
     parserVersion: PARSER_VERSION,
     parsed,
-    splitDiagnostics: split.diagnostics
+    splitDiagnostics: acceptedBlocks.map((item, blockIndex) => ({
+      ...item.diagnostic,
+      blockIndex,
+      sourceBlockIndex: item.sourceBlockIndex,
+      classification: 'order'
+    })),
+    ignoredBlocks
   };
 }
 

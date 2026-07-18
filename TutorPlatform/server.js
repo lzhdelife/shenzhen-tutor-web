@@ -3,8 +3,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { runParserPipeline } = require('./parser/pipeline');
-const { splitOrdersDetailed } = require('./parser/splitter');
+const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
+const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
+const { scoreOrder } = require('../shared/order-score');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -15,6 +17,8 @@ const SOURCE_IMAGE_DIR = path.join(DATA_DIR, 'source-images');
 const MAX_SOURCE_IMAGES = 40;
 const MAX_SOURCE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES = 30 * 1024 * 1024;
+const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
+const MAX_CLIPBOARD_INBOX = 500;
 const sessions = new Map();
 const visitors = new Map();
 const ACTIVE_VISITOR_MS = 5 * 60 * 1000;
@@ -60,6 +64,8 @@ function readDb() {
   db.users ||= [];
   db.orders ||= [];
   db.feedback ||= [];
+  db.clipboardInbox ||= [];
+  db.clipboardReceipts ||= [];
   db.rememberSessions ||= [];
   db.announcement ||= { title: '', content: '', active: false, updatedAt: '' };
   return db;
@@ -411,6 +417,15 @@ function requireRole(req, res, role) {
   return session;
 }
 
+function isLoopbackRequest(req) {
+  const address = textOf(req.socket?.remoteAddress).toLowerCase();
+  return address === '127.0.0.1' || address === '::1' || address.startsWith('::ffff:127.');
+}
+
+function isClipboardBridgeRequest(req) {
+  return isLoopbackRequest(req) && req.headers['x-clipboard-bridge'] === 'shenzhen-tutor-local-v1';
+}
+
 function send(res, status, body, type = 'application/json; charset=utf-8', extraHeaders = {}) {
   res.writeHead(status, {
     'Content-Type': type,
@@ -542,7 +557,7 @@ function textOf(value) {
 }
 
 function amapServiceKey(settings = {}) {
-  return envValue('AMAP_WEB_SERVICE_KEY') || textOf(settings.amapKey);
+  return envValue('AMAP_WEB_SERVICE_KEY') || textOf(settings.amapWebServiceKey);
 }
 
 function stripLeadingDistrict(value, district = '') {
@@ -774,7 +789,7 @@ function extractLooseLocationLine(text) {
   const lines = textOf(text).split(/\n/).map(line => line.trim()).filter(Boolean);
   return lines.find(line => (
     line.length <= 80
-    && /(\d{1,2}号线|地铁站|小区|花园|村|附近|街道|中心|公馆|家园|学校|医院|酒店)/.test(line)
+    && /(\d{1,2}号线|地铁站|小区|花园|村|附近|街道|(?:路|大道|街|巷)(?:口|段)?|中心|公馆|家园|华府|学校|医院|酒店)/.test(line)
     && !/(课酬|薪酬|元\/?小时|老师要求|教师要求)/.test(line)
   )) || '';
 }
@@ -862,7 +877,8 @@ function splitImportBlocksSoft(input) {
       }
       continue;
     }
-    const startsNewNumberedBlock = /^(?:【编号】|\[编号\]|家教编号\s*[：:]|编号\s*[：:]|订单\s*[：:]|SZ\d|lw\d|(?:急|妃)\s*\d{8,}|\d{8,}(?=\s*(?:#|地址|地点|$)))/i.test(line);
+    const startsNewNumberedBlock = isNumberedOrderStart(line)
+      || /^(?:【编号】|\[编号\]|家教编号\s*[：:]|编号\s*[：:]|订单\s*[：:]|SZ\d|lw\d|(?:急|妃)\s*\d{8,}|\d{8,}(?=\s*(?:#|地址|地点|$)))/i.test(line);
     const isTitle = startsNewNumberedBlock || titleLine.test(line) || bracketTitle.test(line) || looseTitle.test(line) || codeTitle.test(line) || byTitle.test(line) || urgentTitle.test(line) || numericCodeTitle.test(line) || hashTitle.test(line);
     const isField = fieldLine.test(line);
     const previousNeedsValue = current.length && looksLikeFieldHeader(current[current.length - 1]) && /[:：]\s*$/.test(current[current.length - 1]);
@@ -1084,13 +1100,28 @@ function extractRequirements(text) {
 
 function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const source = textOf(text);
-  const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,40})[】\]]/g)].map(match => match[1]);
+  const looksLikeLocationEvidence = value => {
+    const candidate = textOf(value);
+    if (/^(?:编号|学生|学员|学生情况|学员情况|时间|次数|薪酬|薪资|薪水|课酬|要求|老师要求|教师要求|教员要求|成绩)$/.test(candidate)) return false;
+    return /(深圳|罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|坂田|西乡|福永|街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘|(?:路|大道|街|巷)(?:口|段)?)/.test(candidate);
+  };
+  const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,80})[】\]]/g)]
+    .map(match => match[1])
+    .filter(looksLikeLocationEvidence);
   const firstSentence = source.split(/[，,。；;\n]/)[0];
   const leadingBody = source.replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?\s*(?:【[^】]+】)?/, '').split(/[，,。；;\n]/)[0];
-  const sources = uniq([explicitLocation, ...bracketSources, leadingBody, firstSentence]);
+  const sources = uniq([
+    explicitLocation,
+    ...bracketSources,
+    looksLikeLocationEvidence(leadingBody) ? leadingBody : '',
+    looksLikeLocationEvidence(firstSentence) ? firstSentence : ''
+  ]);
   const parts = [];
   const cleanPart = value => {
     let item = textOf(value)
+      .replace(/^(?:[1-9]\ufe0f?\u20e3|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '')
+      .replace(/^[【\[]\s*[A-Z]?\s*/i, '')
+      .replace(/[】\]]\s*$/, '')
       .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
       .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '')
       .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|大学|成人)/g, '')
@@ -1102,13 +1133,13 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
       .replace(/[\s#＃|｜:：]+/g, '')
       .trim();
     item = stripLeadingDistrict(item, district);
-    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').trim();
+    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
   };
   for (const candidateSource of sources) {
     const cleaned = cleanPart(candidateSource);
     if (!cleaned || cleaned.length < 2 || cleaned.length > 24) continue;
     const knownNames = Object.keys(LANDMARK_DISTRICTS).filter(name => cleaned.includes(name));
-    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,10}(?:街道|社区|花园|小区|公馆|家园|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
+    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,12}(?:街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
     const fullCandidate = cleaned.length <= 16 && !/(一般|提高|成绩|连续|周末|专业|老师|前十|知识点)/.test(cleaned) ? cleaned : '';
     const names = uniq([fullCandidate, ...knownNames, ...suffixNames]);
     if (names.length) {
@@ -1120,14 +1151,19 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const normalizedParts = uniq(parts.map(part => cleanPart(part)).filter(part => part.length >= 2));
   const place = normalizedParts.join('·');
   const compactPlace = normalizedParts.join('');
+  const searchablePlace = compactPlace.replace(/[·•・]/g, '');
+  const poiAfterRoad = searchablePlace.match(/(?:路|大道|街|巷)([^路街巷]{2,}(?:花园|小区|公馆|家园|华府|大厦|公寓|苑|城|村))$/)?.[1] || '';
   const districtPrefix = district ? `深圳市${district}区` : '深圳市';
   const queries = uniq([
-    compactPlace ? `${districtPrefix}${compactPlace}` : '',
+    searchablePlace ? `${districtPrefix}${searchablePlace}` : '',
+    poiAfterRoad ? `${districtPrefix}${poiAfterRoad}` : '',
+    searchablePlace,
+    poiAfterRoad,
     compactPlace,
     normalizedParts.length > 1 ? normalizedParts.slice(-2).join('') : '',
     normalizedParts.at(-1) || ''
   ].filter(query => query.length >= 2));
-  return { raw: sources.filter(Boolean).join(' | '), parts: normalizedParts, place, queries };
+  return { raw: textOf(explicitLocation) || sources.filter(Boolean).join(' | '), parts: normalizedParts, place, queries };
 }
 
 function canonicalLocationPlace(place, district = '') {
@@ -1536,6 +1572,66 @@ function normalizeResolvedLocationName(query, value) {
   return name;
 }
 
+function isGenericLocationValue(value) {
+  const normalized = textOf(value).replace(/\s+/g, '');
+  if (/^(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?$/.test(normalized)) return true;
+  return /^(?:深圳市?)?(?:(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?)?[·:：-]?(?:具体)?(?:地点|地址)?(?:未提供|未知|待定|待确认|不详)$/.test(normalized);
+}
+
+function refreshLocationEvidenceFromRaw(order) {
+  if (!textOf(order?.raw)) return false;
+  const reparsed = parseOrder(order.raw, order.source || '', order.agencyId || '');
+  if (!reparsed.place || isGenericLocationValue(reparsed.place)) return false;
+  for (const key of ['place', 'placeOriginal', 'address', 'locationQuery', 'locationQueries', 'locationOptions', 'locationRelation', 'transitLine']) {
+    if (reparsed[key] !== undefined && reparsed[key] !== '') order[key] = reparsed[key];
+  }
+  if (reparsed.district) order.district = reparsed.district;
+  return true;
+}
+
+function invalidateDerivedLocationData(order) {
+  order.locationVerified = false;
+  order.locationStatus = 'unverified';
+  order.locationPoiId = '';
+  order.locationCoordinates = '';
+  order.locationAddress = '';
+  order.locationConfidence = 0;
+  order.locationCandidates = [];
+  order.distanceKm = '';
+  order.routeMode = '待计算';
+  order.routeStatus = 'pending';
+  order.routeOptions = {};
+  if (Array.isArray(order.locationOptions)) {
+    order.locationOptions = order.locationOptions.map(option => ({ ...option, routeOptions: {} }));
+  }
+}
+
+async function repairPersistedOpenOrderLocations(db) {
+  const candidates = (db.orders || []).filter(order => (
+    order.status === 'open'
+    && textOf(order.raw)
+    && (isGenericLocationValue(order.place) || isGenericLocationValue(order.address))
+  ));
+  let repaired = 0;
+  await mapWithConcurrency(candidates, 2, async order => {
+    if (!refreshLocationEvidenceFromRaw(order)) return;
+    const recoveredPlace = order.place;
+    const recoveredPlaceOriginal = order.placeOriginal;
+    const recoveredAddress = order.address;
+    invalidateDerivedLocationData(order);
+    await resolveOrderLocation(order, db.settings || {});
+    order.place = recoveredPlace;
+    order.placeOriginal = recoveredPlaceOriginal;
+    order.address = recoveredAddress || buildAddress(order.district, recoveredPlace, order.raw);
+    order.structured = await runParserPipeline({ rawText: order.raw, ruleOrder: order });
+    if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
+    order.score = score(order, db.settings || {});
+    order.locationEvidenceRepairedAt = new Date().toISOString();
+    repaired += 1;
+  });
+  return repaired;
+}
+
 function isExplicitTransitCandidateMatch(query, candidate) {
   const requested = textOf(query);
   const candidateText = `${candidate?.name || ''}|${candidate?.type || ''}`;
@@ -1679,6 +1775,7 @@ async function resolveOrderLocation(order, settings) {
         coordinates: resolved.locationCoordinates || '',
         confidence: resolved.locationConfidence || 0,
         verified: Boolean(resolved.locationVerified),
+        status: resolved.locationStatus || '',
         candidates: resolved.locationCandidates || []
       });
     }
@@ -1699,12 +1796,15 @@ async function resolveOrderLocation(order, settings) {
   const normalizedPlace = textOf(order.place);
   const originalPlace = textOf(order.placeOriginal || order.place);
   const districtHint = textOf(order.district).replace(/区$/, '');
-  const fallbackQuery = cleanLocationCandidate(order.place || originalPlace || order.address, districtHint);
+  const fallbackQuery = isGenericLocationValue(normalizedPlace)
+    ? (districtHint ? `${districtHint}区` : '')
+    : cleanLocationCandidate(order.place || originalPlace || order.address, districtHint);
   const locationQueries = uniq([...(Array.isArray(order.locationQueries) ? order.locationQueries : []), order.locationQuery, fallbackQuery]
-    .map(value => textOf(value)).filter(value => value.length >= 2));
+    .map(value => textOf(value)).filter(value => value.length >= 2 && !isGenericLocationValue(value)));
   const query = locationQueries[0] || fallbackQuery;
+  const usesDistrictFallback = Boolean(districtHint && query === `${districtHint}区` && isGenericLocationValue(normalizedPlace));
   order.locationQuery = query;
-  order.locationQueries = locationQueries;
+  order.locationQueries = uniq([query, ...locationQueries].filter(Boolean));
   order.placeOriginal ||= originalPlace;
   const clearResolvedLocation = (status, keepOriginal = true) => {
     order.place = keepOriginal ? normalizedPlace : '';
@@ -1715,7 +1815,7 @@ async function resolveOrderLocation(order, settings) {
     order.locationCoordinates = '';
     order.locationAddress = '';
     order.locationConfidence = 0;
-    order.locationCandidates = locationQueries.slice(0, 3).map(name => ({ name, district: districtHint, location: '' }));
+    order.locationCandidates = order.locationQueries.slice(0, 3).map(name => ({ name, district: districtHint, location: '' }));
   };
   if (!amapServiceKey(settings) || query.length < 2) {
     clearResolvedLocation(query ? 'unverified' : 'missing', Boolean(query));
@@ -1723,7 +1823,7 @@ async function resolveOrderLocation(order, settings) {
   }
   const candidates = [];
   const seenCandidates = new Set();
-  for (const searchQuery of locationQueries.slice(0, 4)) {
+  for (const searchQuery of order.locationQueries.slice(0, 4)) {
     const found = await amapPlaceCandidates(settings, searchQuery, districtHint);
     for (const candidate of found) {
       const key = candidate.id || `${candidate.name}|${candidate.location}`;
@@ -1776,14 +1876,38 @@ async function resolveOrderLocation(order, settings) {
     /大厦|写字楼|商务中心|产业园|商业城|酒店/.test(best?.name || '')
     || new Set(closeAreaCandidates.map(candidate => ocrComparable(candidate.name))).size >= 2
   );
+  const useCandidate = (candidate, status) => {
+    order.district = candidate.district || districtHint;
+    order.place = normalizeResolvedLocationName(query, candidate.name);
+    order.address = `深圳市${order.district ? `${order.district}区` : ''}${order.place}`;
+    order.locationVerified = Boolean(candidate.location);
+    order.locationStatus = status;
+    order.locationPoiId = candidate.id || '';
+    order.locationCoordinates = candidate.location || '';
+    order.locationAddress = candidate.address || '';
+    order.locationConfidence = Number(candidate.confidence || 0);
+    order.locationCandidates = rankedCandidates.slice(0, 3);
+    return order;
+  };
   if (ambiguousArea) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!districtHint || !candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
     clearResolvedLocation('ambiguous');
     order.locationCandidates = rankedCandidates.slice(0, 3);
     return order;
   }
   const acceptable = best && bestScore >= 52 && !shortQueryMismatch
     && (!districtHint || !best.district || best.district === districtHint || trustedBestDistrictCorrection);
+  if (usesDistrictFallback) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
+  }
   if (!acceptable) {
+    const defaultCandidate = rankedCandidates.find(candidate => candidate.location
+      && (!districtHint || !candidate.district || candidate.district === districtHint));
+    if (defaultCandidate) return useCandidate(defaultCandidate, 'defaulted');
     const geocoded = await amapGeocodeCandidate(settings, query, districtHint);
     if (geocoded) {
       order.district = geocoded.district || districtHint;
@@ -1876,21 +2000,6 @@ async function locationSuggestions(settings, query) {
     } catch (_) {}
   }
 
-  const localPlaces = [
-    ['西乡地铁站', '宝安区', '西乡街道'], ['坪洲地铁站', '宝安区', '新湖路'],
-    ['宝安中心地铁站', '宝安区', '新湖路'], ['新安公园', '宝安区', '新安街道'],
-    ['灵芝地铁站', '宝安区', '创业二路'], ['固戍地铁站', '宝安区', '宝安大道'],
-    ['南山地铁站', '南山区', '南山大道'], ['后海地铁站', '南山区', '后海滨路'],
-    ['深圳湾口岸', '南山区', '东滨路'], ['西丽地铁站', '南山区', '留仙大道'],
-    ['车公庙地铁站', '福田区', '深南大道'], ['深圳北站', '龙华区', '民治街道'],
-    ['红山地铁站', '龙华区', '腾龙路'], ['布吉地铁站', '龙岗区', '龙岗大道']
-  ];
-  for (const [name, district, address] of localPlaces) {
-    if (`${name}${district}${address}`.includes(keywords) || keywords.includes(name.replace(/地铁站|站|公园|口岸/, ''))) {
-      add(name, district, address);
-    }
-  }
-  if (!suggestions.length) add(keywords, '深圳市', '你输入的位置');
   return suggestions.slice(0, 8);
 }
 
@@ -1987,20 +2096,7 @@ async function routeOptions(settings, originAddress, destinationAddress, request
 }
 
 function score(order, settings) {
-  let value = 45;
-  if (['宝安', '南山'].includes(order.district)) value += 14;
-  if (/数学|物理|化学/.test(order.subject || '')) value += 18;
-  if (/初|高|中考|高考/.test(order.grade || '')) value += 10;
-  if (order.price >= 180 || order.monthly >= 20000) value += 12;
-  else if (order.price && order.price < 140) value -= 12;
-  const km = Number(order.distanceKm);
-  const max = Number(settings.maxBikeKm || 12);
-  if (km) {
-    if (km <= 5) value += 16;
-    else if (km <= max) value += 9;
-    else value -= 16;
-  }
-  return Math.max(0, Math.min(100, Math.round(value)));
+  return scoreOrder(order, settings);
 }
 
 async function enrichOrder(order, settings) {
@@ -2021,6 +2117,24 @@ async function enrichOrder(order, settings) {
     order.distanceKm = estimateKm(order.district, order.place);
     order.routeMode = '估算';
   }
+  order.score = score(order, settings);
+  return order;
+}
+
+async function prepareImportedOrder(item, agency, settings, dependencies = {}) {
+  const resolveLocation = dependencies.resolveLocation || resolveOrderLocation;
+  const buildStructured = dependencies.buildStructured || runParserPipeline;
+  const sanitized = sanitizeImportedOrder(item);
+  const ruleOrder = parseOrder(sanitized.raw, agency.name, agency.id);
+  const reusableLocation = canReuseVerifiedLocation(sanitized, ruleOrder);
+  const order = { ...ruleOrder, ...sanitized, agencyId: agency.id, source: agency.name };
+  if (!reusableLocation) {
+    invalidateDerivedLocationData(order);
+    await resolveLocation(order, settings);
+  }
+  order.structured = await buildStructured({ rawText: order.raw, ruleOrder: order });
+  if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
+  markRoutePending(order);
   order.score = score(order, settings);
   return order;
 }
@@ -2075,15 +2189,14 @@ async function previewDistances(settings, origin, orders, requestedMode = 'cycli
       order.locationCoordinates || order.address,
       [mode]
     );
-    const fallbackKm = estimateKm(order.district, order.place);
-    const fallbackRoute = estimatedRoutes(fallbackKm)[mode];
-    const routes = liveRoutes[mode] ? liveRoutes : (fallbackRoute ? { [mode]: fallbackRoute } : {});
+    const routes = liveRoutes[mode] ? liveRoutes : {};
     const preferred = routes[mode] || {};
-    const distanceKm = preferred.km || fallbackKm || '';
+    const distanceKm = preferred.km || '';
     return {
       id: order.id,
       distanceKm,
-      routeMode: preferred.mode || '估算',
+      routeMode: preferred.mode || (key ? '路线不可用' : '地图服务未配置'),
+      routeStatus: preferred.km ? 'verified' : (key ? 'unavailable' : 'not_configured'),
       routeOptions: routes,
       score: score({ ...order, distanceKm }, scopedSettings)
     };
@@ -2116,15 +2229,27 @@ function sanitizeTeacherPreferences(value = {}) {
 function publicDb(db, viewer = null) {
   const orders = db.orders.map(order => {
     const copy = { ...order, score: score(order, db.settings) };
-    const canSeeApplicants = viewer && (
+    const ownsPreciseLocation = viewer && (
       viewer.role === 'admin' ||
       (viewer.role === 'agency' && order.agencyId === viewer.id)
     );
     copy.applicantCount = order.applicants?.length || 0;
-    copy.applicants = canSeeApplicants ? (order.applicants || []) : [];
-    copy.sourceImageCount = Array.isArray(order.sourceImages) ? order.sourceImages.length : 0;
+    copy.applicants = ownsPreciseLocation ? (order.applicants || []) : [];
     delete copy.sourceImages;
     delete copy.importFingerprint;
+    if (!ownsPreciseLocation) {
+      delete copy.address;
+      delete copy.locationAddress;
+      delete copy.locationCoordinates;
+      delete copy.locationQuery;
+      delete copy.locationQueries;
+      delete copy.locationCandidates;
+      delete copy.structured;
+      copy.locationOptions = (copy.locationOptions || []).map(option => {
+        const { address: _address, coordinates: _coordinates, candidates: _candidates, query: _query, locationQueries: _queries, routeOptions: _routes, ...safe } = option;
+        return safe;
+      });
+    }
     return copy;
   });
   return {
@@ -2173,20 +2298,101 @@ async function handleApi(req, res) {
   const db = readDb();
   touchVisitor(req);
   const url = new URL(req.url, `http://localhost:${PORT}`);
-  const sourceImageMatch = url.pathname.match(/^\/api\/orders\/([^/]+)\/source-images\/(\d+)$/);
-  if (req.method === 'GET' && sourceImageMatch) {
-    if (!sessionOf(req)) return send(res, 401, { error: '请先登录后查看原图' });
-    const order = db.orders.find(item => item.id === sourceImageMatch[1]);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    const index = Number(sourceImageMatch[2]);
-    const fileName = path.basename((order.sourceImages || [])[index] || '');
-    if (!fileName) return send(res, 404, { error: '这张原图不存在' });
-    const full = path.join(SOURCE_IMAGE_DIR, fileName);
-    if (!full.startsWith(SOURCE_IMAGE_DIR + path.sep) || !fs.existsSync(full)) return send(res, 404, { error: '原图文件不存在' });
-    const type = path.extname(fileName).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
-    return send(res, 200, fs.readFileSync(full), type);
+  if (url.pathname.startsWith('/api/auth/')) return send(res, 404, { error: '该登录方式已移除，请使用昵称、手机号和密码登录' });
+  if (req.method === 'GET' && url.pathname === '/api/state') {
+    const repaired = await repairPersistedOpenOrderLocations(db);
+    if (repaired) writeDb(db);
+    return send(res, 200, publicDb(db, sessionOf(req)));
   }
-  if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, publicDb(db, sessionOf(req)));
+
+  if (req.method === 'GET' && url.pathname === '/api/map-config') {
+    const key = envValue('AMAP_JS_API_KEY');
+    const securityCode = envValue('AMAP_JS_SECURITY_CODE');
+    return send(res, 200, key && securityCode
+      ? { configured: true, key, version: '2.0', serviceHost: `${url.origin}/_AMapService` }
+      : { configured: false, reason: '高德地图 JS API 尚未配置' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/map-orders') {
+    const teacher = requireRole(req, res, 'teacher');
+    if (!teacher) return;
+    const orders = db.orders.filter(order => order.status === 'open').map(order => ({
+      id: order.id,
+      locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+        ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
+        : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
+    })).filter(order => order.locations.length);
+    return send(res, 200, { orders });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/clipboard/capture') {
+    if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
+    const data = await bodyJson(req);
+    const text = String(data.text || '');
+    if (!text.trim()) return send(res, 400, { error: '剪贴板原文不能为空' });
+    if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_TEXT_BYTES) return send(res, 413, { error: '单条剪贴板内容过大' });
+    const captureId = /^[A-Za-z0-9_-]{8,100}$/.test(textOf(data.captureId)) ? textOf(data.captureId) : crypto.randomUUID();
+    const completed = db.clipboardReceipts.find(item => item.captureId === captureId);
+    if (completed) return send(res, 200, { ok: true, captureId, status: 'completed', duplicate: true });
+    const existing = db.clipboardInbox.find(item => item.captureId === captureId);
+    if (existing) return send(res, 200, { ok: true, captureId, status: 'pending', duplicate: true });
+    if (db.clipboardInbox.length >= MAX_CLIPBOARD_INBOX) return send(res, 507, { error: '网站待处理队列已满，请先打开发单端完成导入' });
+    db.clipboardInbox.push({
+      captureId,
+      text,
+      capturedAt: textOf(data.capturedAt) || new Date().toISOString(),
+      receivedAt: new Date().toISOString(),
+      attempts: 0,
+      nextAttemptAt: 0,
+      lastError: ''
+    });
+    writeDb(db);
+    return send(res, 200, { ok: true, captureId, status: 'pending', duplicate: false, pending: db.clipboardInbox.length });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/clipboard/status') {
+    if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
+    const captureId = textOf(url.searchParams.get('captureId'));
+    if (db.clipboardReceipts.some(item => item.captureId === captureId)) return send(res, 200, { captureId, status: 'completed' });
+    if (db.clipboardInbox.some(item => item.captureId === captureId)) return send(res, 200, { captureId, status: 'pending' });
+    return send(res, 200, { captureId, status: 'unknown' });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/clipboard/inbox') {
+    const agency = requireRole(req, res, 'agency');
+    if (!agency) return;
+    const now = Date.now();
+    const items = db.clipboardInbox
+      .filter(item => Number(item.nextAttemptAt || 0) <= now)
+      .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)))
+      .slice(0, 10)
+      .map(item => ({ captureId: item.captureId, text: item.text, capturedAt: item.capturedAt, attempts: item.attempts || 0 }));
+    return send(res, 200, { items, pending: db.clipboardInbox.length });
+  }
+
+  const clipboardAction = url.pathname.match(/^\/api\/clipboard\/([A-Za-z0-9_-]{8,100})\/(complete|fail)$/);
+  if (req.method === 'POST' && clipboardAction) {
+    const agency = requireRole(req, res, 'agency');
+    if (!agency) return;
+    const captureId = clipboardAction[1];
+    const action = clipboardAction[2];
+    const index = db.clipboardInbox.findIndex(item => item.captureId === captureId);
+    if (index < 0) return send(res, 200, { ok: true, captureId, status: db.clipboardReceipts.some(item => item.captureId === captureId) ? 'completed' : 'unknown' });
+    if (action === 'complete') {
+      db.clipboardInbox.splice(index, 1);
+      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), agencyId: agency.id });
+      db.clipboardReceipts = db.clipboardReceipts.slice(-500);
+      writeDb(db);
+      return send(res, 200, { ok: true, captureId, status: 'completed' });
+    }
+    const data = await bodyJson(req);
+    const item = db.clipboardInbox[index];
+    item.attempts = Number(item.attempts || 0) + 1;
+    item.lastError = textOf(data.error).slice(0, 300);
+    item.nextAttemptAt = Date.now() + Math.min(60000, 2000 * (2 ** Math.min(item.attempts, 5)));
+    writeDb(db);
+    return send(res, 200, { ok: true, captureId, status: 'pending', attempts: item.attempts, nextAttemptAt: item.nextAttemptAt });
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/stats') {
     sessionOf(req);
@@ -2195,7 +2401,8 @@ async function handleApi(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/location-suggestions') {
     const suggestions = await locationSuggestions(db.settings, url.searchParams.get('q') || '');
-    return send(res, 200, { suggestions });
+    return send(res, amapServiceKey(db.settings) ? 200 : 503, { suggestions, status: amapServiceKey(db.settings) ? (suggestions.length ? 'candidates' : 'not_found') : 'not_configured',
+      ...(amapServiceKey(db.settings) ? {} : { error: '地图服务尚未配置' }) });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/auth/config') {
@@ -2330,10 +2537,8 @@ async function handleApi(req, res) {
 
     const paired = ensurePairedIdentity(db, name, phone, { password, requirePassword: true });
     if (paired.error) return send(res, 401, { error: paired.error });
-    const bound = bindWechatIdentity(db, paired.teacher, paired.agency, textOf(data.wechatBindTicket));
-    if (bound.error) return send(res, 400, { error: bound.error });
     const login = memberLoginResponse(db, paired.teacher, paired.agency, rememberAccount, req);
-    if (paired.changed || bound.changed || login.changed) writeDb(db);
+    if (paired.changed || login.changed) writeDb(db);
     return send(res, 200, login.body, 'application/json; charset=utf-8', { 'Set-Cookie': login.rememberCookie });
   }
 
@@ -2453,6 +2658,17 @@ async function handleApi(req, res) {
     const origin = textOf(data.origin);
     if (!origin) return send(res, 400, { error: '请填写你的位置' });
     const openOrders = db.orders.filter(order => order.status !== 'closed');
+    const unresolved = openOrders.filter(order => order.locationVerified === false
+      && order.district
+      && (isGenericLocationValue(order.place) || (order.locationCandidates || []).some(candidate => candidate?.location)));
+    let defaultedExistingLocation = false;
+    await mapWithConcurrency(unresolved, 2, async order => {
+      const reparsedPreciseLocation = refreshLocationEvidenceFromRaw(order);
+      await resolveOrderLocation(order, db.settings);
+      if (reparsedPreciseLocation) order.structured = await runParserPipeline({ rawText: order.raw, ruleOrder: order });
+      if (order.locationVerified || reparsedPreciseLocation) defaultedExistingLocation = true;
+    });
+    if (defaultedExistingLocation) writeDb(db);
     const distances = await previewDistances(db.settings, origin, openOrders, data.mode);
     return send(res, 200, { distances });
   }
@@ -2628,12 +2844,12 @@ async function handleApi(req, res) {
     db.settings = {
       ...db.settings,
       homeAddress: textOf(data.homeAddress),
-      amapKey: textOf(data.amapKey) || db.settings.amapKey || '',
       maxBikeKm: Number(data.maxBikeKm || 12)
     };
+    delete db.settings.amapKey;
     db.orders.forEach(o => o.score = score(o, db.settings));
     writeDb(db);
-    return send(res, 200, db.settings);
+    return send(res, 200, { homeAddress: db.settings.homeAddress, maxBikeKm: db.settings.maxBikeKm });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/admin/reconcile-locations') {
@@ -2657,8 +2873,8 @@ async function handleApi(req, res) {
     if (!agency) return;
     const data = await bodyJson(req);
     const source = agency.name;
-    const order = await enrichOrder({ ...parseOrder(data.raw || '', source, agency.id), ...data, agencyId: agency.id, source, id: undefined }, db.settings);
-    order.sourceImages = saveSourceImages(data.images).slice(0, 1);
+    const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
+    const order = await enrichOrder({ ...parseOrder(orderData.raw || '', source, agency.id), ...orderData, agencyId: agency.id, source, id: undefined }, db.settings);
     order.id = 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     order.createdAt = new Date().toISOString();
     order.applicants = [];
@@ -2689,12 +2905,9 @@ async function handleApi(req, res) {
     const agency = requireRole(req, res, 'agency');
     if (!agency) return;
     const data = await bodyJson(req);
-    const chunks = data.orders && Array.isArray(data.orders)
-      ? data.orders.map(o => o.raw || JSON.stringify(o))
-      : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id);
-    const sourcePages = saveSourcePages(data.pages, data.images);
-    const storedPageImages = uniq(sourcePages.map(page => page.fileName));
-    const created = [];
+    const incoming = data.orders && Array.isArray(data.orders)
+      ? data.orders.map(item => ({ ...item, raw: item.raw || JSON.stringify(item) }))
+      : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id).map(raw => ({ raw }));
     let duplicatesSkipped = 0;
     let incompleteSkipped = 0;
     const fingerprints = new Set(db.orders
@@ -2709,20 +2922,20 @@ async function handleApi(req, res) {
       .filter(order => order.agencyId === agency.id && order.status === 'open' && Date.parse(order.createdAt || 0) >= recentCutoff)
       .map(order => order.importFingerprint || semanticOrderFingerprint(parseOrder(order.raw, agency.name, agency.id)))
       .filter(Boolean));
-    for (let i = 0; i < chunks.length; i++) {
-      if (looksLikeIncompleteStructuredImport(chunks[i])) {
+    const accepted = [];
+    for (const item of incoming) {
+      const raw = textOf(item.raw);
+      if (looksLikeIncompleteStructuredImport(raw)) {
         incompleteSkipped++;
         continue;
       }
-      if (looksLikeJunkImport(chunks[i])) {
+      if (looksLikeJunkImport(raw)) {
         duplicatesSkipped++;
         continue;
       }
-      const fingerprint = rawOrderFingerprint(chunks[i]);
-      const orderCode = extractOrderCode(chunks[i]);
-      const base = data.orders && data.orders[i]
-        ? { ...parseOrder(chunks[i], agency.name, agency.id), ...data.orders[i], agencyId: agency.id, source: agency.name }
-        : parseOrder(chunks[i], agency.name, agency.id);
+      const fingerprint = rawOrderFingerprint(raw);
+      const orderCode = extractOrderCode(raw);
+      const base = { ...parseOrder(raw, agency.name, agency.id), ...sanitizeImportedOrder(item), agencyId: agency.id, source: agency.name };
       const semanticFingerprint = semanticOrderFingerprint(base);
       if (fingerprints.has(fingerprint)
         || (orderCode && orderCodes.has(orderCode))
@@ -2730,38 +2943,48 @@ async function handleApi(req, res) {
         duplicatesSkipped++;
         continue;
       }
-      base.importFingerprint = semanticFingerprint;
-      base.sourceImages = sourceImageForOrder(chunks[i], sourcePages);
-      const order = await enrichOrder(base, db.settings);
-      const meaningful = Boolean(order.district || order.price || order.monthly || (order.subject && order.subject !== '其他') || (order.grade && order.grade !== '其他'));
-      if (meaningful) {
-        db.orders.unshift(order);
-        created.push(order);
-        fingerprints.add(fingerprint);
-        if (orderCode) orderCodes.add(orderCode);
-        if (semanticFingerprint) semanticFingerprints.add(semanticFingerprint);
+      const meaningful = Boolean(base.district || base.price || base.monthly || (base.subject && base.subject !== '其他') || (base.grade && base.grade !== '其他'));
+      if (!meaningful) {
+        incompleteSkipped++;
+        continue;
       }
+      accepted.push({ item: { ...item, raw }, semanticFingerprint });
+      fingerprints.add(fingerprint);
+      if (orderCode) orderCodes.add(orderCode);
+      if (semanticFingerprint) semanticFingerprints.add(semanticFingerprint);
     }
-    removeUnreferencedSourceImages(db, storedPageImages);
-    writeDb(db);
+    const created = await mapWithConcurrency(accepted, 3, async entry => {
+      const order = await prepareImportedOrder(entry.item, agency, db.settings);
+      order.importFingerprint = entry.semanticFingerprint;
+      return order;
+    });
+    if (created.length) {
+      db.orders.unshift(...created);
+      writeDb(db);
+    }
     return send(res, 200, { created, duplicatesSkipped, incompleteSkipped });
   }
 
-  if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/source-images$/)) {
-    const id = url.pathname.split('/')[3];
-    const order = db.orders.find(item => item.id === id);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    const actor = sessionOf(req);
-    const allowed = actor && (actor.role === 'admin' || (actor.role === 'agency' && order.agencyId === actor.id));
-    if (!allowed) return send(res, 403, { error: '你只能给自己发布的订单补充原图' });
+  if (req.method === 'POST' && url.pathname === '/api/agency/orders/bulk') {
+    const agency = requireRole(req, res, 'agency');
+    if (!agency) return;
     const data = await bodyJson(req);
-    const stored = saveSourceImages(data.images);
-    if (!stored.length) return send(res, 400, { error: '没有收到有效的 PNG 或 JPG 图片' });
-    const previousImages = order.sourceImages || [];
-    order.sourceImages = stored.slice(0, 1);
-    removeUnreferencedSourceImages(db, previousImages);
-    writeDb(db);
-    return send(res, 200, { ok: true, sourceImageCount: order.sourceImages.length });
+    if (!['close', 'delete'].includes(data.action)) return send(res, 400, { error: '不支持的批量操作' });
+    const ownedOrders = db.orders.filter(order => order.agencyId === agency.id);
+    let affected = 0;
+    if (data.action === 'close') {
+      for (const order of ownedOrders) {
+        if (order.status === 'closed') continue;
+        order.status = 'closed';
+        affected++;
+      }
+    } else {
+      affected = ownedOrders.length;
+      db.orders = db.orders.filter(order => order.agencyId !== agency.id);
+      for (const order of ownedOrders) removeUnreferencedSourceImages(db, order.sourceImages || []);
+    }
+    if (affected) writeDb(db);
+    return send(res, 200, { action: data.action, affected });
   }
 
   if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/apply$/)) {
@@ -2830,23 +3053,57 @@ async function handleApi(req, res) {
   send(res, 404, { error: '接口不存在' });
 }
 
+async function handleAmapJsProxy(req, res) {
+  const securityCode = envValue('AMAP_JS_SECURITY_CODE');
+  if (!envValue('AMAP_JS_API_KEY') || !securityCode) return send(res, 503, { error: '高德地图 JS API 尚未配置' });
+  if (req.method !== 'GET') return send(res, 405, { error: '地图代理只接受 GET 请求' });
+  const incoming = new URL(req.url, `http://localhost:${PORT}`);
+  const suffix = incoming.pathname.replace(/^\/_AMapService\/?/, '');
+  if (!/^(?:v3|v4|v5)\/[A-Za-z0-9_./-]+$/.test(suffix) || suffix.includes('..')) return send(res, 400, { error: '地图代理路径无效' });
+  const host = suffix.startsWith('v4/map/styles') ? 'https://webapi.amap.com/'
+    : suffix.startsWith('v3/vectormap') ? 'https://fmap01.amap.com/' : 'https://restapi.amap.com/';
+  const target = new URL(suffix, host);
+  target.search = incoming.search;
+  target.searchParams.set('jscode', securityCode);
+  try {
+    const upstream = await fetch(target, { headers: { accept: req.headers.accept || '*/*' }, signal: AbortSignal.timeout(8000) });
+    const body = Buffer.from(await upstream.arrayBuffer());
+    res.writeHead(upstream.status, {
+      'Content-Type': upstream.headers.get('content-type') || 'application/json',
+      'Cache-Control': upstream.headers.get('cache-control') || 'private, max-age=300'
+    });
+    res.end(body);
+  } catch (_) {
+    return send(res, 503, { error: '高德地图代理暂时不可用' });
+  }
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, {});
-  if (req.url.startsWith('/api/')) {
+  if (req.url.startsWith('/_AMapService/')) {
+    handleAmapJsProxy(req, res).catch(err => send(res, 500, { error: err.message }));
+  } else if (req.url.startsWith('/api/')) {
     handleApi(req, res).catch(err => send(res, 500, { error: err.message }));
   } else {
     serveStatic(req, res);
   }
 });
 
-if (require.main === module) {
+function startServer() {
+  if (server.listening) return server;
   server.listen(PORT, () => {
     console.log(`深圳家教接单平台已启动：http://localhost:${PORT}`);
     console.log('局域网访问：把 localhost 换成这台电脑的局域网 IP。');
   });
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
 }
 
 module.exports = {
+  startServer,
   splitImportBlocks,
   splitImportBlocksDetailed,
   dedupeImportBlocks,
@@ -2869,10 +3126,15 @@ module.exports = {
   isUnexpectedCompanyCandidate,
   isUnexpectedLocationDetail,
   normalizeResolvedLocationName,
+  isGenericLocationValue,
+  refreshLocationEvidenceFromRaw,
+  repairPersistedOpenOrderLocations,
+  prepareImportedOrder,
   isExplicitTransitCandidateMatch,
   consensusCandidateDistrict,
   locationQueryCharacterCoverage,
   score,
   previewDistances,
+  locationSuggestions,
   sanitizeRouteMode
 };

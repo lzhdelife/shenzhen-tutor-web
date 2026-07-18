@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "shenzhen-tutor-web",
+  "main": "./cloudflare/index.mjs",
+  "compatibility_date": "2026-07-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "define": {
+    "__dirname": "\"/worker/TutorPlatform\""
+  },
+  "assets": {
+    "directory": "./TutorPlatform/public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "shenzhen-tutor-prod",
+      "database_id": "0de3c37c-d00f-4f37-8787-735a3ac22165",
+      "migrations_dir": "./cloudflare/migrations"
+    }
+  ],
+  "vars": {
+    "SMS_DEV_MODE": "0",
+    "PARSER_AI_PROVIDER": "disabled"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  }
+}

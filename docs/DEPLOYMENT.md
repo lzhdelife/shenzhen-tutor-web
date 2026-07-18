@@ -31,6 +31,8 @@ flowchart LR
 
 - `PORT`
 - `AMAP_WEB_SERVICE_KEY`
+- `AMAP_JS_API_KEY`
+- `AMAP_JS_SECURITY_CODE`
 - `TENCENT_SMS_SECRET_ID`
 - `TENCENT_SMS_SECRET_KEY`
 - `TENCENT_SMS_APP_ID`
@@ -43,6 +45,10 @@ flowchart LR
 - `WECHAT_REDIRECT_URI`
 
 `WECHAT_REDIRECT_URI` 必须与微信开放平台后台允许的回调域名和路径一致，指向 `/api/auth/wechat/callback`。`SMS_DEV_MODE` 在公网环境中必须关闭。
+
+`AMAP_WEB_SERVICE_KEY` 必须由部署平台作为 Secret/环境变量注入。不要写入管理页面、`db.json`、Wrangler 普通变量、日志、测试数据或 Git 历史。本地 PowerShell 可在启动进程前临时设置 `$env:AMAP_WEB_SERVICE_KEY`。
+
+订单地图另用高德“Web端（JS API）”Key。`AMAP_JS_API_KEY` 必须绑定实际网站域名；`AMAP_JS_SECURITY_CODE` 必须作为服务端 Secret 注入并通过同源代理使用，禁止写入浏览器脚本。
 
 ## 备份
 

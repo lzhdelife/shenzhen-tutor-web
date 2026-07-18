@@ -22,7 +22,6 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `homeAddress` | string | 管理端默认出发地 |
-| `amapKey` | string | 本地兼容用的高德 Web 服务 Key；生产环境优先使用 `AMAP_WEB_SERVICE_KEY` |
 | `maxBikeKm` | number | 历史默认骑行范围，当前路线 UI 仍沿用该配置 |
 | `adminPasswordHash` | string | `salt:scryptHex`，敏感数据 |
 
@@ -35,7 +34,6 @@
 | `name` | string | 老师名或机构名 |
 | `phone` | string | 11 位中国大陆手机号 |
 | `passwordHash` | string? | `salt:scryptHex`；旧账号可能没有 |
-| `wechatIdentityHash` | string? | 微信 appId + unionid/openid 的 SHA-256，不保存明文 openid |
 | `preferences` | object? | 仅老师账号使用的筛选偏好 |
 | `createdAt` | ISO string | 创建时间 |
 
@@ -96,6 +94,7 @@
 | `studentGender` | string | 学生性别，与教师性别严格分离 |
 | `requirements` | string | 教师能力、院校、经验和其他要求 |
 | `raw` | string | 清洗后的订单原文 |
+| `structured` | object? | 解析预览契约；包含原文证据、0–1 置信度、来源和 `uncertainFields`，导入前用于人工确认 |
 
 ### 地点核验和路线
 
@@ -103,7 +102,7 @@
 | --- | --- | --- |
 | `placeOriginal` | string? | 高德处理前的原始地点 |
 | `locationVerified` | boolean | 是否通过真实地点候选核验 |
-| `locationStatus` | string | 例如 `verified`、`ambiguous`、`unresolved` |
+| `locationStatus` | string | `confirmed` 表示用户确认；另有 `verified`、`ambiguous`、`not_found` 等解析状态 |
 | `locationPoiId` | string? | 高德 POI ID |
 | `locationCoordinates` | string? | `longitude,latitude` |
 | `locationAddress` | string? | 高德候选地址 |
@@ -112,18 +111,19 @@
 | `locationCandidates` | array | 低置信度时保留给预览人工选择的 2–3 个候选 |
 | `locationOptions` | array | “A 或 B/二选一/均可”订单的多个地点；每项独立保存 POI、坐标、置信度和路线 |
 | `locationRelation` | string | 多地点关系，当前为 `OR` |
-| `distanceKm` | number/string | 默认路线或估算距离 |
-| `routeMode` | string | 实际路线标签或“估算/地点待核实” |
+| `distanceKm` | number/string | 高德返回的路线距离；失败时为空 |
+| `routeMode` | string | 实际路线标签或明确的不可用状态，不再伪装成本地估算 |
 | `score` | number | 当前设置下的匹配分数，可重新计算 |
 
 老师按自己起点计算的四种路线不会持久写入订单，前端保存在当前页面状态中。
 
-### 去重、申请和原图
+解析预览中的每个地点选项还包含 `raw`、`query`、`locationQueries[]` 和 `nearby`。这些字段只表达文本证据与候选查询意图；POI、坐标和最终地址只能由独立地图核验或用户确认补充。
+
+### 去重和申请
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `importFingerprint` | string | 近期语义去重指纹，公开状态接口会移除 |
-| `sourceImages` | string[] | `data/source-images` 中的文件名；目前最多一张 |
 | `applicants` | array | 申请老师列表 |
 
 申请项：
@@ -178,7 +178,7 @@
 
 ## 迁移注意事项
 
-迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`applications`、`teacher_preferences`、`announcements`、`feedback`、`sessions` 和 `source_images` 表。应增加：
+迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`applications`、`teacher_preferences`、`announcements`、`feedback` 和 `sessions` 表。应增加：
 
 - 用户角色 + 名称 + 手机号唯一约束。
 - 中介订单编号/指纹的适当唯一约束。

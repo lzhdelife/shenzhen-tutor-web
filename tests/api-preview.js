@@ -76,10 +76,10 @@ async function run() {
   assert.equal(alternatives.locationOptions[1].nearby, true);
   assert.deepEqual([alternatives.price, alternatives.priceUnit, alternatives.priceApproximate], [400, '次', true]);
 
-  const batchText = fs.readFileSync(path.join(__dirname, 'fixtures', 'batch-nine-orders.txt'), 'utf8').trim();
-  const expectedBlocks = batchText.replace(/\r/g, '').split(/\n[ \t]*\n+/).map(block => block.trim());
+  const batchText = fs.readFileSync(path.join(__dirname, 'fixtures', 'batch-nine-orders.txt'), 'utf8').trim().replace(/\r/g, '');
+  const expectedBlocks = batchText.split(/\n[ \t]*\n+/).map(block => block.trim());
   const batch = await previewBatch(login.agencyToken, batchText);
-  assert.equal(batch.parserVersion, '2.0.0');
+  assert.equal(batch.parserVersion, '2.2.0');
   assert.equal(batch.parsed.length, 9, 'blank-line batch must produce exactly 9 orders');
   assert.equal(batch.splitDiagnostics.length, 9);
   assert.deepEqual(batch.parsed.map(order => order.raw), expectedBlocks, 'preview raw blocks must preserve every order exactly');
@@ -90,6 +90,20 @@ async function run() {
     assert.equal(batchText.slice(item.rawStart, item.rawEnd), expectedBlocks[index], `diagnostic span ${index}`);
     if (index > 0) assert.ok(item.rawStart >= batch.splitDiagnostics[index - 1].rawEnd, `no overlap at block ${index}`);
   }
+
+  const numberedText = fs.readFileSync(path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt'), 'utf8').trim().replace(/\r/g, '');
+  const numberedExpected = numberedText.split('\n');
+  const numbered = await previewBatch(login.agencyToken, numberedText);
+  assert.equal(numbered.parsed.length, 2, 'preview must split keycap-numbered compact orders');
+  assert.deepEqual(numbered.parsed.map(order => order.raw), numberedExpected);
+  assert.deepEqual(numbered.splitDiagnostics.map(item => item.boundaryReason), ['numbered-order', 'numbered-order']);
+
+  const mixedText = fs.readFileSync(path.join(__dirname, 'fixtures', 'mixed-preamble-order.txt'), 'utf8').trim().replace(/\r/g, '');
+  const mixed = await previewBatch(login.agencyToken, mixedText);
+  assert.equal(mixed.parsed.length, 1, 'non-order preamble must not become an order');
+  assert.equal(mixed.ignoredBlocks.length, 1, 'ignored raw text remains reviewable');
+  assert.equal(mixed.ignoredBlocks[0].rawText, mixedText.split('\n\n')[0]);
+  assert.match(mixed.parsed[0].raw, /^单号：合成1545E/);
   console.log('PASS preview API regression tests');
 }
 

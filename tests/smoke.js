@@ -125,17 +125,16 @@ const phasedSchedule = summarizeScheduleText(yantianOrder.schedule);
 assert.match(phasedSchedule.count, /暑假每周一、三、五；开学后每周末1次/);
 assert.match(phasedSchedule.slot, /早8点/);
 
-const selectedImage = platform.sourceImageForOrder(orders[0].raw, [
-  { text: blocks[1], fileName: 'page-b.png' },
-  { text: blocks[0], fileName: 'page-a.png' }
-]);
-assert.deepEqual(selectedImage, ['page-a.png']);
-
 const syntheticPhone = ['138', '0013', '8000'].join('');
 assert.equal(platform.validMainlandPhone(syntheticPhone), true);
 assert.equal(platform.validMainlandPhone(syntheticPhone + syntheticPhone), false);
 assert.equal(platform.sanitizeRouteMode('walking'), 'walking');
 assert.equal(platform.sanitizeRouteMode('unsupported'), 'cycling');
+
+const scoreExample = { district: '福田', subject: '物理', grade: '高三', price: 200 };
+const distanceWeightedScores = [2, 8, 12, 18, 30].map(distanceKm => platform.score({ ...scoreExample, distanceKm }, { maxBikeKm: 12 }));
+assert.deepEqual(distanceWeightedScores, [95, 83, 75, 55, 30]);
+assert.ok(distanceWeightedScores[0] - distanceWeightedScores.at(-1) >= 60, 'distance should be a dominant scoring factor');
 
 async function runLocationChecks() {
   const originalFetch = global.fetch;
@@ -151,39 +150,130 @@ async function runLocationChecks() {
             : keywords.includes('会展')
               ? { id: 'convention-poi', name: '深圳国际会展中心', adname: '宝安区', address: '展城路1号', location: '113.776000,22.707000', type: '科教文化服务;会展中心;会展中心' }
               : { id: 'synthetic-poi', name: '共和花园', adname: '宝安区', address: '西乡街道', location: '113.850000,22.580000', type: '商务住宅;住宅区;住宅小区' };
+      const pois = keywords === '福田区'
+        ? [{ id: 'district-default', name: '福田区人民政府', adname: '福田区', address: '福民路123号', location: '114.055000,22.522000', type: '政府机构及社会团体;政府机关;区县级政府及事业单位' }]
+        : /洲石路|润景华府/.test(keywords)
+          ? [{ id: 'road-property', name: '润景华府', adname: '宝安区', address: '洲石路', location: '113.880000,22.650000', type: '商务住宅;住宅区;住宅小区' }]
+        : keywords.includes('默认地点社区')
+        ? [
+            { id: 'default-first', name: '默认地点社区一期', adname: '福田区', address: '测试路1号', location: '114.050000,22.530000', type: '商务住宅;住宅区;住宅小区' },
+            { id: 'default-second', name: '默认地点社区二期', adname: '福田区', address: '测试路2号', location: '114.051000,22.531000', type: '商务住宅;住宅区;住宅小区' }
+          ]
+        : [poi];
       return {
         json: async () => ({
           status: '1',
-          pois: [poi]
+          pois
         })
       };
     }
     throw new Error(`Unexpected synthetic request: ${url}`);
   };
   try {
-    const resolved = await platform.resolveOrderLocation({ ...decorativeSeparatorOrder }, { amapKey: 'synthetic-key' });
+    const resolved = await platform.resolveOrderLocation({ ...decorativeSeparatorOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolved.locationVerified, true);
     assert.equal(resolved.locationStatus, 'verified');
     assert.equal(resolved.locationCoordinates, '113.850000,22.580000');
     assert.equal(resolved.district, '宝安');
     assert.equal(resolved.place, '共和花园');
 
-    const resolvedYantian = await platform.resolveOrderLocation({ ...yantianOrder }, { amapKey: 'synthetic-key' });
+    let verifiedImportLocationCalls = 0;
+    const preparedVerified = await platform.prepareImportedOrder(resolved, { id: 'fixture', name: '匿名测试机构' }, { amapWebServiceKey: 'synthetic-test-value' }, {
+      resolveLocation: async order => { verifiedImportLocationCalls++; return order; },
+      buildStructured: async ({ rawText }) => ({ rawText })
+    });
+    assert.equal(verifiedImportLocationCalls, 0, 'verified preview import must reuse the confirmed POI');
+    assert.equal(preparedVerified.routeMode, '待计算');
+    assert.equal(preparedVerified.routeStatus, 'pending');
+    assert.equal(preparedVerified.distanceKm, '');
+
+    let unverifiedImportLocationCalls = 0;
+    const preparedUnverified = await platform.prepareImportedOrder({ ...decorativeSeparatorOrder, locationVerified: false }, { id: 'fixture', name: '匿名测试机构' }, { amapWebServiceKey: 'synthetic-test-value' }, {
+      resolveLocation: async order => {
+        unverifiedImportLocationCalls++;
+        order.locationVerified = true;
+        order.locationPoiId = 'resolved-by-location-service';
+        order.locationCoordinates = '113.850000,22.580000';
+        return order;
+      },
+      buildStructured: async ({ rawText }) => ({ rawText })
+    });
+    assert.equal(unverifiedImportLocationCalls, 1, 'unverified import must still use the shared location service');
+    assert.equal(preparedUnverified.locationPoiId, 'resolved-by-location-service');
+    assert.equal(preparedUnverified.routeStatus, 'pending');
+
+    const resolvedYantian = await platform.resolveOrderLocation({ ...yantianOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedYantian.locationVerified, true);
     assert.equal(resolvedYantian.district, '盐田');
     assert.equal(resolvedYantian.place, '盐田墟');
     assert.equal(resolvedYantian.locationCoordinates, '114.268000,22.584000');
 
-    const resolvedLiutang = await platform.resolveOrderLocation({ ...liutangOrder }, { amapKey: 'synthetic-key' });
+    const resolvedLiutang = await platform.resolveOrderLocation({ ...liutangOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedLiutang.locationVerified, true);
     assert.equal(resolvedLiutang.district, '宝安');
     assert.match(resolvedLiutang.place, /流塘/);
     assert.equal(resolvedLiutang.locationCoordinates, '113.890000,22.580000');
 
-    const resolvedAlternatives = await platform.resolveOrderLocation({ ...alternativeLocationOrder }, { amapKey: 'synthetic-key' });
+    const resolvedAlternatives = await platform.resolveOrderLocation({ ...alternativeLocationOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedAlternatives.locationOptions.length, 2);
     assert.equal(resolvedAlternatives.locationOptions[0].coordinates, '113.895000,22.493000');
     assert.equal(resolvedAlternatives.locationOptions[1].coordinates, '113.776000,22.707000');
+
+    const defaulted = await platform.resolveOrderLocation({
+      district: '福田',
+      place: '默认地点社区',
+      placeOriginal: '默认地点社区',
+      locationQuery: '默认地点社区',
+      locationQueries: ['默认地点社区'],
+      raw: '福田区默认地点社区，高三物理'
+    }, { amapWebServiceKey: 'synthetic-test-value' });
+    assert.equal(defaulted.locationVerified, true);
+    assert.equal(defaulted.locationStatus, 'defaulted');
+    assert.equal(defaulted.locationPoiId, 'default-first');
+    assert.equal(defaulted.locationCoordinates, '114.050000,22.530000');
+    assert.equal(defaulted.locationCandidates.length, 2);
+
+    const genericDefault = await platform.resolveOrderLocation({
+      district: '福田',
+      place: '具体地点未提供',
+      placeOriginal: '具体地点未提供',
+      raw: '福田区，高三物理，具体地点未提供'
+    }, { amapWebServiceKey: 'synthetic-test-value' });
+    assert.equal(genericDefault.locationVerified, true);
+    assert.equal(genericDefault.locationStatus, 'defaulted');
+    assert.equal(genericDefault.locationPoiId, 'district-default');
+    assert.equal(genericDefault.locationCoordinates, '114.055000,22.522000');
+
+    const persistedGeneric = {
+      id: 'persisted-location-fixture',
+      status: 'open',
+      district: '宝安',
+      place: '具体地点未提供',
+      placeOriginal: '具体地点未提供',
+      address: '深圳市宝安区具体地点未提供',
+      distanceKm: 5.4,
+      routeMode: '骑行',
+      locationVerified: true,
+      locationPoiId: 'stale-district-poi',
+      locationCoordinates: '113.800000,22.600000',
+      raw: '2️⃣新高二物理 男孩\n宝安洲石路润景·华府\n成绩只有32，其他科还可以，7月或8月都能上课\n需要补差经验好的老师\n大学生300~350/2h',
+      source: '匿名回归机构',
+      agencyId: 'fixture'
+    };
+    const repairedCount = await platform.repairPersistedOpenOrderLocations({
+      orders: [persistedGeneric],
+      settings: { amapWebServiceKey: 'synthetic-test-value' }
+    });
+    assert.equal(repairedCount, 1);
+    assert.match(persistedGeneric.place, /洲石路/);
+    assert.match(persistedGeneric.placeOriginal, /润景·华府/);
+    assert.ok(persistedGeneric.locationQueries.includes('深圳市宝安区洲石路润景华府'));
+    assert.equal(persistedGeneric.locationPoiId, 'road-property');
+    assert.notEqual(persistedGeneric.locationPoiId, 'district-default');
+    assert.equal(persistedGeneric.distanceKm, '');
+    assert.equal(persistedGeneric.routeMode, '待计算');
+    assert.equal(persistedGeneric.routeStatus, 'pending');
+    assert.equal(persistedGeneric.structured.rawText, persistedGeneric.raw);
   } finally {
     global.fetch = originalFetch;
   }

@@ -4,9 +4,16 @@
   "private": true,
   "description": "深圳家教接单平台 Web 应用",
   "scripts": {
-    "start": "node TutorPlatform/server.js",
+    "start": "node scripts/start-local.js",
     "test": "node tests/smoke.js && node tests/parser-regressions.js && node tests/recognizer-contract.js && node tests/api-preview.js",
-    "check:secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1"
+    "check:secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1",
+    "cloudflare:dev": "wrangler dev --local",
+    "cloudflare:test": "node --test tests/cloudflare-*.test.js",
+    "cloudflare:types": "wrangler types",
+    "cloudflare:deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "4.112.0"
   },
   "engines": {
     "node": ">=20"

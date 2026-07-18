@@ -5,26 +5,37 @@ let teacherToken = sessionStorage.getItem('teacherToken') || '';
 let agencyToken = sessionStorage.getItem('agencyToken') || '';
 let adminToken = sessionStorage.getItem('adminToken') || '';
 let parsedImport = [];
+let ignoredImportBlocks = [];
 let teacherOrigin = localStorage.getItem('teacherOrigin') || '';
 let routeMode = localStorage.getItem('routeMode') || 'cycling';
 let distanceOverrides = {};
 let activeView = sessionStorage.getItem('activeView') || 'teacher';
 let locationSuggestionTimer = 0;
+let locationSuggestionRequest = 0;
+let selectedOriginCoordinates = localStorage.getItem('teacherOriginCoordinates') || '';
+let teacherViewMode = localStorage.getItem('teacherViewMode') === 'map' ? 'map' : 'list';
+let orderMap = null;
+let orderMapCluster = null;
+let orderMapInfoWindow = null;
+let orderMapApi = null;
+let orderMapLocations = null;
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
-let sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
+let activeRawText = '';
 let rememberedCredentialActive = false;
 let loginBusy = false;
-let loginMethod = 'sms';
-let authConfig = { smsEnabled: false, wechatEnabled: false, smsResendSeconds: 60, smsExpiresMinutes: 5 };
-let wechatBindTicket = '';
-let smsCountdownTimer = 0;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
+let clipboardBridgeBusy = false;
+let clipboardBridgeUnavailable = false;
+let backgroundStateRefreshTimer = 0;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
+const CLIPBOARD_AUTOMATION_KEY = 'clipboardAutomationEnabled';
+const requestedView = new URLSearchParams(location.search).get('view');
+if (['teacher', 'agency'].includes(requestedView)) activeView = requestedView;
 
 const visitorId = localStorage.getItem('tutorPlatformVisitorId')
   || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -68,9 +79,21 @@ async function api(path, options = {}, token = '') {
   if (!res.ok) {
     let message = '请求失败';
     try { message = (await res.json()).error || message; } catch {}
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
+}
+
+async function passwordProof(password, name, phone) {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
+  const salt = encoder.encode(`shenzhen-tutor-v1|${String(name || '').trim()}|${String(phone || '').trim()}`);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 210000 }, key, 256);
+  let binary = '';
+  for (const byte of new Uint8Array(bits)) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function toast(text) {
@@ -80,117 +103,8 @@ function toast(text) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-function setLoginMethod(method) {
-  if (!['sms', 'wechat', 'password'].includes(method)) return;
-  loginMethod = method;
-  $$('[data-login-method]').forEach(button => {
-    const active = button.dataset.loginMethod === method;
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-selected', String(active));
-  });
-  $$('[data-login-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.loginPanel !== method));
-  const form = $('#unifiedLogin');
-  if (!form) return;
-  form.elements.smsCode.required = method === 'sms';
-  form.elements.password.required = method === 'password';
-}
-
-async function loadAuthConfiguration() {
-  authConfig = await api('/api/auth/config');
-  const smsButton = $('#sendSmsCode');
-  const smsSubmit = $('#smsLoginSubmit');
-  const smsStatus = $('#smsLoginStatus');
-  const wechatButton = $('#wechatLoginButton');
-  const wechatStatus = $('#wechatLoginStatus');
-  if (smsButton) {
-    smsButton.disabled = !authConfig.smsEnabled;
-    smsButton.title = authConfig.smsEnabled ? '发送短信验证码' : '短信验证码服务待开通';
-  }
-  if (smsSubmit) smsSubmit.disabled = !authConfig.smsEnabled;
-  if (smsStatus) {
-    smsStatus.textContent = authConfig.smsEnabled
-      ? `验证码 ${Number(authConfig.smsExpiresMinutes || 5)} 分钟内有效。`
-      : '短信验证码服务待开通，当前请使用密码登录。';
-  }
-  if (wechatButton) wechatButton.disabled = !authConfig.wechatEnabled;
-  if (wechatStatus) {
-    wechatStatus.textContent = authConfig.wechatEnabled
-      ? '首次扫码后需要绑定现有账号。'
-      : '微信开放平台配置完成后即可扫码登录。';
-  }
-}
-
-function startSmsCountdown(seconds) {
-  clearInterval(smsCountdownTimer);
-  let remaining = Math.max(1, Number(seconds || authConfig.smsResendSeconds || 60));
-  const button = $('#sendSmsCode');
-  button.disabled = true;
-  button.textContent = `${remaining}秒后重发`;
-  smsCountdownTimer = setInterval(() => {
-    remaining--;
-    if (remaining <= 0) {
-      clearInterval(smsCountdownTimer);
-      button.disabled = false;
-      button.textContent = '获取验证码';
-      return;
-    }
-    button.textContent = `${remaining}秒后重发`;
-  }, 1000);
-}
-
-async function requestSmsCode() {
-  const form = $('#unifiedLogin');
-  const phone = String(form.elements.phone.value || '').trim();
-  if (!/^1[3-9]\d{9}$/.test(phone)) {
-    form.elements.phone.focus();
-    throw new Error('请先填写正确的手机号');
-  }
-  const result = await api('/api/auth/sms/send', { method: 'POST', body: { phone } });
-  startSmsCountdown(result.resendAfter);
-  if (result.debugCode) form.elements.smsCode.value = result.debugCode;
-  toast('验证码已发送，请查看手机短信');
-}
-
-function startWechatLogin() {
-  if (!authConfig.wechatEnabled) return toast('微信扫码登录正在等待开放平台参数');
-  window.location.href = '/api/auth/wechat/start';
-}
-
-async function completeWechatLogin(ticket) {
-  const form = $('#unifiedLogin');
-  const result = await api('/api/auth/wechat/complete', {
-    method: 'POST',
-    body: {
-      ticket,
-      rememberAccount: Boolean(form.elements.rememberAccount.checked || form.elements.autoLogin.checked),
-      autoLogin: Boolean(form.elements.autoLogin.checked)
-    }
-  });
-  storeMemberSession(result);
-  await load();
-  await loadTeacherPreferences();
-  setView('teacher');
-  toast('微信登录成功');
-}
-
-async function handleWechatReturn() {
-  const params = new URLSearchParams(window.location.search);
-  const loginTicket = params.get('wechat_ticket') || '';
-  const bindTicket = params.get('wechat_bind') || '';
-  const error = params.get('wechat_error') || '';
-  if (!loginTicket && !bindTicket && !error) return;
-  history.replaceState(null, '', window.location.pathname || '/');
-  if (error) return toast(error);
-  if (bindTicket) {
-    wechatBindTicket = bindTicket;
-    setLoginMethod(authConfig.smsEnabled ? 'sms' : 'password');
-    toast(authConfig.smsEnabled ? '扫码成功，请用验证码完成首次绑定' : '扫码成功，请用密码完成首次绑定');
-    return;
-  }
-  await completeWechatLogin(loginTicket);
-}
-
 async function load() {
+  orderMapLocations = null;
   state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
   applyDistanceOverrides();
   fillSelects();
@@ -205,6 +119,19 @@ async function load() {
   renderAnnouncement();
   renderPlatformStats();
   syncShell();
+}
+
+function mergeCreatedOrders(created = []) {
+  if (!created.length) return;
+  const ids = new Set(created.map(order => order.id));
+  state.orders = [...created, ...state.orders.filter(order => !ids.has(order.id))];
+  renderOrders();
+  renderAgencyOrders();
+}
+
+function scheduleBackgroundStateRefresh() {
+  clearTimeout(backgroundStateRefreshTimer);
+  backgroundStateRefreshTimer = setTimeout(() => load().catch(error => console.warn('后台刷新失败', error)), 1500);
 }
 
 function setView(name) {
@@ -424,7 +351,6 @@ function fillSettings() {
   const form = $('#settingsForm');
   if (!form) return;
   form.homeAddress.value = state.settings.homeAddress || '';
-  form.amapKey.value = state.settings.amapKey || '';
   form.maxBikeKm.value = state.settings.maxBikeKm || 12;
 }
 
@@ -778,15 +704,9 @@ function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
   </div>`;
 }
 
-function sourceImageButton(order) {
-  const count = Math.max(0, Number(order.sourceImageCount || 0));
-  if (!count) return '<button class="secondary" type="button" disabled title="这张旧单没有留存截图">暂无原图</button>';
-  return `<button class="secondary" type="button" onclick="openSourceImages('${order.id}', ${count})">查看原图</button>`;
-}
-
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
-  return `<article class="card">
+  return `<article class="card" id="order-card-${escapeHtml(o.id)}">
     <div class="card-head">
       <div>
         <div class="title">${escapeHtml(meta.title)}</div>
@@ -797,8 +717,7 @@ function orderCard(o) {
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
-      <button class="secondary" onclick="copyText('${encodeURIComponent(o.raw || o.requirements || '')}')">复制原文</button>
-      ${sourceImageButton(o)}
+      <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
     </div>
   </article>`;
 }
@@ -808,6 +727,120 @@ function renderOrders() {
   $('#orders').innerHTML = list.length ? list.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
   const count = $('#orderCount');
   if (count) count.textContent = `共 ${list.length} 条`;
+  if (teacherViewMode === 'map') renderOrderMap(list).catch(error => showOrderMapStatus(error.message));
+}
+
+function showOrderMapStatus(message = '') {
+  const status = $('#orderMapStatus');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle('hidden', !message);
+}
+
+function orderMapPoints(orders, locationsByOrder = orderMapLocations || new Map()) {
+  const points = [];
+  for (const order of orders) {
+    const locations = locationsByOrder.get(order.id) || [];
+    locations.forEach((coordinates, optionIndex) => {
+      const match = String(coordinates || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
+      if (!match) return;
+      points.push({ lnglat: [Number(match[1]), Number(match[2])], order, optionIndex: locations.length > 1 ? optionIndex : -1 });
+    });
+  }
+  return points;
+}
+
+async function loadOrderMapLocations() {
+  if (orderMapLocations) return orderMapLocations;
+  const result = await api('/api/map-orders', {}, teacherToken);
+  orderMapLocations = new Map((result.orders || []).map(order => [order.id, order.locations || []]));
+  return orderMapLocations;
+}
+
+async function loadOrderMapApi() {
+  if (orderMapApi) return orderMapApi;
+  if (!window.AMapLoader) throw new Error('高德地图加载器不可用，请检查网络后重试');
+  const config = await api('/api/map-config');
+  if (!config.configured) throw new Error(config.reason || '高德地图 JS API 尚未配置');
+  window._AMapSecurityConfig = { serviceHost: config.serviceHost };
+  orderMapApi = await window.AMapLoader.load({ key: config.key, version: config.version || '2.0', plugins: ['AMap.MarkerCluster'] });
+  return orderMapApi;
+}
+
+function openMapOrder(point, marker) {
+  const AMap = orderMapApi;
+  const meta = orderDisplayMeta(point.order);
+  const content = document.createElement('div');
+  content.className = 'map-order-popup';
+  const title = document.createElement('strong');
+  title.textContent = meta.title;
+  const summary = document.createElement('div');
+  summary.textContent = `${priceLabel(point.order)} · ${routeText(point.order)}`;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = '查看订单详情';
+  button.addEventListener('click', () => focusOrderFromMap(point.order.id));
+  content.append(title, summary, button);
+  orderMapInfoWindow ||= new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28) });
+  orderMapInfoWindow.setContent(content);
+  orderMapInfoWindow.open(orderMap, marker.getPosition());
+}
+
+async function renderOrderMap(orders = filteredOrders()) {
+  showOrderMapStatus('正在加载订单地图…');
+  const AMap = await loadOrderMapApi();
+  await loadOrderMapLocations();
+  orderMap ||= new AMap.Map('orderMap', { zoom: 11, center: [114.0579, 22.5431], viewMode: '2D', mapStyle: 'amap://styles/whitesmoke' });
+  if (orderMapCluster) {
+    orderMapCluster.setMap(null);
+    orderMapCluster = null;
+  }
+  const points = orderMapPoints(orders);
+  if (!points.length) {
+    showOrderMapStatus('当前筛选结果中没有已确认坐标的订单');
+    return;
+  }
+  orderMapCluster = new AMap.MarkerCluster(orderMap, points, {
+    gridSize: 60,
+    renderMarker(context) {
+      const position = context.marker.getPosition();
+      const point = context.data?.order ? context.data : points.find(item => (
+        Math.abs(item.lnglat[0] - Number(position?.lng)) < 0.000001
+        && Math.abs(item.lnglat[1] - Number(position?.lat)) < 0.000001
+      ));
+      if (!point?.order) return;
+      const pin = document.createElement('div');
+      pin.className = 'order-map-marker';
+      const glyph = document.createElement('span');
+      glyph.textContent = '教';
+      pin.append(glyph);
+      context.marker.setContent(pin);
+      context.marker.setOffset(new AMap.Pixel(-18, -36));
+      context.marker.setTitle(orderDisplayMeta(point.order).title);
+      context.marker.on('click', () => openMapOrder(point, context.marker));
+    }
+  });
+  orderMap.setFitView();
+  showOrderMapStatus('');
+}
+
+function setTeacherViewMode(mode) {
+  teacherViewMode = mode === 'map' ? 'map' : 'list';
+  localStorage.setItem('teacherViewMode', teacherViewMode);
+  $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
+  $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
+  $('#showOrderList').classList.toggle('active', teacherViewMode === 'list');
+  $('#showOrderMap').classList.toggle('active', teacherViewMode === 'map');
+  if (teacherViewMode === 'map') renderOrderMap().catch(error => showOrderMapStatus(error.message));
+}
+
+function focusOrderFromMap(orderId) {
+  setTeacherViewMode('list');
+  const card = document.getElementById(`order-card-${orderId}`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('highlight');
+  setTimeout(() => card.classList.remove('highlight'), 1800);
 }
 
 function renderAdmin() {
@@ -845,7 +878,6 @@ function renderAdmin() {
           : '<div class="raw">暂无接单老师</div>'}
       </div>
       <div class="actions">
-        ${sourceImageButton(o)}
         <button class="secondary" onclick="setStatus('${o.id}','open')">开放</button>
         <button class="secondary" onclick="setStatus('${o.id}','matched')">已成交</button>
         <button class="danger" onclick="setStatus('${o.id}','closed')">关闭</button>
@@ -926,11 +958,17 @@ function renderFeedbackList() {
 
 function renderAgencyOrders() {
   const root = $('#agencyOrders');
+  const closeAllButton = $('#closeAllAgencyOrders');
+  const deleteAllButton = $('#deleteAllAgencyOrders');
   if (!currentAgency || !agencyToken) {
     root.innerHTML = '<div class="raw">登录中介账号后，这里会显示你发布的订单。</div>';
+    closeAllButton.disabled = true;
+    deleteAllButton.disabled = true;
     return;
   }
   const orders = state.orders.filter(o => o.agencyId === currentAgency.id);
+  closeAllButton.disabled = !orders.some(order => order.status !== 'closed');
+  deleteAllButton.disabled = !orders.length;
   root.innerHTML = orders.length ? orders.map(o => {
     const meta = orderDisplayMeta(o);
     return `<div class="admin-row">
@@ -945,7 +983,6 @@ function renderAgencyOrders() {
           : '<div class="raw">暂时还没有老师申请。</div>'}
       </div>
       <div class="actions">
-        ${sourceImageButton(o)}
         <button class="secondary" onclick="setAgencyStatus('${o.id}','open')">重新开放</button>
         <button class="secondary" onclick="setAgencyStatus('${o.id}','closed')">下架</button>
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
@@ -962,9 +999,25 @@ function previewCard(o, index) {
   const meta = orderDisplayMeta(o);
   const schedule = splitSchedule(o);
   const notes = miscNotes(o);
-  const candidates = !o.locationVerified && Array.isArray(o.locationCandidates)
+  const candidates = (!o.locationVerified || o.locationStatus === 'defaulted') && Array.isArray(o.locationCandidates)
     ? o.locationCandidates.slice(0, 3).filter(candidate => candidate?.name)
     : [];
+  const optionCandidates = Array.isArray(o.locationOptions) ? o.locationOptions.map((option, optionIndex) => ({
+    optionIndex,
+    label: `${optionIndex + 1}：${option.district || ''}${option.place || ''}`,
+    candidates: option.verified && option.status !== 'defaulted' ? [] : (Array.isArray(option.candidates) ? option.candidates.slice(0, 3).filter(candidate => candidate?.name) : [])
+  })).filter(item => item.candidates.length) : [];
+  const structured = o.structured || {};
+  const evidenceRows = [
+    ['地点', structured.locations],
+    ['年级', structured.gradeCurrent],
+    ['科目', structured.subjectsCurrent],
+    ['学生性别', structured.studentGender],
+    ['教师性别', structured.teacherGender],
+    ['价格', structured.priceMin],
+    ['计价单位', structured.priceUnit]
+  ].filter(([, field]) => field?.rawEvidence);
+  const uncertainFields = structured.diagnostics?.uncertainFields || [];
   return `<div class="preview-card">
     <div class="preview-title">#${index + 1} ${escapeHtml(meta.title)}</div>
     <div class="meta">
@@ -973,7 +1026,11 @@ function previewCard(o, index) {
       <span class="pill">${escapeHtml(genderBucket(o))}</span>
       <span class="pill">${escapeHtml(studentSummary(o))}</span>
     </div>
-    ${candidates.length ? `<div class="raw">地点待确认：${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
+    ${candidates.length ? `<div class="raw">${o.locationStatus === 'defaulted' ? '已默认选择第一项，可改：' : '地点待确认：'}${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
+    ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate(${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
+    ${evidenceRows.length ? `<details class="parse-evidence"><summary>解析证据与置信度</summary>${evidenceRows.map(([label, field]) => `<div><strong>${escapeHtml(label)}</strong> ${(Number(field.confidence || 0) * 100).toFixed(0)}%：${escapeHtml(field.rawEvidence)}</div>`).join('')}</details>` : ''}
+    ${uncertainFields.length ? `<div class="parse-warning">导入前请确认：${escapeHtml(uncertainFields.join('、'))}</div>` : ''}
+    <details class="parse-evidence"><summary>订单原文（导入时保留）</summary><div>${escapeHtml(o.raw || structured.rawText || '')}</div></details>
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
   </div>`;
 }
@@ -984,19 +1041,41 @@ function selectPreviewLocationCandidate(orderIndex, candidateIndex) {
   if (!order || !candidate) return;
   order.district = String(candidate.district || order.district || '').replace(/区$/, '');
   order.place = candidate.name;
-  order.address = `深圳市${order.district ? `${order.district}区` : ''}${candidate.name}`;
+  order.address = `深圳市${order.district ? `${order.district}区` : ''}${candidate.address || candidate.name}`;
   order.locationCoordinates = candidate.location || '';
   order.locationPoiId = candidate.id || '';
-  order.locationConfidence = candidate.confidence || 0;
+  order.locationAddress = candidate.address || '';
+  order.locationConfidence = candidate.confidence || 100;
   order.locationVerified = Boolean(candidate.location);
-  order.locationStatus = candidate.location ? 'selected' : 'selected_unverified';
+  order.locationStatus = candidate.location ? 'confirmed' : 'selected_unverified';
+  renderPreview();
+}
+
+function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidateIndex) {
+  const order = parsedImport[orderIndex];
+  const option = order?.locationOptions?.[optionIndex];
+  const candidate = option?.candidates?.[candidateIndex];
+  if (!order || !option || !candidate?.location) return;
+  option.district = String(candidate.district || option.district || '').replace(/区$/, '');
+  option.place = candidate.name;
+  option.poiId = candidate.id || '';
+  option.coordinates = candidate.location;
+  option.address = `深圳市${option.district ? `${option.district}区` : ''}${candidate.address || candidate.name}`;
+  option.confidence = candidate.confidence || 100;
+  option.verified = true;
+  option.status = 'confirmed';
+  order.locationVerified = order.locationOptions.some(item => item.verified);
+  order.locationStatus = order.locationOptions.every(item => item.verified) ? 'confirmed' : 'options_unverified';
   renderPreview();
 }
 
 function renderPreview() {
-  $('#parsePreview').innerHTML = parsedImport.length
+  const ignoredNotice = ignoredImportBlocks.length
+    ? `<div class="parse-warning">已忽略 ${ignoredImportBlocks.length} 段非订单文本。原文仍保留在解析响应中，可修改后重新识别。</div>`
+    : '';
+  $('#parsePreview').innerHTML = ignoredNotice + (parsedImport.length
     ? parsedImport.map(previewCard).join('')
-    : '<div class="raw">还没有识别结果。</div>';
+    : '<div class="raw">没有识别到有效订单。</div>');
 }
 
 function readLoginPreference() {
@@ -1048,7 +1127,6 @@ function hydrateLoginForm() {
   if (!form) return;
   const preference = readLoginPreference();
   form.reset();
-  setLoginMethod('sms');
   rememberedCredentialActive = false;
   if (!preference?.rememberAccount) return;
   form.elements.name.value = preference.name;
@@ -1076,11 +1154,11 @@ function invalidateCredentialForIdentity(name, phone) {
 
 function setLoginBusy(busy, automatic = false) {
   const form = $('#unifiedLogin');
-  const button = form?.querySelector(`[data-login-panel="${loginMethod}"] button[type="submit"]`);
+  const button = form?.querySelector('button[type="submit"]');
   loginBusy = busy;
   if (!button) return;
   button.dataset.idleText ||= button.textContent;
-  button.disabled = busy || (!busy && loginMethod === 'sms' && !authConfig.smsEnabled);
+  button.disabled = busy;
   button.textContent = busy ? (automatic ? '正在自动登录...' : '正在登录...') : button.dataset.idleText;
 }
 
@@ -1097,6 +1175,7 @@ function storeMemberSession(result) {
 
 async function login(role, form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  data.passwordProof = await passwordProof(data.password, data.name, data.phone);
   const result = await api('/api/login', { method: 'POST', body: { ...data, role } });
   const user = result.user;
   if (role === 'teacher') {
@@ -1137,32 +1216,19 @@ async function unifiedLogin(form, { automatic = false } = {}) {
         form.elements.password.focus();
         throw error;
       }
-    } else if (loginMethod === 'sms') {
-      result = await api('/api/auth/sms/verify', {
-        method: 'POST',
-        body: {
-          name,
-          phone,
-          code: form.elements.smsCode.value,
-          rememberAccount,
-          autoLogin,
-          wechatBindTicket
-        }
-      });
-      wechatBindTicket = '';
     } else {
+      const password = form.elements.password.value;
       result = await api('/api/account/login', {
         method: 'POST',
         body: {
           name,
           phone,
-          password: form.elements.password.value,
+          password,
+          passwordProof: await passwordProof(password, name, phone),
           rememberAccount,
-          autoLogin,
-          wechatBindTicket
+          autoLogin
         }
       });
-      wechatBindTicket = '';
     }
 
     storeMemberSession(result);
@@ -1185,7 +1251,6 @@ async function unifiedLogin(form, { automatic = false } = {}) {
     await loadTeacherPreferences();
     setView('teacher');
     form.elements.password.value = '';
-    form.elements.smsCode.value = '';
     toast(automatic ? '已自动登录' : '登录成功');
   } finally {
     setLoginBusy(false);
@@ -1194,6 +1259,8 @@ async function unifiedLogin(form, { automatic = false } = {}) {
 
 async function changePasswordByIdentity(form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  data.oldPasswordProof = await passwordProof(data.oldPassword, data.name, data.phone);
+  data.newPasswordProof = await passwordProof(data.newPassword, data.name, data.phone);
   await api('/api/account/password-by-identity', { method: 'POST', body: data });
   invalidateCredentialForIdentity(data.name, data.phone);
   form.reset();
@@ -1255,6 +1322,99 @@ async function deleteOrder(id, actor) {
   await load();
 }
 
+async function bulkAgencyOrders(action) {
+  const orders = state.orders.filter(order => order.agencyId === currentAgency?.id);
+  if (!orders.length) return toast('当前没有可处理的订单');
+  const deleting = action === 'delete';
+  const affected = deleting ? orders.length : orders.filter(order => order.status !== 'closed').length;
+  if (!affected) return toast('所有订单都已经下架');
+  const message = deleting
+    ? `确定永久删除全部 ${affected} 条订单吗？删除后无法恢复。`
+    : `确定一键下架 ${affected} 条订单吗？之后仍可逐条重新开放。`;
+  if (!confirm(message)) return;
+  const result = await api('/api/agency/orders/bulk', { method: 'POST', body: { action } }, agencyToken);
+  toast(deleting ? `已删除 ${result.affected} 条订单` : `已下架 ${result.affected} 条订单`);
+  await load();
+}
+
+function setClipboardAutomationStatus(message, tone = '') {
+  const bar = $('.clipboard-automation-bar');
+  const status = $('#clipboardAutomationStatus');
+  if (!bar || !status) return;
+  bar.classList.toggle('processing', tone === 'processing');
+  bar.classList.toggle('error', tone === 'error');
+  status.textContent = message;
+}
+
+async function parseAndImportText(text) {
+  const rawText = String(text || '').trim();
+  if (!rawText) throw new Error('请先粘贴订单文字');
+  const parsed = await api('/api/parse', { method: 'POST', body: { text: rawText } }, agencyToken);
+  parsedImport = parsed.parsed || [];
+  ignoredImportBlocks = parsed.ignoredBlocks || [];
+  renderPreview();
+  if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
+  const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+  mergeCreatedOrders(imported.created || []);
+  scheduleBackgroundStateRefresh();
+  return { imported, parsedCount: parsedImport.length };
+}
+
+async function pollClipboardInbox() {
+  if (clipboardBridgeUnavailable) return;
+  const enabled = $('#clipboardAutomationEnabled')?.checked;
+  if (!enabled) {
+    setClipboardAutomationStatus('自动接收已暂停');
+    return;
+  }
+  if (!currentAgency || !agencyToken) {
+    setClipboardAutomationStatus('登录后会自动处理采集器送来的原文');
+    return;
+  }
+  if (clipboardBridgeBusy) return;
+  clipboardBridgeBusy = true;
+  let activeItem = null;
+  try {
+    const inbox = await api('/api/clipboard/inbox', {}, agencyToken);
+    if (!inbox.items?.length) {
+      if (inbox.pending) setClipboardAutomationStatus(`有 ${inbox.pending} 条正在等待重试`);
+      return;
+    }
+    for (const item of inbox.items) {
+      if (!$('#clipboardAutomationEnabled').checked) break;
+      activeItem = item;
+      setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
+      const textarea = $('#importForm').elements.text;
+      textarea.value = item.text;
+      const { imported, parsedCount } = await parseAndImportText(item.text);
+      await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
+        created: imported.created?.length || 0,
+        duplicatesSkipped: imported.duplicatesSkipped || 0
+      } }, agencyToken);
+      const created = imported.created?.length || 0;
+      const skipped = Number(imported.duplicatesSkipped || 0) + Number(imported.incompleteSkipped || 0);
+      setClipboardAutomationStatus(created ? `自动导入完成：新增 ${created} 条订单` : `已处理：${skipped || parsedCount} 条重复或无效内容已跳过`);
+      toast(created ? `剪贴板已自动导入 ${created} 条` : '剪贴板内容已处理，没有新增订单');
+      activeItem = null;
+    }
+  } catch (error) {
+    if (error.status === 404 && !activeItem) {
+      clipboardBridgeUnavailable = true;
+      setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
+      return;
+    }
+    if (activeItem?.captureId) {
+      await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/fail`, {
+        method: 'POST',
+        body: { error: error.message }
+      }, agencyToken).catch(() => {});
+    }
+    setClipboardAutomationStatus(`自动导入失败，将重试：${error.message}`, 'error');
+  } finally {
+    clipboardBridgeBusy = false;
+  }
+}
+
 async function batchDeleteAdminOrders() {
   const orderIds = $$('.admin-order-select:checked', $('#adminOrders')).map(input => input.value);
   if (!orderIds.length) return toast('请先选择要删除的订单');
@@ -1288,8 +1448,10 @@ async function changePassword(role, form) {
   const token = role === 'teacher' ? teacherToken : agencyToken;
   if (!token) return toast(role === 'teacher' ? '请先登录老师账号' : '请先登录中介账号');
   const data = Object.fromEntries(new FormData(form).entries());
-  await api('/api/account/password', { method: 'POST', body: data }, token);
   const user = role === 'teacher' ? currentTeacher : currentAgency;
+  data.oldPasswordProof = await passwordProof(data.oldPassword, user?.name, user?.phone);
+  data.newPasswordProof = await passwordProof(data.newPassword, user?.name, user?.phone);
+  await api('/api/account/password', { method: 'POST', body: data }, token);
   invalidateCredentialForIdentity(user?.name, user?.phone);
   form.reset();
   toast('密码已修改');
@@ -1312,7 +1474,7 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
   routeMode = $('#routeModeSelect').value || 'cycling';
   localStorage.setItem('routeMode', routeMode);
   $('#teacherLocationStatus').textContent = '正在计算路线...';
-  const res = await api('/api/distance-preview', { method: 'POST', body: { origin, mode: routeMode } }, teacherToken);
+  const res = await api('/api/distance-preview', { method: 'POST', body: { origin: selectedOriginCoordinates || origin, mode: routeMode } }, teacherToken);
   for (const item of res.distances || []) {
     const previous = distanceOverrides[item.id] || {};
     distanceOverrides[item.id] = {
@@ -1323,6 +1485,7 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
   }
   teacherOrigin = origin;
   localStorage.setItem('teacherOrigin', origin);
+  if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
   applyDistanceOverrides();
   fillTeacherLocation();
   renderOrders();
@@ -1334,6 +1497,8 @@ function clearTeacherDistances() {
   teacherOrigin = '';
   distanceOverrides = {};
   localStorage.removeItem('teacherOrigin');
+  selectedOriginCoordinates = '';
+  localStorage.removeItem('teacherOriginCoordinates');
   fillTeacherLocation();
   queueTeacherPreferencesSave();
   load().catch(err => toast(err.message));
@@ -1348,7 +1513,9 @@ function hideLocationSuggestions() {
 async function showLocationSuggestions(query) {
   const root = $('#originSuggestions');
   if (String(query || '').trim().length < 2) return hideLocationSuggestions();
+  const requestId = ++locationSuggestionRequest;
   const result = await api(`/api/location-suggestions?q=${encodeURIComponent(query.trim())}`);
+  if (requestId !== locationSuggestionRequest || $('#teacherOrigin').value.trim() !== query.trim()) return;
   const suggestions = result.suggestions || [];
   root.innerHTML = '';
   for (const suggestion of suggestions) {
@@ -1363,6 +1530,10 @@ async function showLocationSuggestions(query) {
     button.append(name, detail);
     button.addEventListener('click', () => {
       $('#teacherOrigin').value = suggestion.value || suggestion.label;
+      teacherOrigin = suggestion.value || suggestion.label;
+      selectedOriginCoordinates = suggestion.location || '';
+      localStorage.setItem('teacherOrigin', teacherOrigin);
+      if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
       hideLocationSuggestions();
     });
     root.appendChild(button);
@@ -1370,17 +1541,42 @@ async function showLocationSuggestions(query) {
   root.classList.toggle('hidden', !suggestions.length);
 }
 
+function showLocationSuggestionError(message) {
+  const root = $('#originSuggestions');
+  root.innerHTML = '';
+  const status = document.createElement('div');
+  status.className = 'suggestion-status';
+  status.setAttribute('role', 'status');
+  status.textContent = message || '地点候选加载失败';
+  root.appendChild(status);
+  root.classList.remove('hidden');
+}
+
 function queueLocationSuggestions() {
   clearTimeout(locationSuggestionTimer);
   const query = $('#teacherOrigin').value;
   locationSuggestionTimer = setTimeout(() => {
-    showLocationSuggestions(query).catch(() => hideLocationSuggestions());
+    showLocationSuggestions(query).catch(error => showLocationSuggestionError(error.message));
   }, 260);
 }
 
-function copyText(encoded) {
-  navigator.clipboard.writeText(decodeURIComponent(encoded));
-  toast('已复制');
+function openRawText(encoded) {
+  activeRawText = decodeURIComponent(encoded || '');
+  $('#rawTextContent').textContent = activeRawText || '这条订单没有保留原文。';
+  $('#copyRawText').disabled = !activeRawText;
+  $('#rawTextPanel').classList.remove('hidden');
+}
+
+function closeRawText() {
+  $('#rawTextPanel').classList.add('hidden');
+  activeRawText = '';
+  $('#rawTextContent').textContent = '';
+}
+
+async function copyRawText() {
+  if (!activeRawText) return;
+  await navigator.clipboard.writeText(activeRawText);
+  toast('原文已复制');
 }
 
 function openAgencyContact(contact) {
@@ -1389,11 +1585,7 @@ function openAgencyContact(contact) {
   activeAgencyContact = { name, phone };
   $('#agencyContactName').textContent = name;
   $('#agencyContactPhone').textContent = phone || '未填写';
-  $('#saveAgencyContact').disabled = !phone;
   $('#copyAgencyContact').disabled = !phone;
-  const callLink = $('#callAgencyContact');
-  callLink.href = phone ? `tel:${phone.replace(/[^\d+]/g, '')}` : '#';
-  callLink.classList.toggle('disabled', !phone);
   $('#contactPanel').classList.remove('hidden');
 }
 
@@ -1401,113 +1593,10 @@ function closeAgencyContact() {
   $('#contactPanel').classList.add('hidden');
 }
 
-function sourceImageToken() {
-  return adminToken || agencyToken || teacherToken;
-}
-
-async function loadSourceImage(index) {
-  const viewer = sourceImageViewer;
-  if (!viewer.orderId || !viewer.count) return;
-  const safeIndex = Math.max(0, Math.min(viewer.count - 1, Number(index) || 0));
-  viewer.index = safeIndex;
-  $('#sourceImageCounter').textContent = `第 ${safeIndex + 1} 张，共 ${viewer.count} 张`;
-  $('#sourceImagePrevious').disabled = safeIndex === 0;
-  $('#sourceImageNext').disabled = safeIndex === viewer.count - 1;
-  const image = $('#sourceImageView');
-  const loading = $('#sourceImageLoading');
-  image.classList.add('hidden');
-  loading.classList.remove('hidden');
-  loading.textContent = '正在读取原图...';
-
-  let objectUrl = viewer.urls[safeIndex];
-  if (!objectUrl) {
-    const token = sourceImageToken();
-    if (!token) throw new Error('请先登录后查看原图');
-    const orderId = viewer.orderId;
-    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/source-images/${safeIndex}`, {
-      credentials: 'same-origin',
-      headers: { Authorization: `Bearer ${token}`, 'X-Visitor-Id': visitorId }
-    });
-    if (!response.ok) {
-      let message = '原图读取失败';
-      try { message = (await response.json()).error || message; } catch {}
-      throw new Error(message);
-    }
-    const blob = await response.blob();
-    if (sourceImageViewer !== viewer || viewer.orderId !== orderId) return;
-    objectUrl = URL.createObjectURL(blob);
-    viewer.urls[safeIndex] = objectUrl;
-  }
-  image.onload = () => {
-    if (sourceImageViewer !== viewer || viewer.index !== safeIndex) return;
-    loading.classList.add('hidden');
-    image.classList.remove('hidden');
-  };
-  image.onerror = () => {
-    loading.classList.remove('hidden');
-    loading.textContent = '这张原图暂时无法显示。';
-  };
-  image.src = objectUrl;
-  if (image.complete && image.naturalWidth) image.onload();
-}
-
-function openSourceImages(orderId, count) {
-  if (!sourceImageToken()) return toast('请先登录后查看原图');
-  closeSourceImages();
-  sourceImageViewer = { orderId: String(orderId || ''), count: Math.max(0, Number(count || 0)), index: 0, urls: [] };
-  if (!sourceImageViewer.orderId || !sourceImageViewer.count) return toast('这张单暂时没有原图');
-  $('.source-image-nav')?.classList.toggle('hidden', sourceImageViewer.count <= 1);
-  $('#sourceImagePanel').classList.remove('hidden');
-  loadSourceImage(0).catch(err => {
-    $('#sourceImageLoading').textContent = err.message;
-    toast(err.message);
-  });
-}
-
-function stepSourceImage(delta) {
-  loadSourceImage(sourceImageViewer.index + delta).catch(err => toast(err.message));
-}
-
-function closeSourceImages() {
-  const image = $('#sourceImageView');
-  if (image) {
-    image.onload = null;
-    image.onerror = null;
-    image.removeAttribute('src');
-    image.classList.add('hidden');
-  }
-  for (const url of sourceImageViewer.urls || []) {
-    if (url) URL.revokeObjectURL(url);
-  }
-  sourceImageViewer = { orderId: '', count: 0, index: 0, urls: [] };
-  const panel = $('#sourceImagePanel');
-  if (panel) panel.classList.add('hidden');
-}
-
 async function copyAgencyContact() {
   if (!activeAgencyContact?.phone) return;
   await navigator.clipboard.writeText(`${activeAgencyContact.name} ${activeAgencyContact.phone}`);
   toast('联系方式已复制');
-}
-
-function saveAgencyContact() {
-  if (!activeAgencyContact?.phone) return;
-  const escapeVcard = value => String(value || '').replace(/([\\,;])/g, '\\$1').replace(/\r?\n/g, '\\n');
-  const content = [
-    'BEGIN:VCARD',
-    'VERSION:3.0',
-    `FN:${escapeVcard(activeAgencyContact.name)}`,
-    `TEL;TYPE=CELL:${escapeVcard(activeAgencyContact.phone)}`,
-    'END:VCARD'
-  ].join('\r\n');
-  const url = URL.createObjectURL(new Blob([content], { type: 'text/vcard;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${activeAgencyContact.name.replace(/[\\/:*?"<>|]/g, '_') || '发单人'}.vcf`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function openFeedback() {
@@ -1583,16 +1672,6 @@ $('#routeModeSelect').addEventListener('change', () => {
     updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(err => toast(err.message));
   }
 });
-
-$$('[data-login-method]').forEach(button => {
-  button.addEventListener('click', () => setLoginMethod(button.dataset.loginMethod));
-});
-
-$('#sendSmsCode').addEventListener('click', () => {
-  requestSmsCode().catch(err => toast(err.message));
-});
-
-$('#wechatLoginButton').addEventListener('click', startWechatLogin);
 
 $('#refreshOrdersButton').addEventListener('click', () => {
   refreshOrderList().catch(err => toast(err.message));
@@ -1690,7 +1769,11 @@ $('#teacherLocationForm').addEventListener('submit', async event => {
 
 $('#clearTeacherLocation').addEventListener('click', clearTeacherDistances);
 
-$('#teacherOrigin').addEventListener('input', queueLocationSuggestions);
+$('#teacherOrigin').addEventListener('input', () => {
+  selectedOriginCoordinates = '';
+  localStorage.removeItem('teacherOriginCoordinates');
+  queueLocationSuggestions();
+});
 $('#teacherOrigin').addEventListener('focus', queueLocationSuggestions);
 document.addEventListener('click', event => {
   if (!event.target.closest('.autocomplete-wrap')) hideLocationSuggestions();
@@ -1709,31 +1792,27 @@ $('#orderForm').addEventListener('submit', async event => {
   await load();
 });
 
-$('#parseImport').addEventListener('click', async () => {
-  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  const data = Object.fromEntries(new FormData($('#importForm')).entries());
-  const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
-  parsedImport = res.parsed || [];
-  renderPreview();
-  toast(`识别出 ${parsedImport.length} 条`);
-});
-
 $('#importForm').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;
   if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  if (!parsedImport.length) {
-    const data = Object.fromEntries(new FormData(form).entries());
-    const res = await api('/api/parse', { method: 'POST', body: { text: data.text } }, agencyToken);
-    parsedImport = res.parsed || [];
+  const button = $('#parseAndImport');
+  button.disabled = true;
+  button.textContent = '正在识别并导入…';
+  try {
+    const { imported, parsedCount } = await parseAndImportText(form.text.value);
+    const created = imported.created?.length || 0;
+    toast(created ? `已识别并导入 ${created} 条` : `已识别 ${parsedCount} 条，没有新增订单`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '识别并导入';
   }
-  const res = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
-  toast(`已导入 ${res.created.length} 条`);
-  form.text.value = '';
-  parsedImport = [];
-  renderPreview();
-  await load();
 });
+
+$('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
+$('#deleteAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('delete').catch(err => toast(err.message)));
 
 $('#settingsForm').addEventListener('submit', async event => {
   event.preventDefault();
@@ -1773,6 +1852,7 @@ $('#adminLogin').addEventListener('submit', async event => {
   if (!form) return toast('没有找到管理端登录框，请刷新页面');
   try {
     const data = Object.fromEntries(new FormData(form).entries());
+    data.passwordProof = await passwordProof(data.password, 'admin', '');
     const path = state.adminConfigured ? '/api/admin/login' : '/api/admin/setup';
     const result = await api(path, { method: 'POST', body: data });
     adminToken = result.token;
@@ -1788,21 +1868,17 @@ $('#adminLogin').addEventListener('submit', async event => {
 
 $('#contactClose').addEventListener('click', closeAgencyContact);
 $('#copyAgencyContact').addEventListener('click', () => copyAgencyContact().catch(err => toast(err.message)));
-$('#saveAgencyContact').addEventListener('click', saveAgencyContact);
 $('#contactPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeAgencyContact();
 });
-$('#sourceImageClose').addEventListener('click', closeSourceImages);
-$('#sourceImagePrevious').addEventListener('click', () => stepSourceImage(-1));
-$('#sourceImageNext').addEventListener('click', () => stepSourceImage(1));
-$('#sourceImagePanel').addEventListener('click', event => {
-  if (event.target === event.currentTarget) closeSourceImages();
+$('#rawTextClose').addEventListener('click', closeRawText);
+$('#copyRawText').addEventListener('click', () => copyRawText().catch(err => toast(err.message)));
+$('#rawTextPanel').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeRawText();
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
-  if (event.key === 'Escape' && !$('#sourceImagePanel').classList.contains('hidden')) closeSourceImages();
-  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowLeft') stepSourceImage(-1);
-  if (!$('#sourceImagePanel').classList.contains('hidden') && event.key === 'ArrowRight') stepSourceImage(1);
+  if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
 
 $('#feedbackButton').addEventListener('click', openFeedback);
@@ -1822,6 +1898,8 @@ $('#feedbackForm').addEventListener('submit', async event => {
   closeFeedback();
   toast('感谢反馈，开发者会查看');
 });
+$('#showOrderList').addEventListener('click', () => setTeacherViewMode('list'));
+$('#showOrderMap').addEventListener('click', () => setTeacherViewMode('map'));
 
 window.addEventListener('scroll', () => {
   const button = $('#feedbackButton');
@@ -1831,22 +1909,34 @@ window.addEventListener('scroll', () => {
   feedbackHideTimer = setTimeout(() => button.classList.remove('scrolling'), 1600);
 }, { passive: true });
 
+const clipboardAutomationToggle = $('#clipboardAutomationEnabled');
+clipboardAutomationToggle.checked = localStorage.getItem(CLIPBOARD_AUTOMATION_KEY) !== 'off';
+clipboardAutomationToggle.addEventListener('change', () => {
+  localStorage.setItem(CLIPBOARD_AUTOMATION_KEY, clipboardAutomationToggle.checked ? 'on' : 'off');
+  if (clipboardAutomationToggle.checked) pollClipboardInbox().catch(() => {});
+  else setClipboardAutomationStatus('自动接收已暂停');
+});
+
 async function initializeApp() {
   hydrateLoginForm();
-  await loadAuthConfiguration();
   await load();
-  await handleWechatReturn();
+  setTeacherViewMode(teacherViewMode);
   const signedIn = Boolean(
     (state.viewer?.role === 'admin' && adminToken)
     || (state.viewer && teacherToken && agencyToken)
   );
   if (signedIn && teacherToken && !teacherPreferencesLoaded) await loadTeacherPreferences();
   const preference = readLoginPreference();
-  if (!signedIn && !wechatBindTicket && preference?.autoLogin && preference.hasCredential) {
+  if (!signedIn && preference?.autoLogin && preference.hasCredential) {
     await unifiedLogin($('#unifiedLogin'), { automatic: true });
   }
+  await pollClipboardInbox();
 }
 
 initializeApp().catch(err => toast(err.message));
 setInterval(() => refreshPlatformStats().catch(() => {}), 30000);
-window.addEventListener('focus', () => refreshPlatformStats().catch(() => {}));
+setInterval(() => pollClipboardInbox().catch(() => {}), 1800);
+window.addEventListener('focus', () => {
+  refreshPlatformStats().catch(() => {});
+  pollClipboardInbox().catch(() => {});
+});

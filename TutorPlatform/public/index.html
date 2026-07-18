@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260716-3">
+  <link rel="stylesheet" href="./styles.css?v=20260718-7">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -28,35 +28,11 @@
             <span class="section-kicker">账号登录</span>
             <h2>进入工作台</h2>
           </div>
-          <label>老师姓名或机构名称<input name="name" required autocomplete="username" placeholder="例如：陈老师"></label>
+          <label>昵称（老师姓名或机构名称）<input name="name" required autocomplete="username" placeholder="例如：陈老师"></label>
           <label>手机号<input name="phone" required inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号"></label>
-          <div class="auth-method-tabs" role="tablist" aria-label="登录方式">
-            <button class="active" type="button" data-login-method="sms" role="tab" aria-selected="true">验证码登录</button>
-            <button type="button" data-login-method="wechat" role="tab" aria-selected="false">微信扫码</button>
-            <button type="button" data-login-method="password" role="tab" aria-selected="false">密码登录</button>
-          </div>
-          <div class="login-method-panel" data-login-panel="sms">
-            <label>短信验证码
-              <span class="sms-code-row">
-                <input name="smsCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6位验证码">
-                <button id="sendSmsCode" class="secondary" type="button">获取验证码</button>
-              </span>
-            </label>
-            <small id="smsLoginStatus" class="form-note" aria-live="polite">验证码 5 分钟内有效。</small>
-            <button id="smsLoginSubmit" class="primary wide-button" type="submit">验证码登录</button>
-          </div>
-          <div class="login-method-panel hidden" data-login-panel="wechat">
-            <div class="wechat-login-box">
-              <span class="wechat-login-symbol" aria-hidden="true">微信</span>
-              <strong>使用微信扫码登录</strong>
-              <button id="wechatLoginButton" class="wechat-button" type="button">打开微信登录二维码</button>
-              <small id="wechatLoginStatus">首次扫码后需要绑定现有账号。</small>
-            </div>
-          </div>
-          <div class="login-method-panel hidden" data-login-panel="password">
-            <label>密码<input name="password" type="password" minlength="6" autocomplete="current-password" placeholder="至少6位"></label>
-            <button class="primary wide-button" type="submit">密码登录</button>
-          </div>
+          <label>密码<input name="password" required type="password" minlength="6" autocomplete="current-password" placeholder="至少6位"></label>
+          <button class="primary wide-button" type="submit">登录 / 首次注册</button>
+          <small class="form-note">首次使用会按昵称、手机号和密码创建账号；之后请使用相同信息登录。</small>
           <div class="login-options">
             <label class="login-check"><input id="rememberPassword" name="rememberAccount" type="checkbox"> 记住登录</label>
             <label class="login-check"><input id="autoLogin" name="autoLogin" type="checkbox"> 自动登录</label>
@@ -133,6 +109,10 @@
           <div><span class="section-kicker">接单端</span><h2>适合你的家教单</h2></div>
           <div class="workspace-heading-actions">
             <span id="orderCount" class="count-label"></span>
+            <div class="view-toggle" role="group" aria-label="订单展示方式">
+              <button id="showOrderList" class="secondary active" type="button">列表</button>
+              <button id="showOrderMap" class="secondary" type="button">地图</button>
+            </div>
             <button id="refreshOrdersButton" class="refresh-button" type="button" title="刷新家教单" aria-label="刷新家教单"><span aria-hidden="true">↻</span><b>刷新</b></button>
           </div>
         </div>
@@ -192,13 +172,53 @@
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
         </div>
         <div id="orders" class="order-list"></div>
+        <section id="orderMapPanel" class="order-map-panel hidden" aria-label="订单地图">
+          <div id="orderMap" class="order-map"></div>
+          <div id="orderMapStatus" class="order-map-status" role="status">正在准备地图…</div>
+        </section>
       </section>
 
       <section id="agency" class="view">
         <div class="workspace-heading"><div><span class="section-kicker">发单端</span><h2>发布和管理订单</h2></div></div>
-        <div class="columns">
-          <form id="orderForm" class="panel">
-            <h2>手动发布</h2>
+        <form id="importForm" class="panel agency-import-panel">
+          <div class="agency-primary-heading">
+            <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
+            <p>粘贴后点击一次即可完成识别和导入；剪贴板桥接器送来的内容会自动处理。</p>
+          </div>
+          <div class="clipboard-automation-bar">
+            <label><input id="clipboardAutomationEnabled" type="checkbox" checked> 自动接收并导入剪贴板订单</label>
+            <span id="clipboardAutomationStatus" role="status">等待剪贴板采集器连接…</span>
+          </div>
+          <div class="import-workspace">
+            <div class="import-input-column">
+              <div class="import-column-title"><strong>粘贴原文</strong><span>支持一条或多条订单</span></div>
+              <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
+              <div class="actions">
+                <button type="submit" id="parseAndImport" class="primary">识别并导入</button>
+              </div>
+            </div>
+            <div class="import-preview-column">
+              <div class="import-column-title"><strong>识别结果</strong><span>逐条检查地点、年级、科目和课酬</span></div>
+              <div id="parsePreview" class="preview"><div class="import-preview-empty">识别后，结构化结果会显示在这里。</div></div>
+            </div>
+          </div>
+        </form>
+        <section class="agency-orders-section">
+          <div class="workspace-heading minor">
+            <h2>我发布的订单</h2>
+            <div class="workspace-heading-actions">
+              <button id="closeAllAgencyOrders" class="secondary" type="button">一键下架</button>
+              <button id="deleteAllAgencyOrders" class="danger" type="button">删除全部</button>
+            </div>
+          </div>
+          <div id="agencyOrders"></div>
+        </section>
+        <details class="panel manual-entry-panel">
+          <summary>
+            <span><strong>手动录入</strong><small>低频使用：单独填写一条订单</small></span>
+            <b>展开</b>
+          </summary>
+          <form id="orderForm" class="manual-entry-form">
             <div class="grid">
               <select name="district"></select>
               <input name="place" placeholder="地点，如 后海、蛇口、西乡">
@@ -212,21 +232,7 @@
             <textarea name="requirements" placeholder="学生情况、教师要求和其他备注"></textarea>
             <button type="submit" class="primary">发布订单</button>
           </form>
-
-          <form id="importForm" class="panel">
-            <h2>批量识别微信订单</h2>
-            <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
-            <div class="actions">
-              <button type="button" id="parseImport" class="primary">识别预览</button>
-              <button type="submit" class="secondary">确认导入</button>
-            </div>
-            <div id="parsePreview" class="preview"></div>
-          </form>
-        </div>
-        <section class="agency-orders-section">
-          <div class="workspace-heading minor"><h2>我发布的订单</h2></div>
-          <div id="agencyOrders"></div>
-        </section>
+        </details>
       </section>
 
       <section id="admin" class="view">
@@ -242,8 +248,8 @@
           <form id="settingsForm" class="panel">
             <h2>平台设置</h2>
             <input name="homeAddress" placeholder="默认出发地">
-            <input name="amapKey" placeholder="高德 Web服务 Key">
             <input name="maxBikeKm" type="number" placeholder="范围公里">
+            <p class="form-note">高德 Key 仅通过服务端 Secret 配置。</p>
             <button type="submit" class="primary">保存设置</button>
           </form>
           <section class="panel admin-orders-panel">
@@ -284,27 +290,20 @@
           <div><span>联系方式</span><strong id="agencyContactPhone">未填写</strong></div>
         </div>
         <div class="contact-actions">
-          <button id="saveAgencyContact" type="button">保存到通讯录</button>
-          <button id="copyAgencyContact" class="secondary" type="button">复制联系方式</button>
-          <a id="callAgencyContact" class="action-link" href="#">拨打电话</a>
+          <button id="copyAgencyContact" class="primary" type="button">复制联系方式</button>
         </div>
       </div>
     </div>
 
-    <div id="sourceImagePanel" class="source-image-panel hidden" role="dialog" aria-modal="true" aria-labelledby="sourceImageTitle">
-      <div class="source-image-card">
-        <div class="source-image-head">
-          <div><span class="section-kicker">OCR 对照</span><h2 id="sourceImageTitle">微信原始截图</h2></div>
-          <button id="sourceImageClose" class="icon-button" type="button" aria-label="关闭原图" title="关闭">×</button>
+    <div id="rawTextPanel" class="contact-panel hidden" role="dialog" aria-modal="true" aria-labelledby="rawTextTitle">
+      <div class="contact-card raw-text-card">
+        <div class="contact-head">
+          <div><span class="section-kicker">订单详情</span><h2 id="rawTextTitle">订单原文</h2></div>
+          <button id="rawTextClose" class="icon-button" type="button" aria-label="关闭订单原文" title="关闭">×</button>
         </div>
-        <div class="source-image-stage">
-          <div id="sourceImageLoading" class="source-image-loading">正在读取原图...</div>
-          <img id="sourceImageView" class="hidden" alt="订单对应的微信原始截图">
-        </div>
-        <div class="source-image-nav">
-          <button id="sourceImagePrevious" class="icon-button" type="button" aria-label="上一张原图" title="上一张">‹</button>
-          <span id="sourceImageCounter">第 1 张，共 1 张</span>
-          <button id="sourceImageNext" class="icon-button" type="button" aria-label="下一张原图" title="下一张">›</button>
+        <pre id="rawTextContent" class="raw-text-content"></pre>
+        <div class="contact-actions">
+          <button id="copyRawText" class="primary" type="button">复制原文</button>
         </div>
       </div>
     </div>
@@ -323,7 +322,8 @@
   </div>
 
   <div id="toast" role="status" aria-live="polite"></div>
+  <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260717-6"></script>
+  <script src="./app.js?v=20260718-11"></script>
 </body>
 </html>
