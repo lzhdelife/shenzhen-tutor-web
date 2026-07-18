@@ -471,6 +471,20 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .map-order-popup { min-width: 220px; max-width: 300px; line-height: 1.55; }
 .map-order-popup strong { display: block; margin-bottom: 5px; }
 .map-order-popup button { margin-top: 8px; }
+.order-map-marker {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 3px solid #fff;
+  border-radius: 50% 50% 50% 8px;
+  background: #245bd6;
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 5px 14px rgba(25, 55, 105, 0.3);
+  transform: rotate(-45deg);
+}
+.order-map-marker span { transform: rotate(45deg); }
 .card {
   min-width: 0;
   display: flex;

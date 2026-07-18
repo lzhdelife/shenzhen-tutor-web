@@ -809,6 +809,13 @@ async function renderOrderMap(orders = filteredOrders()) {
         && Math.abs(item.lnglat[1] - Number(position?.lat)) < 0.000001
       ));
       if (!point?.order) return;
+      const pin = document.createElement('div');
+      pin.className = 'order-map-marker';
+      const glyph = document.createElement('span');
+      glyph.textContent = '教';
+      pin.append(glyph);
+      context.marker.setContent(pin);
+      context.marker.setOffset(new AMap.Pixel(-18, -36));
       context.marker.setTitle(orderDisplayMeta(point.order).title);
       context.marker.on('click', () => openMapOrder(point, context.marker));
     }
