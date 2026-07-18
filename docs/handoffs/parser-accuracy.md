@@ -8,7 +8,11 @@
 - 编号订单切割修复：`cbdbe15 fix: split compact numbered tutor orders`
 - 道路与楼盘地点修复：`095fe4e fix: preserve road and property location evidence`
 - 括号标题地点隔离修复：`3d0296c fix: isolate bracketed location evidence`
-- 状态：仅本地提交；未推送、未部署、未合并。
+- 非订单文本分类：`15ed6bf feat: reject non-order text blocks`
+- 当前集成主任务：`019f73a3-c986-7d90-93b7-9f82582bface`；旧任务 `019f7135-6ae3-7ce1-990a-926dcea5d2ee` 仅作历史交接。
+- 当前集成分支：`codex/web-first-rebuild`，已知 tip 为 `24f1e97`。
+- 上述历史解析提交均已集成；后续只申请新的增量提交。
+- parser 工作分支仅本地维护；不自行推送、部署或合并主线。
 
 ## 负责范围与修改路径
 
@@ -26,8 +30,8 @@
 
 ## 接口与字段变化
 
-- `parserVersion`：`2.0.0` → `2.1.0`。
-- `/api/parse` 响应形状仍为 `{ parserVersion, parsed, splitDiagnostics }`。
+- `parserVersion`：`2.0.0` → `2.2.0`。
+- `/api/parse` 响应形状为 `{ parserVersion, parsed, splitDiagnostics, ignoredBlocks }`；非订单段不进入 `parsed`，但其原文、跨度、证据和原因保留在 `ignoredBlocks`。
 - 每个 `parsed[]` 项的 `structured` 字段强化如下：
   - 可抽取字段统一为 `{ value, rawEvidence, confidence, source }`。
   - `locations` 增加/规范 `relation`、地点原文、行政区、片区、展示地点、`query`、`locationQueries[]`、`nearby`、核验状态和候选证据。
@@ -44,8 +48,8 @@
   - 9 条批量样例数量、顺序、逐条原文和覆盖率均为 100%。
   - 行政区、明示地点、年级、学科、学生/教师性别、价格和单位均为 100%。
   - 分阶段时间召回率和已填字段证据覆盖率均为 100%；性别混淆为 0。
-- `npm run cloudflare:test`：6/6 通过，包含真实 parser adapter 及编号紧凑订单契约测试。
-- `npm run check:secrets`：通过；编号订单修复提交前共扫描 56 个跟踪文件。
+- `npm run cloudflare:test`：7/7 通过，包含真实 parser adapter、编号紧凑订单及混贴非订单文本契约测试。
+- `npm run check:secrets`：通过；非订单分类提交前共扫描 58 个跟踪文件。
 - `git diff --check`：通过。
 
 所有回归数据均为匿名合成数据。详细口径见 `docs/PARSER_ACCURACY.md`；样本量较小，不代表线上总体准确率。
@@ -57,21 +61,20 @@
 - 匿名合成回归固定为 2 条，断言数量、顺序、逐条原文、边界原因和 100% 覆盖率。
 - 修复独立地点行“行政区 + 道路 + `·` 分隔楼盘（如某某华府）”落成“具体地点未提供”的问题；保留展示原文，并额外生成去间隔点的“区+道路+楼盘”和“区+楼盘”查询文本供地点工作流使用。
 - 修复括号标题中的真实地点被 `【薪酬】` 等后续字段标签及“暑假单”前缀污染的问题；地点层现在只接受含行政区、道路、片区或楼盘特征的候选证据。
+- 新增切割后公共订单分类：群名、闲聊等不满足最小证据的段不会生成订单；为防止静默丢失，原文进入 `ignoredBlocks`，预览提示忽略数量。
 
 ## 已知风险与跨领域依赖
 
 - “会展附近”等范围地点不能由解析层确定唯一 POI；地点工作流必须保留 `nearby`，展示候选并要求用户确认。
 - “连续上课”“周内上课”缺少明确每周次数时只保留原文证据，不应由订单或 UI 层猜测。
 - 缺少明确“老师”上下文的性别描述不会推断教师性别，UI 应继续展示 `uncertainFields`。
-- `parserVersion` 已升级，主任务若有硬编码版本断言或桌面客户端契约，需要同步调整为 `2.1.0`。
+- `parserVersion` 已升级，主任务若有硬编码版本断言或桌面客户端契约，需要同步调整为 `2.2.0`，并展示或记录 `ignoredBlocks` 数量。
 - 当前旧规则解析仍由 `server.js` 注入公共 recognizer；后续若迁移实现，应保持 `TutorPlatform/parser` 为唯一编排/契约边界，禁止在 Worker、UI 或地点服务复制正则。
 - 道路+楼盘修复保证新解析/重新解析结果；已经持久化为“具体地点未提供”的旧订单不会由 parser 主动写库。主任务的订单领域需要决定按原文重新解析、重新导入或提供安全的一次性修复入口。
 
 ## 主任务集成顺序
 
-1. 先集成主任务最新的协同文档提交，保留 `AGENTS.md` 和 `docs/WORKSTREAMS.md`。
-2. 在集成分支 cherry-pick 功能提交 `bb7bd6b`。
-3. cherry-pick 首次交接提交 `ba7e2df`，再 cherry-pick 编号订单切割修复 `cbdbe15` 和最新交接更新提交。
-   已集成上述历史提交的主任务只需继续 cherry-pick `095fe4e` 和其后的最新交接更新提交。
-4. 检查地点工作流是否消费 `structured.locations.value[].locationQueries`、`district` 和 `nearby`，不要把高德调用移入 parser。
-5. 运行 `npm test`、`npm run cloudflare:test`、`npm run check:secrets`，并人工确认解析预览能展开证据、置信度、原文和不确定字段。
+1. 新主任务从已包含历史解析改动的 `codex/web-first-rebuild` 集成，只需 cherry-pick `15ed6bf` 和紧随其后的 handoff 更新提交。
+2. 合并主线 `TutorPlatform/public/app.js` 冲突时，保留主线一键导入/增量刷新逻辑，同时设置并展示 `ignoredBlocks`；不要把分类规则复制到 UI。
+3. 桌面客户端及其他 `/api/parse` 消费方同步接受 parser `2.2.0` 和可选 `ignoredBlocks[]`。
+4. 运行 `npm test`、`npm run cloudflare:test`、`npm run check:secrets`，并人工确认群名不生成订单、有效订单仍可导入、忽略段有明确提示。
