@@ -17,6 +17,10 @@ node_modules/
 **/.cache/
 **/*.log
 *.zip
+__pycache__/
+*.py[cod]
+build/
+dist/
 
 # TutorPlatform runtime data (contains users, password hashes, orders and images)
 TutorPlatform/data/

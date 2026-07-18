@@ -20,9 +20,13 @@ let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
+let clipboardBridgeBusy = false;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
+const CLIPBOARD_AUTOMATION_KEY = 'clipboardAutomationEnabled';
+const requestedView = new URLSearchParams(location.search).get('view');
+if (['teacher', 'agency'].includes(requestedView)) activeView = requestedView;
 
 const visitorId = localStorage.getItem('tutorPlatformVisitorId')
   || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -1191,6 +1195,69 @@ async function bulkAgencyOrders(action) {
   await load();
 }
 
+function setClipboardAutomationStatus(message, tone = '') {
+  const bar = $('.clipboard-automation-bar');
+  const status = $('#clipboardAutomationStatus');
+  if (!bar || !status) return;
+  bar.classList.toggle('processing', tone === 'processing');
+  bar.classList.toggle('error', tone === 'error');
+  status.textContent = message;
+}
+
+async function pollClipboardInbox() {
+  const enabled = $('#clipboardAutomationEnabled')?.checked;
+  if (!enabled) {
+    setClipboardAutomationStatus('自动接收已暂停');
+    return;
+  }
+  if (!currentAgency || !agencyToken) {
+    setClipboardAutomationStatus('登录后会自动处理采集器送来的原文');
+    return;
+  }
+  if (clipboardBridgeBusy) return;
+  clipboardBridgeBusy = true;
+  let activeItem = null;
+  try {
+    const inbox = await api('/api/clipboard/inbox', {}, agencyToken);
+    if (!inbox.items?.length) {
+      if (inbox.pending) setClipboardAutomationStatus(`有 ${inbox.pending} 条正在等待重试`);
+      return;
+    }
+    for (const item of inbox.items) {
+      if (!$('#clipboardAutomationEnabled').checked) break;
+      activeItem = item;
+      setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
+      const textarea = $('#importForm').elements.text;
+      textarea.value = item.text;
+      const parsed = await api('/api/parse', { method: 'POST', body: { text: item.text } }, agencyToken);
+      parsedImport = parsed.parsed || [];
+      renderPreview();
+      if (!parsedImport.length) throw new Error('这条剪贴板内容没有识别出订单');
+      const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+      await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
+        created: imported.created?.length || 0,
+        duplicatesSkipped: imported.duplicatesSkipped || 0
+      } }, agencyToken);
+      const created = imported.created?.length || 0;
+      const skipped = Number(imported.duplicatesSkipped || 0) + Number(imported.incompleteSkipped || 0);
+      setClipboardAutomationStatus(created ? `自动导入完成：新增 ${created} 条订单` : `已处理：${skipped || parsedImport.length} 条重复或无效内容已跳过`);
+      toast(created ? `剪贴板已自动导入 ${created} 条` : '剪贴板内容已处理，没有新增订单');
+      activeItem = null;
+    }
+    await load();
+  } catch (error) {
+    if (activeItem?.captureId) {
+      await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/fail`, {
+        method: 'POST',
+        body: { error: error.message }
+      }, agencyToken).catch(() => {});
+    }
+    setClipboardAutomationStatus(`自动导入失败，将重试：${error.message}`, 'error');
+  } finally {
+    clipboardBridgeBusy = false;
+  }
+}
+
 async function batchDeleteAdminOrders() {
   const orderIds = $$('.admin-order-select:checked', $('#adminOrders')).map(input => input.value);
   if (!orderIds.length) return toast('请先选择要删除的订单');
@@ -1690,6 +1757,14 @@ window.addEventListener('scroll', () => {
   feedbackHideTimer = setTimeout(() => button.classList.remove('scrolling'), 1600);
 }, { passive: true });
 
+const clipboardAutomationToggle = $('#clipboardAutomationEnabled');
+clipboardAutomationToggle.checked = localStorage.getItem(CLIPBOARD_AUTOMATION_KEY) !== 'off';
+clipboardAutomationToggle.addEventListener('change', () => {
+  localStorage.setItem(CLIPBOARD_AUTOMATION_KEY, clipboardAutomationToggle.checked ? 'on' : 'off');
+  if (clipboardAutomationToggle.checked) pollClipboardInbox().catch(() => {});
+  else setClipboardAutomationStatus('自动接收已暂停');
+});
+
 async function initializeApp() {
   hydrateLoginForm();
   await load();
@@ -1702,8 +1777,13 @@ async function initializeApp() {
   if (!signedIn && preference?.autoLogin && preference.hasCredential) {
     await unifiedLogin($('#unifiedLogin'), { automatic: true });
   }
+  await pollClipboardInbox();
 }
 
 initializeApp().catch(err => toast(err.message));
 setInterval(() => refreshPlatformStats().catch(() => {}), 30000);
-window.addEventListener('focus', () => refreshPlatformStats().catch(() => {}));
+setInterval(() => pollClipboardInbox().catch(() => {}), 1800);
+window.addEventListener('focus', () => {
+  refreshPlatformStats().catch(() => {});
+  pollClipboardInbox().catch(() => {});
+});

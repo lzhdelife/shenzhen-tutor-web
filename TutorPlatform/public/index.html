@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260718-4">
+  <link rel="stylesheet" href="./styles.css?v=20260718-5">
 </head>
 <body>
   <section id="authScreen" class="auth-screen">
@@ -177,6 +177,10 @@
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
             <p>左侧粘贴剪贴板内容，右侧核对识别结果，再确认导入。</p>
           </div>
+          <div class="clipboard-automation-bar">
+            <label><input id="clipboardAutomationEnabled" type="checkbox" checked> 自动接收并导入剪贴板订单</label>
+            <span id="clipboardAutomationStatus" role="status">等待剪贴板采集器连接…</span>
+          </div>
           <div class="import-workspace">
             <div class="import-input-column">
               <div class="import-column-title"><strong>粘贴原文</strong><span>支持一条或多条订单</span></div>
@@ -312,6 +316,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260718-5"></script>
+  <script src="./app.js?v=20260718-6"></script>
 </body>
 </html>
