@@ -4,6 +4,7 @@ const { createRepository } = require('./storage.js');
 const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
+const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -21,6 +22,42 @@ function error(message, status = 400) { return json({ error: message }, status);
 function text(value) { return String(value == null ? '' : value).trim(); }
 function publicUser(user) { return user ? { id: user.id, role: user.role, name: user.name, phone: user.phone || '' } : null; }
 function validPhone(phone) { return /^1[3-9]\d{9}$/.test(phone); }
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+}
+
+async function prepareCloudflareImportedOrder(item, agency, amap) {
+  const order = sanitizeImportedOrder(item);
+  if (!canReuseVerifiedLocation(order)) {
+    order.locationVerified = false;
+    order.locationStatus = order.locationQuery ? 'unverified' : 'missing';
+    order.locationPoiId = '';
+    order.locationCoordinates = '';
+    order.locationAddress = '';
+    order.locationConfidence = 0;
+    if (order.locationQuery) {
+      try {
+        const result = await amap.candidates(order.locationQuery, order.district);
+        const candidate = result.candidates?.[0];
+        if (candidate) Object.assign(order, amap.confirm(candidate, order.district), { locationCandidates: result.candidates });
+        else order.locationStatus = 'not_found';
+      } catch (_) {
+        order.locationStatus = 'unverified';
+      }
+    }
+  }
+  markRoutePending(order);
+  return { ...order, id: undefined, agencyId: agency.id, source: agency.name, status: 'open', structured: order.structured || order };
+}
 
 async function bodyJson(request) {
   const length = Number(request.headers.get('content-length') || 0);
@@ -262,21 +299,20 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request);
           const incoming = Array.isArray(data.orders) ? data.orders.slice(0, 200) : [];
           if (!incoming.length) return error('请先识别并确认要导入的订单');
-          const created = [];
-          let duplicatesSkipped = 0;
-          for (const item of incoming) {
+          const prepared = await mapWithConcurrency(incoming, 3, item => prepareCloudflareImportedOrder(item, agency, amap));
+          const outcomes = await mapWithConcurrency(prepared, 3, async (orderData, index) => {
+            const item = incoming[index];
             const raw = text(item.raw);
             const importFingerprint = item.importFingerprint || (raw ? await sha256(raw.replace(/\s+/g, '')) : '');
-            const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = item;
             try {
-              const order = await repo.createOrder({ ...orderData, id: undefined, agencyId: agency.id, source: agency.name,
-                status: item.status || 'open', importFingerprint, structured: orderData });
-              created.push(order);
+              return { order: await repo.createOrder({ ...orderData, importFingerprint }) };
             } catch (caught) {
-              if (/unique|constraint|fingerprint/i.test(String(caught?.message || ''))) duplicatesSkipped++;
+              if (/unique|constraint|fingerprint/i.test(String(caught?.message || ''))) return { duplicate: true };
               else throw caught;
             }
-          }
+          });
+          const created = outcomes.filter(result => result.order).map(result => result.order);
+          const duplicatesSkipped = outcomes.filter(result => result.duplicate).length;
           return json({ created, duplicatesSkipped, incompleteSkipped: 0 });
         }
         if (method === 'POST' && path === '/api/agency/orders/bulk') {

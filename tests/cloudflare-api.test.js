@@ -129,3 +129,39 @@ test('password login and injectable parser have explicit behavior', async () => 
   assert.equal(parsed.parserVersion, 'test');
   assert.equal(parsed.parsed[0].raw, '合成订单');
 });
+
+test('import reuses verified preview locations and resolves only unverified orders without routing', async () => {
+  let amapCalls = 0;
+  const { call } = harness({ fetchImpl: async url => {
+    amapCalls++;
+    const keywords = new URL(String(url)).searchParams.get('keywords');
+    assert.equal(keywords, '深圳市宝安区待核实花园');
+    return new Response(JSON.stringify({ status: '1', pois: [{
+      id: 'resolved-poi', name: '待核实花园', adname: '宝安区', address: '测试路2号',
+      location: '113.8501,22.5801', type: '商务住宅;住宅区'
+    }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  } }, { AMAP_WEB_SERVICE_KEY: 'synthetic-test-value' });
+  const name = '导入测试机构', phone = ['137', '0013', '7000'].join(''), password = 'secret1';
+  const login = await (await call('/api/login', { method: 'POST', body: {
+    role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
+  } })).json();
+  const verifiedQuery = '深圳市宝安区已确认花园';
+  const response = await call('/api/import', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { orders: [{
+    raw: '宝安区已确认花园，高二数学', district: '宝安', place: '已确认花园', locationQuery: verifiedQuery,
+    locationQueries: [verifiedQuery], locationVerified: true, locationStatus: 'verified', locationPoiId: 'verified-poi',
+    locationCoordinates: '113.8500,22.5800', locationCandidates: [{ id: 'verified-poi', name: '已确认花园', district: '宝安',
+      location: '113.8500,22.5800', searchQuery: verifiedQuery }], structured: { locations: { value: [{ query: verifiedQuery }] } }
+  }, {
+    raw: '宝安区待核实花园，高三物理', district: '宝安', place: '待核实花园', locationQuery: '深圳市宝安区待核实花园',
+    locationQueries: ['深圳市宝安区待核实花园'], locationVerified: false, structured: { locations: { value: [{ query: '深圳市宝安区待核实花园' }] } }
+  }] } });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.created.length, 2);
+  assert.equal(amapCalls, 1, 'only the unverified order should call Amap during import');
+  assert.equal(body.created[0].locationPoiId, 'verified-poi');
+  assert.equal(body.created[1].locationPoiId, 'resolved-poi');
+  assert.deepEqual(body.created.map(order => [order.distanceKm, order.routeMode, order.routeStatus]), [
+    ['', '待计算', 'pending'], ['', '待计算', 'pending']
+  ]);
+});

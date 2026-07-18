@@ -177,6 +177,31 @@ async function runLocationChecks() {
     assert.equal(resolved.district, '宝安');
     assert.equal(resolved.place, '共和花园');
 
+    let verifiedImportLocationCalls = 0;
+    const preparedVerified = await platform.prepareImportedOrder(resolved, { id: 'fixture', name: '匿名测试机构' }, { amapWebServiceKey: 'synthetic-test-value' }, {
+      resolveLocation: async order => { verifiedImportLocationCalls++; return order; },
+      buildStructured: async ({ rawText }) => ({ rawText })
+    });
+    assert.equal(verifiedImportLocationCalls, 0, 'verified preview import must reuse the confirmed POI');
+    assert.equal(preparedVerified.routeMode, '待计算');
+    assert.equal(preparedVerified.routeStatus, 'pending');
+    assert.equal(preparedVerified.distanceKm, '');
+
+    let unverifiedImportLocationCalls = 0;
+    const preparedUnverified = await platform.prepareImportedOrder({ ...decorativeSeparatorOrder, locationVerified: false }, { id: 'fixture', name: '匿名测试机构' }, { amapWebServiceKey: 'synthetic-test-value' }, {
+      resolveLocation: async order => {
+        unverifiedImportLocationCalls++;
+        order.locationVerified = true;
+        order.locationPoiId = 'resolved-by-location-service';
+        order.locationCoordinates = '113.850000,22.580000';
+        return order;
+      },
+      buildStructured: async ({ rawText }) => ({ rawText })
+    });
+    assert.equal(unverifiedImportLocationCalls, 1, 'unverified import must still use the shared location service');
+    assert.equal(preparedUnverified.locationPoiId, 'resolved-by-location-service');
+    assert.equal(preparedUnverified.routeStatus, 'pending');
+
     const resolvedYantian = await platform.resolveOrderLocation({ ...yantianOrder }, { amapWebServiceKey: 'synthetic-test-value' });
     assert.equal(resolvedYantian.locationVerified, true);
     assert.equal(resolvedYantian.district, '盐田');

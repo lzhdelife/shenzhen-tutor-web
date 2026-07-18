@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { runParserPipeline } = require('./parser/pipeline');
+const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
 const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
 const { scoreOrder } = require('../shared/order-score');
@@ -2120,6 +2121,24 @@ async function enrichOrder(order, settings) {
   return order;
 }
 
+async function prepareImportedOrder(item, agency, settings, dependencies = {}) {
+  const resolveLocation = dependencies.resolveLocation || resolveOrderLocation;
+  const buildStructured = dependencies.buildStructured || runParserPipeline;
+  const sanitized = sanitizeImportedOrder(item);
+  const ruleOrder = parseOrder(sanitized.raw, agency.name, agency.id);
+  const reusableLocation = canReuseVerifiedLocation(sanitized, ruleOrder);
+  const order = { ...ruleOrder, ...sanitized, agencyId: agency.id, source: agency.name };
+  if (!reusableLocation) {
+    invalidateDerivedLocationData(order);
+    await resolveLocation(order, settings);
+  }
+  order.structured = await buildStructured({ rawText: order.raw, ruleOrder: order });
+  if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
+  markRoutePending(order);
+  order.score = score(order, settings);
+  return order;
+}
+
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -2853,10 +2872,9 @@ async function handleApi(req, res) {
     const agency = requireRole(req, res, 'agency');
     if (!agency) return;
     const data = await bodyJson(req);
-    const chunks = data.orders && Array.isArray(data.orders)
-      ? data.orders.map(o => o.raw || JSON.stringify(o))
-      : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id);
-    const created = [];
+    const incoming = data.orders && Array.isArray(data.orders)
+      ? data.orders.map(item => ({ ...item, raw: item.raw || JSON.stringify(item) }))
+      : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id).map(raw => ({ raw }));
     let duplicatesSkipped = 0;
     let incompleteSkipped = 0;
     const fingerprints = new Set(db.orders
@@ -2871,20 +2889,20 @@ async function handleApi(req, res) {
       .filter(order => order.agencyId === agency.id && order.status === 'open' && Date.parse(order.createdAt || 0) >= recentCutoff)
       .map(order => order.importFingerprint || semanticOrderFingerprint(parseOrder(order.raw, agency.name, agency.id)))
       .filter(Boolean));
-    for (let i = 0; i < chunks.length; i++) {
-      if (looksLikeIncompleteStructuredImport(chunks[i])) {
+    const accepted = [];
+    for (const item of incoming) {
+      const raw = textOf(item.raw);
+      if (looksLikeIncompleteStructuredImport(raw)) {
         incompleteSkipped++;
         continue;
       }
-      if (looksLikeJunkImport(chunks[i])) {
+      if (looksLikeJunkImport(raw)) {
         duplicatesSkipped++;
         continue;
       }
-      const fingerprint = rawOrderFingerprint(chunks[i]);
-      const orderCode = extractOrderCode(chunks[i]);
-      const base = data.orders && data.orders[i]
-        ? { ...parseOrder(chunks[i], agency.name, agency.id), ...data.orders[i], agencyId: agency.id, source: agency.name }
-        : parseOrder(chunks[i], agency.name, agency.id);
+      const fingerprint = rawOrderFingerprint(raw);
+      const orderCode = extractOrderCode(raw);
+      const base = { ...parseOrder(raw, agency.name, agency.id), ...sanitizeImportedOrder(item), agencyId: agency.id, source: agency.name };
       const semanticFingerprint = semanticOrderFingerprint(base);
       if (fingerprints.has(fingerprint)
         || (orderCode && orderCodes.has(orderCode))
@@ -2892,18 +2910,25 @@ async function handleApi(req, res) {
         duplicatesSkipped++;
         continue;
       }
-      base.importFingerprint = semanticFingerprint;
-      const order = await enrichOrder(base, db.settings);
-      const meaningful = Boolean(order.district || order.price || order.monthly || (order.subject && order.subject !== '其他') || (order.grade && order.grade !== '其他'));
-      if (meaningful) {
-        db.orders.unshift(order);
-        created.push(order);
-        fingerprints.add(fingerprint);
-        if (orderCode) orderCodes.add(orderCode);
-        if (semanticFingerprint) semanticFingerprints.add(semanticFingerprint);
+      const meaningful = Boolean(base.district || base.price || base.monthly || (base.subject && base.subject !== '其他') || (base.grade && base.grade !== '其他'));
+      if (!meaningful) {
+        incompleteSkipped++;
+        continue;
       }
+      accepted.push({ item: { ...item, raw }, semanticFingerprint });
+      fingerprints.add(fingerprint);
+      if (orderCode) orderCodes.add(orderCode);
+      if (semanticFingerprint) semanticFingerprints.add(semanticFingerprint);
     }
-    writeDb(db);
+    const created = await mapWithConcurrency(accepted, 3, async entry => {
+      const order = await prepareImportedOrder(entry.item, agency, db.settings);
+      order.importFingerprint = entry.semanticFingerprint;
+      return order;
+    });
+    if (created.length) {
+      db.orders.unshift(...created);
+      writeDb(db);
+    }
     return send(res, 200, { created, duplicatesSkipped, incompleteSkipped });
   }
 
@@ -3044,6 +3069,7 @@ module.exports = {
   isGenericLocationValue,
   refreshLocationEvidenceFromRaw,
   repairPersistedOpenOrderLocations,
+  prepareImportedOrder,
   isExplicitTransitCandidateMatch,
   consensusCandidateDistrict,
   locationQueryCharacterCoverage,

@@ -21,6 +21,7 @@ let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
 let clipboardBridgeBusy = false;
+let backgroundStateRefreshTimer = 0;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
@@ -107,6 +108,19 @@ async function load() {
   renderAnnouncement();
   renderPlatformStats();
   syncShell();
+}
+
+function mergeCreatedOrders(created = []) {
+  if (!created.length) return;
+  const ids = new Set(created.map(order => order.id));
+  state.orders = [...created, ...state.orders.filter(order => !ids.has(order.id))];
+  renderOrders();
+  renderAgencyOrders();
+}
+
+function scheduleBackgroundStateRefresh() {
+  clearTimeout(backgroundStateRefreshTimer);
+  backgroundStateRefreshTimer = setTimeout(() => load().catch(error => console.warn('后台刷新失败', error)), 1500);
 }
 
 function setView(name) {
@@ -1234,6 +1248,7 @@ async function pollClipboardInbox() {
       renderPreview();
       if (!parsedImport.length) throw new Error('这条剪贴板内容没有识别出订单');
       const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+      mergeCreatedOrders(imported.created || []);
       await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
         created: imported.created?.length || 0,
         duplicatesSkipped: imported.duplicatesSkipped || 0
@@ -1244,7 +1259,7 @@ async function pollClipboardInbox() {
       toast(created ? `剪贴板已自动导入 ${created} 条` : '剪贴板内容已处理，没有新增订单');
       activeItem = null;
     }
-    await load();
+    scheduleBackgroundStateRefresh();
   } catch (error) {
     if (activeItem?.captureId) {
       await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/fail`, {
@@ -1655,10 +1670,11 @@ $('#importForm').addEventListener('submit', async event => {
   }
   const res = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
   toast(`已导入 ${res.created.length} 条`);
+  mergeCreatedOrders(res.created || []);
   form.text.value = '';
   parsedImport = [];
   renderPreview();
-  await load();
+  scheduleBackgroundStateRefresh();
 });
 
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
