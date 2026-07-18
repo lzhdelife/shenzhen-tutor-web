@@ -220,20 +220,35 @@ async function runLocationChecks() {
     assert.equal(genericDefault.locationCoordinates, '114.055000,22.522000');
 
     const persistedGeneric = {
+      id: 'persisted-location-fixture',
+      status: 'open',
       district: '宝安',
       place: '具体地点未提供',
       placeOriginal: '具体地点未提供',
+      address: '深圳市宝安区具体地点未提供',
+      distanceKm: 5.4,
+      routeMode: '骑行',
+      locationVerified: true,
+      locationPoiId: 'stale-district-poi',
+      locationCoordinates: '113.800000,22.600000',
       raw: '2️⃣新高二物理 男孩\n宝安洲石路润景·华府\n成绩只有32，其他科还可以，7月或8月都能上课\n需要补差经验好的老师\n大学生300~350/2h',
       source: '匿名回归机构',
       agencyId: 'fixture'
     };
-    assert.equal(platform.refreshLocationEvidenceFromRaw(persistedGeneric), true);
+    const repairedCount = await platform.repairPersistedOpenOrderLocations({
+      orders: [persistedGeneric],
+      settings: { amapWebServiceKey: 'synthetic-test-value' }
+    });
+    assert.equal(repairedCount, 1);
     assert.match(persistedGeneric.place, /洲石路/);
     assert.match(persistedGeneric.placeOriginal, /润景·华府/);
     assert.ok(persistedGeneric.locationQueries.includes('深圳市宝安区洲石路润景华府'));
-    const repairedPrecise = await platform.resolveOrderLocation(persistedGeneric, { amapWebServiceKey: 'synthetic-test-value' });
-    assert.equal(repairedPrecise.locationPoiId, 'road-property');
-    assert.notEqual(repairedPrecise.locationPoiId, 'district-default');
+    assert.equal(persistedGeneric.locationPoiId, 'road-property');
+    assert.notEqual(persistedGeneric.locationPoiId, 'district-default');
+    assert.equal(persistedGeneric.distanceKm, '');
+    assert.equal(persistedGeneric.routeMode, '待计算');
+    assert.equal(persistedGeneric.routeStatus, 'pending');
+    assert.equal(persistedGeneric.structured.rawText, persistedGeneric.raw);
   } finally {
     global.fetch = originalFetch;
   }

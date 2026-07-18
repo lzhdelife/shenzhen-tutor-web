@@ -1588,6 +1588,49 @@ function refreshLocationEvidenceFromRaw(order) {
   return true;
 }
 
+function invalidateDerivedLocationData(order) {
+  order.locationVerified = false;
+  order.locationStatus = 'unverified';
+  order.locationPoiId = '';
+  order.locationCoordinates = '';
+  order.locationAddress = '';
+  order.locationConfidence = 0;
+  order.locationCandidates = [];
+  order.distanceKm = '';
+  order.routeMode = '待计算';
+  order.routeStatus = 'pending';
+  order.routeOptions = {};
+  if (Array.isArray(order.locationOptions)) {
+    order.locationOptions = order.locationOptions.map(option => ({ ...option, routeOptions: {} }));
+  }
+}
+
+async function repairPersistedOpenOrderLocations(db) {
+  const candidates = (db.orders || []).filter(order => (
+    order.status === 'open'
+    && textOf(order.raw)
+    && (isGenericLocationValue(order.place) || isGenericLocationValue(order.address))
+  ));
+  let repaired = 0;
+  await mapWithConcurrency(candidates, 2, async order => {
+    if (!refreshLocationEvidenceFromRaw(order)) return;
+    const recoveredPlace = order.place;
+    const recoveredPlaceOriginal = order.placeOriginal;
+    const recoveredAddress = order.address;
+    invalidateDerivedLocationData(order);
+    await resolveOrderLocation(order, db.settings || {});
+    order.place = recoveredPlace;
+    order.placeOriginal = recoveredPlaceOriginal;
+    order.address = recoveredAddress || buildAddress(order.district, recoveredPlace, order.raw);
+    order.structured = await runParserPipeline({ rawText: order.raw, ruleOrder: order });
+    if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
+    order.score = score(order, db.settings || {});
+    order.locationEvidenceRepairedAt = new Date().toISOString();
+    repaired += 1;
+  });
+  return repaired;
+}
+
 function isExplicitTransitCandidateMatch(query, candidate) {
   const requested = textOf(query);
   const candidateText = `${candidate?.name || ''}|${candidate?.type || ''}`;
@@ -2224,7 +2267,11 @@ async function handleApi(req, res) {
   touchVisitor(req);
   const url = new URL(req.url, `http://localhost:${PORT}`);
   if (url.pathname.startsWith('/api/auth/')) return send(res, 404, { error: '该登录方式已移除，请使用昵称、手机号和密码登录' });
-  if (req.method === 'GET' && url.pathname === '/api/state') return send(res, 200, publicDb(db, sessionOf(req)));
+  if (req.method === 'GET' && url.pathname === '/api/state') {
+    const repaired = await repairPersistedOpenOrderLocations(db);
+    if (repaired) writeDb(db);
+    return send(res, 200, publicDb(db, sessionOf(req)));
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/clipboard/capture') {
     if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
@@ -2996,6 +3043,7 @@ module.exports = {
   normalizeResolvedLocationName,
   isGenericLocationValue,
   refreshLocationEvidenceFromRaw,
+  repairPersistedOpenOrderLocations,
   isExplicitTransitCandidateMatch,
   consensusCandidateDistrict,
   locationQueryCharacterCoverage,
