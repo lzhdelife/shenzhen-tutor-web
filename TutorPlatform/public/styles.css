@@ -467,7 +467,26 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .view-toggle button.active { color: #fff; border-color: var(--ink); background: var(--ink); }
 .order-map-panel { position: relative; min-height: 560px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 10px; background: #eef3f6; }
 .order-map { width: 100%; height: 560px; }
-.order-map-status { position: absolute; top: 12px; left: 50%; z-index: 5; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 9px 14px; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.96); box-shadow: 0 5px 18px rgba(23,33,43,.14); }
+.order-map-controls {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px;
+  border: 1px solid rgba(216,225,235,.9);
+  border-radius: 10px;
+  background: rgba(255,255,255,.96);
+  box-shadow: 0 6px 20px rgba(23,33,43,.16);
+  backdrop-filter: blur(10px);
+}
+.order-map-controls label { color: #33445a; font-size: 13px; font-weight: 800; white-space: nowrap; }
+.order-map-controls select { min-width: 108px; min-height: 36px; padding: 6px 30px 6px 10px; }
+.order-map-controls span { max-width: 440px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.order-map-status { position: absolute; top: 70px; left: 50%; z-index: 5; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 9px 14px; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.96); box-shadow: 0 5px 18px rgba(23,33,43,.14); }
 .order-map-status.hidden { display: none; }
 .order-map-route-summary {
   position: absolute;
@@ -544,6 +563,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .map-order-popup { min-width: 220px; max-width: 300px; line-height: 1.55; }
 .map-order-popup strong { display: block; margin-bottom: 5px; }
 .map-order-popup button { margin-top: 8px; }
+.map-popup-actions { display: flex; gap: 7px; }
 .order-map-marker {
   display: grid;
   place-items: center;

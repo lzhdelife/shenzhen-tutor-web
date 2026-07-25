@@ -20,6 +20,7 @@ let orderMapInfoWindow = null;
 let orderMapApi = null;
 let orderMapLocations = null;
 let orderMapRouteService = null;
+let activeMapRouteOrderId = '';
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
 let activeRawText = '';
@@ -358,7 +359,7 @@ function fillTeacherLocation() {
   form.origin.value = teacherOrigin;
   $('#routeModeSelect').value = routeMode;
   $('#teacherLocationStatus').textContent = teacherOrigin
-    ? `当前按“${teacherOrigin}”显示直线距离；${routeLabels[routeMode]}路线只在地图详情中计算。`
+    ? `当前按“${teacherOrigin}”显示直线距离；真实路线请进入地图查看。`
     : '选择位置后，本地显示所有订单的直线距离。';
 }
 
@@ -785,11 +786,21 @@ function openMapOrder(point, marker) {
   title.textContent = meta.title;
   const summary = document.createElement('div');
   summary.textContent = `${priceLabel(point.order)} · ${routeText(point.order)}`;
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = '查看订单详情';
-  button.addEventListener('click', () => focusOrderFromMap(point.order.id));
-  content.append(title, summary, button);
+  const actions = document.createElement('div');
+  actions.className = 'map-popup-actions';
+  const detailButton = document.createElement('button');
+  detailButton.type = 'button';
+  detailButton.textContent = '查看订单';
+  detailButton.addEventListener('click', () => focusOrderFromMap(point.order.id));
+  const routeButton = document.createElement('button');
+  routeButton.type = 'button';
+  routeButton.className = 'primary';
+  routeButton.textContent = '规划路线';
+  routeButton.addEventListener('click', () => {
+    focusOrderOnMap(point.order.id).catch(error => showOrderMapStatus(error.message));
+  });
+  actions.append(detailButton, routeButton);
+  content.append(title, summary, actions);
   orderMapInfoWindow ||= new AMap.InfoWindow({ offset: new AMap.Pixel(0, -28) });
   orderMapInfoWindow.setContent(content);
   orderMapInfoWindow.open(orderMap, marker.getPosition());
@@ -874,7 +885,7 @@ async function renderOrderMap(orders = filteredOrders()) {
       context.marker.setContent(pin);
       context.marker.setOffset(new AMap.Pixel(-18, -36));
       context.marker.setTitle(orderDisplayMeta(point.order).title);
-      context.marker.on('click', () => focusOrderFromMap(point.order.id));
+      context.marker.on('click', () => openMapOrder(point, context.marker));
     }
   });
   orderMapCluster.on('click', handleMapClusterClick);
@@ -1018,6 +1029,11 @@ async function focusOrderOnMap(orderId) {
     $('#teacherLocationForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
+  activeMapRouteOrderId = orderId;
+  const activeOrder = state.orders.find(order => order.id === orderId);
+  $('#activeMapRouteHint').textContent = activeOrder
+    ? `正在查看：${orderDisplayMeta(activeOrder).title}`
+    : '正在查看所选订单';
   await setTeacherViewMode('map');
   const locations = orderMapLocations?.get(orderId) || [];
   const coordinates = String(locations[0] || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
@@ -1955,6 +1971,10 @@ $('#routeModeSelect').addEventListener('change', () => {
   localStorage.setItem('routeMode', routeMode);
   fillTeacherLocation();
   queueTeacherPreferencesSave();
+  if (activeMapRouteOrderId && teacherViewMode === 'map') {
+    showOrderMapStatus(`正在切换为${routeLabels[routeMode]}路线…`);
+    focusOrderOnMap(activeMapRouteOrderId).catch(error => showOrderMapStatus(error.message));
+  }
 });
 
 $('#refreshOrdersButton').addEventListener('click', () => {
