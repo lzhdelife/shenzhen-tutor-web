@@ -30,3 +30,14 @@ test('D1 import converts local orders into idempotent private SQL', () => {
 test('D1 import rejects orders whose owner is missing', () => {
   assert.throws(() => buildImportSql({ users: [], orders: [{ id: 'order-1', agencyId: 'missing' }] }), /missing users/i);
 });
+
+test('D1 import reuses an existing identity when its user id differs', () => {
+  const syntheticPhone = ['138', '0000', '0000'].join('');
+  const fixture = {
+    users: [{ id: 'local-agency', role: 'agency', name: '同一机构', phone: syntheticPhone, preferences: {} }],
+    orders: [{ id: 'local-order', agencyId: 'local-agency', raw: '南山区初一数学，每周一次', createdAt: '2026-07-25T00:00:00.000Z' }]
+  };
+  const { sql } = buildImportSql(fixture, { generatedAt: '2026-07-25T01:00:00.000Z' });
+  assert.match(sql, new RegExp(`SELECT id FROM users WHERE id = 'local-agency' OR \\(role = 'agency' AND name = '同一机构' AND phone = '${syntheticPhone}'\\)`));
+  assert.match(sql, /WHERE .* IS NOT NULL;/);
+});

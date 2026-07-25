@@ -25,6 +25,10 @@ function insert(table, columns, values, mode = 'OR IGNORE') {
   return `INSERT ${mode} INTO ${table} (${columns.join(', ')}) VALUES (${values.map(sqlValue).join(', ')});`;
 }
 
+function resolvedUserIdSql(user) {
+  return `(SELECT id FROM users WHERE id = ${sqlValue(user.id)} OR (role = ${sqlValue(user.role)} AND name = ${sqlValue(user.name || '匿名用户')} AND phone = ${sqlValue(user.phone || '')}) ORDER BY CASE WHEN id = ${sqlValue(user.id)} THEN 0 ELSE 1 END LIMIT 1)`;
+}
+
 function buildImportSql(db, options = {}) {
   const users = Array.isArray(db.users) ? db.users : [];
   const orders = Array.isArray(db.orders) ? db.orders : [];
@@ -66,10 +70,12 @@ function buildImportSql(db, options = {}) {
     delete structured.sourceImages;
     delete structured.applicants;
     delete structured.importFingerprint;
-    lines.push(insert('orders',
-      ['id', 'agency_id', 'source', 'status', 'district', 'subject', 'grade', 'price', 'import_fingerprint', 'structured_json', 'created_at', 'updated_at'],
-      [order.id, order.agencyId, order.source || '', order.status || 'open', order.district || '', order.subject || '',
-        order.grade || '', Number(order.price || 0), fingerprint, jsonValue(structured, {}), createdAt, updatedAt]));
+    const agency = userById.get(order.agencyId);
+    const orderValues = [sqlValue(order.id), resolvedUserIdSql(agency), sqlValue(order.source || ''),
+      sqlValue(order.status || 'open'), sqlValue(order.district || ''), sqlValue(order.subject || ''),
+      sqlValue(order.grade || ''), sqlValue(Number(order.price || 0)), sqlValue(fingerprint),
+      sqlValue(jsonValue(structured, {})), sqlValue(createdAt), sqlValue(updatedAt)];
+    lines.push(`INSERT OR IGNORE INTO orders (id, agency_id, source, status, district, subject, grade, price, import_fingerprint, structured_json, created_at, updated_at) SELECT ${orderValues.join(', ')} WHERE ${resolvedUserIdSql(agency)} IS NOT NULL;`);
 
     const locationValues = [order.id, order.place || '', order.address || '', order.placeOriginal || '',
       order.locationVerified ? 1 : 0, order.locationStatus || '', order.locationPoiId || '',
@@ -81,10 +87,11 @@ function buildImportSql(db, options = {}) {
     for (const applicant of Array.isArray(order.applicants) ? order.applicants : []) {
       if (!applicant.id || !applicant.teacherId) continue;
       const appliedAt = applicant.createdAt || applicant.at || createdAt;
-      lines.push(insert('applications',
-        ['id', 'order_id', 'teacher_id', 'name', 'phone', 'note', 'status', 'created_at', 'updated_at'],
-        [applicant.id, order.id, applicant.teacherId, applicant.name || '', applicant.phone || '', applicant.note || '',
-          applicant.status || 'pending', appliedAt, applicant.updatedAt || appliedAt]));
+      const teacher = userById.get(applicant.teacherId);
+      const applicationValues = [sqlValue(applicant.id), sqlValue(order.id), resolvedUserIdSql(teacher),
+        sqlValue(applicant.name || ''), sqlValue(applicant.phone || ''), sqlValue(applicant.note || ''),
+        sqlValue(applicant.status || 'pending'), sqlValue(appliedAt), sqlValue(applicant.updatedAt || appliedAt)];
+      lines.push(`INSERT OR IGNORE INTO applications (id, order_id, teacher_id, name, phone, note, status, created_at, updated_at) SELECT ${applicationValues.join(', ')} WHERE EXISTS (SELECT 1 FROM orders WHERE id = ${sqlValue(order.id)}) AND ${resolvedUserIdSql(teacher)} IS NOT NULL;`);
     }
     importableOrders++;
   }
@@ -143,4 +150,4 @@ if (require.main === module) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
 
-module.exports = { buildImportSql, orderFingerprint, sqlValue };
+module.exports = { buildImportSql, orderFingerprint, resolvedUserIdSql, sqlValue };
