@@ -862,6 +862,81 @@ function focusOrderFromMap(orderId) {
   });
 }
 
+function commuteDistance(value) {
+  const meters = Number(value || 0);
+  if (!meters) return '';
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)}公里` : `${Math.round(meters)}米`;
+}
+
+function commuteMinutes(value) {
+  const seconds = Number(value || 0);
+  return seconds ? Math.max(1, Math.round(seconds / 60)) : 0;
+}
+
+function transitStepText(segment = {}) {
+  const mode = String(segment.transit_mode || segment.transitMode || '').toUpperCase();
+  const walking = segment.walking || segment.transit;
+  if (mode === 'WALK' || segment.walking) {
+    const distance = commuteDistance(walking?.distance || segment.distance);
+    return distance ? `步行 ${distance}` : cleanDisplayText(segment.instruction || '步行', 80);
+  }
+  const transit = segment.transit || {};
+  const line = transit.lines?.[0] || transit.line || transit;
+  const lineName = cleanDisplayText(line.name || line.bus_name || segment.instruction || '公共交通', 60);
+  const start = cleanDisplayText(line.on_station?.name || transit.on_station?.name || line.departure_stop?.name || '', 40);
+  const end = cleanDisplayText(line.off_station?.name || transit.off_station?.name || line.arrival_stop?.name || '', 40);
+  const stations = Number(line.via_num || line.viaNum || transit.via_num || transit.viaNum || 0);
+  return [
+    `乘坐 ${lineName}`,
+    start && end ? `${start} → ${end}` : '',
+    stations ? `途经${stations}站` : ''
+  ].filter(Boolean).join(' · ');
+}
+
+function routeStepTexts(route = {}) {
+  if (routeMode === 'transit') {
+    return (route.segments || []).map(transitStepText).filter(Boolean).slice(0, 8);
+  }
+  return (route.steps || route.rides || []).map(step => {
+    const instruction = cleanDisplayText(step.instruction || step.action || '', 90);
+    const distance = commuteDistance(step.distance);
+    return [instruction, distance].filter(Boolean).join(' · ');
+  }).filter(Boolean).slice(0, 6);
+}
+
+function renderOrderCommuteSummary(routeResult = {}) {
+  const routes = routeResult.routes || routeResult.plans || [];
+  const route = routes[0] || {};
+  const km = commuteDistance(route.distance) || '距离待定';
+  const minutes = commuteMinutes(route.time || route.duration);
+  const walking = commuteDistance(route.walking_distance || route.walkingDistance);
+  const transitSegments = (route.segments || []).filter(segment => {
+    const mode = String(segment.transit_mode || segment.transitMode || '').toUpperCase();
+    return mode && mode !== 'WALK';
+  });
+  const transfers = Math.max(0, transitSegments.length - 1);
+  const meta = [
+    minutes ? `约${minutes}分钟` : '时间待定',
+    km,
+    walking ? `步行${walking}` : '',
+    routeMode === 'transit' ? `${transfers}次换乘` : '',
+    Number(route.cost) ? `约${Number(route.cost).toFixed(1)}元` : '',
+    Number(route.tolls) ? `过路费约${Number(route.tolls).toFixed(0)}元` : '',
+    Number(route.traffic_lights || route.trafficLights) ? `${Number(route.traffic_lights || route.trafficLights)}个红绿灯` : '',
+    routes.length > 1 ? `另有${routes.length - 1}个方案` : ''
+  ].filter(Boolean);
+  const steps = routeStepTexts(route);
+  const summary = $('#orderMapRouteSummary');
+  summary.innerHTML = `
+    <div class="commute-summary-head">
+      <strong>${escapeHtml(routeLabels[routeMode])}通勤</strong>
+      <span>${meta.map(item => escapeHtml(item)).join(' · ')}</span>
+    </div>
+    ${steps.length ? `<ol>${steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ol>` : ''}
+  `;
+  summary.classList.remove('hidden');
+}
+
 async function focusOrderOnMap(orderId) {
   const origin = String($('#teacherOrigin')?.value || teacherOrigin || '').trim();
   if (!origin) {
@@ -911,12 +986,7 @@ async function focusOrderOnMap(orderId) {
     return null;
   });
   if (!routeResult) return;
-  const route = routeResult.routes?.[0] || routeResult.plans?.[0] || {};
-  const km = Number(route.distance) ? `${(Number(route.distance) / 1000).toFixed(1)} 公里` : '距离待定';
-  const minutes = Number(route.time) ? `约 ${Math.max(1, Math.round(Number(route.time) / 60))} 分钟` : '时间待定';
-  const summary = $('#orderMapRouteSummary');
-  summary.innerHTML = `<strong>${escapeHtml(routeLabels[routeMode])}导航</strong><span>${escapeHtml(km)} · ${escapeHtml(minutes)}</span>`;
-  summary.classList.remove('hidden');
+  renderOrderCommuteSummary(routeResult);
   showOrderMapStatus('');
 }
 

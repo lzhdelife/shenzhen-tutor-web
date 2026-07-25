@@ -473,17 +473,20 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   left: 16px;
   bottom: 16px;
   z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  width: min(460px, calc(100% - 32px));
+  max-height: 260px;
+  overflow: auto;
   padding: 12px 16px;
   border-radius: 8px;
   color: #fff;
   background: rgba(23, 33, 43, .92);
   box-shadow: 0 8px 24px rgba(23, 33, 43, .22);
 }
-.order-map-route-summary strong { font-size: 16px; }
-.order-map-route-summary span { color: #eef4ff; }
+.commute-summary-head { display: flex; align-items: baseline; gap: 12px; }
+.commute-summary-head strong { flex: 0 0 auto; font-size: 16px; }
+.commute-summary-head span { color: #eef4ff; }
+.order-map-route-summary ol { margin: 10px 0 0; padding: 9px 0 0 22px; border-top: 1px solid rgba(255,255,255,.18); }
+.order-map-route-summary li { margin: 5px 0; color: #f4f7fb; line-height: 1.45; }
 .order-map-route-summary.hidden { display: none; }
 .map-order-popup { min-width: 220px; max-width: 300px; line-height: 1.55; }
 .map-order-popup strong { display: block; margin-bottom: 5px; }
