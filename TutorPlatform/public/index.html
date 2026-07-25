@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260725-6">
+  <link rel="stylesheet" href="./styles.css?v=20260725-7">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -165,19 +165,25 @@
         </div>
         <div id="orders" class="order-list"></div>
         <section id="orderMapPanel" class="order-map-panel hidden" aria-label="订单地图">
-          <div class="order-map-controls">
-            <label for="routeModeSelect">导航方式</label>
-            <select id="routeModeSelect" name="routeMode">
-              <option value="cycling">骑行</option>
-              <option value="walking">步行</option>
-              <option value="driving">开车</option>
-              <option value="transit">公共交通</option>
-            </select>
-            <span id="activeMapRouteHint">从订单卡点击“地图查看”后，可切换真实路线</span>
+          <div class="order-map-layout">
+            <aside class="order-map-sidebar" aria-label="地图导航工具">
+              <div class="order-map-controls">
+                <label for="routeModeSelect">导航方式</label>
+                <select id="routeModeSelect" name="routeMode">
+                  <option value="cycling">骑行</option>
+                  <option value="walking">步行</option>
+                  <option value="driving">开车</option>
+                  <option value="transit">公共交通</option>
+                </select>
+                <span id="activeMapRouteHint">从订单卡点击“地图查看”后，可切换真实路线</span>
+              </div>
+              <div id="orderMapRouteSummary" class="order-map-route-summary hidden" role="status"></div>
+            </aside>
+            <div class="order-map-canvas">
+              <div id="orderMap" class="order-map"></div>
+              <div id="orderMapStatus" class="order-map-status" role="status">正在准备地图…</div>
+            </div>
           </div>
-          <div id="orderMap" class="order-map"></div>
-          <div id="orderMapStatus" class="order-map-status" role="status">正在准备地图…</div>
-          <div id="orderMapRouteSummary" class="order-map-route-summary hidden" role="status"></div>
         </section>
       </section>
 
