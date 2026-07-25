@@ -873,12 +873,16 @@ function commuteMinutes(value) {
   return seconds ? Math.max(1, Math.round(seconds / 60)) : 0;
 }
 
-function transitStepText(segment = {}) {
+function transitStepDetail(segment = {}) {
   const mode = String(segment.transit_mode || segment.transitMode || '').toUpperCase();
   const walking = segment.walking || segment.transit;
   if (mode === 'WALK' || segment.walking) {
     const distance = commuteDistance(walking?.distance || segment.distance);
-    return distance ? `步行 ${distance}` : cleanDisplayText(segment.instruction || '步行', 80);
+    return {
+      kind: 'walk',
+      label: '步',
+      text: distance ? `步行 ${distance}` : cleanDisplayText(segment.instruction || '步行', 80)
+    };
   }
   const transit = segment.transit || {};
   const line = transit.lines?.[0] || transit.line || transit;
@@ -886,25 +890,32 @@ function transitStepText(segment = {}) {
   const start = cleanDisplayText(line.on_station?.name || transit.on_station?.name || line.departure_stop?.name || '', 40);
   const end = cleanDisplayText(line.off_station?.name || transit.off_station?.name || line.arrival_stop?.name || '', 40);
   const stations = Number(line.via_num || line.viaNum || transit.via_num || transit.viaNum || 0);
-  return [
-    `乘坐 ${lineName}`,
-    start && end ? `${start} → ${end}` : '',
-    stations ? `途经${stations}站` : ''
-  ].filter(Boolean).join(' · ');
+  const isMetro = /地铁|轨道|SUBWAY|METRO/i.test(`${lineName} ${line.type || ''} ${mode}`);
+  return {
+    kind: isMetro ? 'metro' : 'bus',
+    label: isMetro ? '地' : '公',
+    text: [
+      `乘坐 ${lineName}`,
+      start && end ? `${start} → ${end}` : '',
+      stations ? `途经${stations}站` : ''
+    ].filter(Boolean).join(' · ')
+  };
 }
 
-function routeStepTexts(route = {}) {
+function routeStepDetails(route = {}) {
   if (routeMode === 'transit') {
-    return (route.segments || []).map(transitStepText).filter(Boolean).slice(0, 8);
+    return (route.segments || []).map(transitStepDetail).filter(item => item.text).slice(0, 8);
   }
+  const labels = { walking: ['walk', '步'], cycling: ['ride', '骑'], driving: ['drive', '驾'] };
+  const [kind, label] = labels[routeMode] || ['route', '行'];
   return (route.steps || route.rides || []).map(step => {
     const instruction = cleanDisplayText(step.instruction || step.action || '', 90);
     const distance = commuteDistance(step.distance);
-    return [instruction, distance].filter(Boolean).join(' · ');
-  }).filter(Boolean).slice(0, 6);
+    return { kind, label, text: [instruction, distance].filter(Boolean).join(' · ') };
+  }).filter(item => item.text).slice(0, 6);
 }
 
-function renderOrderCommuteSummary(routeResult = {}) {
+function renderOrderCommuteSummary(routeResult = {}, orderId = '') {
   const routes = routeResult.routes || routeResult.plans || [];
   const route = routes[0] || {};
   const km = commuteDistance(route.distance) || '距离待定';
@@ -915,25 +926,40 @@ function renderOrderCommuteSummary(routeResult = {}) {
     return mode && mode !== 'WALK';
   });
   const transfers = Math.max(0, transitSegments.length - 1);
-  const meta = [
-    minutes ? `约${minutes}分钟` : '时间待定',
-    km,
-    walking ? `步行${walking}` : '',
-    routeMode === 'transit' ? `${transfers}次换乘` : '',
-    Number(route.cost) ? `约${Number(route.cost).toFixed(1)}元` : '',
-    Number(route.tolls) ? `过路费约${Number(route.tolls).toFixed(0)}元` : '',
-    Number(route.traffic_lights || route.trafficLights) ? `${Number(route.traffic_lights || route.trafficLights)}个红绿灯` : '',
-    routes.length > 1 ? `另有${routes.length - 1}个方案` : ''
+  const metrics = [
+    walking ? { value: walking, label: '步行' } : null,
+    routeMode === 'transit' ? { value: `${transfers}次`, label: '换乘' } : null,
+    Number(route.cost) ? { value: `¥${Number(route.cost).toFixed(1)}`, label: '费用' } : null,
+    Number(route.tolls) ? { value: `¥${Number(route.tolls).toFixed(0)}`, label: '过路费' } : null,
+    Number(route.traffic_lights || route.trafficLights) ? { value: Number(route.traffic_lights || route.trafficLights), label: '红绿灯' } : null,
+    routes.length > 1 ? { value: routes.length, label: '可选方案' } : null
   ].filter(Boolean);
-  const steps = routeStepTexts(route);
+  const steps = routeStepDetails(route);
+  const order = state.orders.find(item => item.id === orderId);
+  const destination = order ? orderDisplayMeta(order).location : '订单地点';
   const summary = $('#orderMapRouteSummary');
   summary.innerHTML = `
-    <div class="commute-summary-head">
-      <strong>${escapeHtml(routeLabels[routeMode])}通勤</strong>
-      <span>${meta.map(item => escapeHtml(item)).join(' · ')}</span>
+    <div class="commute-card-head">
+      <div>
+        <span class="commute-mode">${escapeHtml(routeLabels[routeMode])}通勤</span>
+        <p>前往 ${escapeHtml(destination)}</p>
+      </div>
+      <button class="commute-close" type="button" aria-label="关闭通勤详情">×</button>
     </div>
-    ${steps.length ? `<ol>${steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ol>` : ''}
+    <div class="commute-primary">
+      <strong>${minutes ? `${minutes}<small>分钟</small>` : '时间待定'}</strong>
+      <span>${escapeHtml(km)}</span>
+    </div>
+    ${metrics.length ? `<div class="commute-metrics">${metrics.map(item => `
+      <div><strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.label)}</span></div>
+    `).join('')}</div>` : ''}
+    ${steps.length ? `<div class="commute-route-chain">${steps.map(step => `
+      <div class="commute-step ${escapeHtml(step.kind)}">
+        <i>${escapeHtml(step.label)}</i><span>${escapeHtml(step.text)}</span>
+      </div>
+    `).join('')}</div>` : ''}
   `;
+  $('.commute-close', summary)?.addEventListener('click', () => summary.classList.add('hidden'));
   summary.classList.remove('hidden');
 }
 
@@ -986,7 +1012,7 @@ async function focusOrderOnMap(orderId) {
     return null;
   });
   if (!routeResult) return;
-  renderOrderCommuteSummary(routeResult);
+  renderOrderCommuteSummary(routeResult, orderId);
   showOrderMapStatus('');
 }
 
