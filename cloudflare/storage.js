@@ -192,6 +192,11 @@ function createRepository(env = {}) {
 
   async function deleteOrder(id) { return run('DELETE FROM orders WHERE id = ?', [id]); }
 
+  async function deleteOrdersOlderThan(cutoff) {
+    const result = await run('DELETE FROM orders WHERE created_at <= ?', [cutoff]);
+    return Number(result?.meta?.changes || result?.changes || 0);
+  }
+
   async function createApplication(input) {
     const timestamp = input.createdAt || input.at || nowIso();
     const id = input.id || makeId('a');
@@ -278,7 +283,7 @@ function createRepository(env = {}) {
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
-    updateOrder, deleteOrder, createApplication, listApplications, updateApplication, getSettings, setSetting,
+    updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting,
     listFeedback, createFeedback, listAnnouncements, createAnnouncement };
 }
 

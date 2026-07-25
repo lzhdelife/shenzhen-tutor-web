@@ -42,7 +42,7 @@ function harness(extra = {}, envOverrides = {}) {
     headers: { 'content-type': 'application/json', ...(init.headers || {}) },
     body: init.body && typeof init.body !== 'string' ? JSON.stringify(init.body) : init.body
   }), { AUTH_PEPPER: 'unit-test-pepper', ASSETS: { fetch: () => new Response('asset') }, ...envOverrides }, {});
-  return { repo, call };
+  return { repo, call, worker };
 }
 
 test('万科天誉地点下拉返回多个真实候选且无 Key 明确失败', async () => {
@@ -225,4 +225,14 @@ test('import skips the same order despite whitespace punctuation and emoji diffe
   assert.equal(first.created.length, 1);
   assert.equal(repeated.created.length, 0);
   assert.equal(repeated.duplicatesSkipped, 1);
+});
+
+test('scheduled cleanup deletes orders older than three days', async () => {
+  const { repo, worker } = harness();
+  const now = Date.UTC(2026, 6, 25, 4, 0, 0);
+  repo.state.orders.set('old', { id: 'old', createdAt: new Date(now - (3 * 24 * 60 * 60 * 1000) - 1).toISOString() });
+  repo.state.orders.set('fresh', { id: 'fresh', createdAt: new Date(now - (3 * 24 * 60 * 60 * 1000) + 1).toISOString() });
+  await worker.scheduled({ scheduledTime: now }, { AUTH_PEPPER: 'unit-test-pepper' }, {});
+  assert.equal(repo.state.orders.has('old'), false);
+  assert.equal(repo.state.orders.has('fresh'), true);
 });

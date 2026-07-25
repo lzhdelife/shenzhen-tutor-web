@@ -6,6 +6,7 @@ const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
 const { canonicalOrderText } = require('../shared/order-dedupe.js');
+const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -181,6 +182,19 @@ function cleanOrder(order, applications, viewer) {
 
 function createWorker(dependencies = {}) {
   return {
+    async scheduled(controller, env, ctx) {
+      const repo = dependencies.createRepository ? dependencies.createRepository(env) : createRepository(env);
+      const cutoff = orderExpiryCutoff(controller?.scheduledTime || Date.now()).toISOString();
+      const cleanup = async () => {
+        if (typeof repo.deleteOrdersOlderThan === 'function') return repo.deleteOrdersOlderThan(cutoff);
+        const orders = await repo.listOrders({ limit: 500 });
+        const expired = orders.filter(order => isExpiredOrder(order, controller?.scheduledTime || Date.now()));
+        await Promise.all(expired.map(order => repo.deleteOrder(order.id)));
+        return expired.length;
+      };
+      if (ctx?.waitUntil) ctx.waitUntil(cleanup());
+      else await cleanup();
+    },
     async fetch(request, env, ctx) {
       const repo = dependencies.createRepository ? dependencies.createRepository(env) : createRepository(env);
       const url = new URL(request.url), path = url.pathname, method = request.method.toUpperCase();

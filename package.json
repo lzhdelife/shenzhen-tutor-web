@@ -5,7 +5,7 @@
   "description": "深圳家教接单平台 Web 应用",
   "scripts": {
     "start": "node scripts/start-local.js",
-    "test": "node tests/smoke.js && node tests/parser-regressions.js && node tests/recognizer-contract.js && node tests/api-preview.js",
+    "test": "node tests/smoke.js && node tests/parser-regressions.js && node tests/recognizer-contract.js && node tests/api-preview.js && node tests/order-retention.js",
     "check:secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1",
     "cloudflare:dev": "wrangler dev --local",
     "cloudflare:test": "node --test tests/cloudflare-*.test.js",

@@ -9,6 +9,7 @@ const { recognizeOrders } = require('./parser/recognizer');
 const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
 const { canonicalOrderText } = require('../shared/order-dedupe');
+const { isExpiredOrder, millisecondsUntilShanghaiNoon } = require('../shared/order-retention');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -552,6 +553,29 @@ function removeUnreferencedSourceImages(db, candidates) {
     const target = path.join(SOURCE_IMAGE_DIR, fileName);
     if (target.startsWith(SOURCE_IMAGE_DIR + path.sep)) fs.rmSync(target, { force: true });
   }
+}
+
+function purgeExpiredOrders(db, now = Date.now()) {
+  const expired = db.orders.filter(order => isExpiredOrder(order, now));
+  if (!expired.length) return 0;
+  const expiredIds = new Set(expired.map(order => order.id));
+  const removedImages = expired.flatMap(order => order.sourceImages || []);
+  db.orders = db.orders.filter(order => !expiredIds.has(order.id));
+  removeUnreferencedSourceImages(db, removedImages);
+  return expired.length;
+}
+
+function scheduleExpiredOrderCleanup() {
+  const run = () => {
+    const db = readDb();
+    const removed = purgeExpiredOrders(db);
+    if (removed) {
+      writeDb(db);
+      console.log(`已自动清理 ${removed} 条超过 3 天的订单。`);
+    }
+    setTimeout(run, millisecondsUntilShanghaiNoon()).unref?.();
+  };
+  setTimeout(run, millisecondsUntilShanghaiNoon()).unref?.();
 }
 
 function textOf(value) {
@@ -3105,10 +3129,14 @@ const server = http.createServer((req, res) => {
 
 function startServer() {
   if (server.listening) return server;
+  const db = readDb();
+  const removed = purgeExpiredOrders(db);
+  if (removed) writeDb(db);
   server.listen(PORT, () => {
     console.log(`深圳家教接单平台已启动：http://localhost:${PORT}`);
     console.log('局域网访问：把 localhost 换成这台电脑的局域网 IP。');
   });
+  scheduleExpiredOrderCleanup();
   return server;
 }
 
@@ -3150,5 +3178,6 @@ module.exports = {
   score,
   previewDistances,
   locationSuggestions,
-  sanitizeRouteMode
+  sanitizeRouteMode,
+  purgeExpiredOrders
 };
