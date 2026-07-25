@@ -717,6 +717,7 @@ function orderCard(o) {
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
+      <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
       <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
     </div>
   </article>`;
@@ -817,8 +818,13 @@ async function renderOrderMap(orders = filteredOrders()) {
       context.marker.setContent(pin);
       context.marker.setOffset(new AMap.Pixel(-18, -36));
       context.marker.setTitle(orderDisplayMeta(point.order).title);
-      context.marker.on('click', () => openMapOrder(point, context.marker));
+      context.marker.on('click', () => focusOrderFromMap(point.order.id));
     }
+  });
+  orderMapCluster.on('click', event => {
+    const clusterData = Array.isArray(event?.clusterData) ? event.clusterData : [];
+    if (clusterData.length !== 1 || !clusterData[0]?.order?.id) return;
+    focusOrderFromMap(clusterData[0].order.id);
   });
   orderMap.setFitView();
   showOrderMapStatus('');
@@ -831,16 +837,37 @@ function setTeacherViewMode(mode) {
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
   $('#showOrderList').classList.toggle('active', teacherViewMode === 'list');
   $('#showOrderMap').classList.toggle('active', teacherViewMode === 'map');
-  if (teacherViewMode === 'map') renderOrderMap().catch(error => showOrderMapStatus(error.message));
+  if (teacherViewMode === 'map') return renderOrderMap().catch(error => showOrderMapStatus(error.message));
+  return Promise.resolve();
 }
 
 function focusOrderFromMap(orderId) {
+  orderMapInfoWindow?.close();
   setTeacherViewMode('list');
-  const card = document.getElementById(`order-card-${orderId}`);
-  if (!card) return;
-  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  card.classList.add('highlight');
-  setTimeout(() => card.classList.remove('highlight'), 1800);
+  requestAnimationFrame(() => {
+    const card = document.getElementById(`order-card-${orderId}`);
+    if (!card) {
+      toast('未找到对应订单，请刷新后重试');
+      return;
+    }
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('highlight');
+    requestAnimationFrame(() => card.classList.add('highlight'));
+    setTimeout(() => card.classList.remove('highlight'), 2400);
+  });
+}
+
+async function focusOrderOnMap(orderId) {
+  await setTeacherViewMode('map');
+  const locations = orderMapLocations?.get(orderId) || [];
+  const coordinates = String(locations[0] || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
+  if (!coordinates || !orderMap) {
+    showOrderMapStatus('该订单还没有可用的地图坐标');
+    return;
+  }
+  orderMap.setZoomAndCenter(16, [Number(coordinates[1]), Number(coordinates[2])]);
+  showOrderMapStatus('已定位到所选订单');
+  setTimeout(() => showOrderMapStatus(''), 1800);
 }
 
 function renderAdmin() {
