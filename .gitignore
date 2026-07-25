@@ -25,6 +25,7 @@ dist/
 # TutorPlatform runtime data (contains users, password hashes, orders and images)
 TutorPlatform/data/
 TutorPlatform/README.txt
+*.d1-import.sql
 
 # Local private regression data stays local.
 TutorPlatform/tests/

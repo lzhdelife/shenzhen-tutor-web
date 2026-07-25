@@ -10,6 +10,7 @@
     "cloudflare:dev": "wrangler dev --local",
     "cloudflare:test": "node --test tests/cloudflare-*.test.js",
     "cloudflare:types": "wrangler types",
+    "cloudflare:build-import": "node scripts/build-d1-import.js",
     "cloudflare:deploy": "wrangler deploy"
   },
   "devDependencies": {

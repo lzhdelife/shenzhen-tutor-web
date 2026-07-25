@@ -27,12 +27,14 @@ npm.cmd run cloudflare:dev
 npx.cmd wrangler login
 npx.cmd wrangler d1 create shenzhen-tutor-prod
 npx.cmd wrangler d1 migrations apply shenzhen-tutor-prod --remote
-npx.cmd wrangler secret put SESSION_SIGNING_SECRET
+npx.cmd wrangler secret put AUTH_PEPPER
 npx.cmd wrangler secret put AMAP_WEB_SERVICE_KEY
 npx.cmd wrangler secret put AMAP_JS_API_KEY
 npx.cmd wrangler secret put AMAP_JS_SECURITY_CODE
 npm.cmd run cloudflare:deploy
 ```
+
+`AUTH_PEPPER` 用于保护管理员和账号密码凭证，必须使用随机高熵值并只保存在 Worker Secret 中。不要在更换数据库时随意轮换它，否则已有密码凭证将失效。
 
 `AMAP_WEB_SERVICE_KEY` 只允许通过 `wrangler secret put` 配置，不得放入 `wrangler.jsonc`、前端或 D1。未配置时地点接口返回 `AMAP_NOT_CONFIGURED`；部署验收应覆盖候选、确认保存和四种路线模式，并以响应中的 `source: "amap"` / `status: "verified"` 判断真实调用成功。
 
@@ -42,4 +44,13 @@ npm.cmd run cloudflare:deploy
 
 ## 数据与回滚
 
-D1 migration 文件只包含表结构，不包含真实账号、手机号、订单或密钥。旧 `db.json` 的一次性迁移必须先停止本地写入并制作加密备份，再导入 D1，最后核对用户数、订单数和申请数。旧本地副本在正式验收后仍保留为只读备份。
+D1 migration 文件只包含表结构，不包含真实账号、手机号、订单或密钥。旧 `db.json` 的一次性迁移必须先停止本地写入并制作加密备份，再生成临时导入文件：
+
+```powershell
+$importPath = Join-Path $env:TEMP 'shenzhen-tutor-production.d1-import.sql'
+npm.cmd run cloudflare:build-import -- --output $importPath
+npx.cmd wrangler d1 execute shenzhen-tutor-prod --remote --file $importPath
+Remove-Item -LiteralPath $importPath
+```
+
+导入工具按订单原文生成与 Worker 相同的 SHA-256 指纹，并使用幂等插入保留线上已有记录。临时 SQL 含真实账号、手机号和订单原文，不得提交、分享或长期保存。导入后必须核对用户数、订单数和申请数；旧本地副本在正式验收后仍保留为只读备份。

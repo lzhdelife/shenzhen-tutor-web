@@ -165,7 +165,7 @@ function createRepository(env = {}) {
     for (const [key, column] of [['status', 'o.status'], ['agencyId', 'o.agency_id'], ['district', 'o.district']]) {
       if (filters[key] !== undefined) { clauses.push(`${column} = ?`); values.push(filters[key]); }
     }
-    const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
+    const limit = Math.min(Math.max(Number(filters.limit) || 500, 1), 500);
     const rows = await all(`${locationSelect}${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY o.created_at DESC LIMIT ?`, [...values, limit]);
     return rows.map(mapOrder);
   }
