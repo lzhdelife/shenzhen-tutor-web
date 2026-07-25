@@ -222,25 +222,12 @@ function selectedRoute(order) {
 }
 
 function routeText(order) {
-  const optionRoutes = distanceOverrides[order.id]?.locationOptionRoutes || order.locationOptions || [];
-  if (Array.isArray(optionRoutes) && optionRoutes.length > 1) {
-    const summaries = optionRoutes.map((option, index) => {
-      const route = option.routeOptions?.[routeMode];
-      return route?.km ? `${index + 1}：${route.km}公里/约${route.minutes || '-'}分钟` : `${index + 1}：待计算`;
-    });
-    return summaries.join('；');
-  }
   if (order.locationVerified === false && ['ambiguous', 'not_found', 'missing'].includes(order.locationStatus)) {
     return '地点待核实，距离暂不可计算';
   }
-  const route = selectedRoute(order);
-  if (route && route.km) {
-    const suffix = route.estimated ? ' 估算' : '';
-    return `${route.mode || routeLabels[routeMode]} ${route.km}公里，约${route.minutes || '-'}分钟${suffix}`;
-  }
-  if (distanceOverrides[order.id]) return `当前${routeLabels[routeMode]}路线待计算`;
-  if (order.distanceKm) return `${order.routeMode || '距离'} ${order.distanceKm}公里`;
-  return '距离待定';
+  const straightKm = Number(distanceOverrides[order.id]?.distanceKm || 0);
+  if (straightKm) return `直线约 ${straightKm.toFixed(1)}公里`;
+  return teacherOrigin ? '直线距离待计算' : '设置“我的位置”后显示直线距离';
 }
 
 function applyDistanceOverrides() {
@@ -249,13 +236,11 @@ function applyDistanceOverrides() {
     const override = distanceOverrides[order.id];
     if (!override) return order;
     const route = override.routeOptions?.[routeMode];
-    if (!route) return order;
     return {
       ...order,
       ...override,
-      distanceKm: route.km || override.distanceKm,
-      routeMode: route.mode || override.routeMode,
-      score: override.score
+      distanceKm: route?.km || override.distanceKm,
+      routeMode: route?.mode || override.routeMode || '直线'
     };
   });
 }
@@ -353,9 +338,9 @@ async function loadTeacherPreferences() {
   applyTeacherPreferences(preferences);
   teacherPreferencesLoaded = true;
   if (teacherOrigin) {
-    $('#teacherLocationStatus').textContent = '正在按你的常用位置计算并排序…';
+    $('#teacherLocationStatus').textContent = '正在计算直线距离…';
     setTimeout(() => updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
-      $('#teacherLocationStatus').textContent = `路线计算失败：${error.message}`;
+      $('#teacherLocationStatus').textContent = `直线距离计算失败：${error.message}`;
     }), 0);
   }
 }
@@ -373,8 +358,8 @@ function fillTeacherLocation() {
   form.origin.value = teacherOrigin;
   $('#routeModeSelect').value = routeMode;
   $('#teacherLocationStatus').textContent = teacherOrigin
-    ? `当前按“${teacherOrigin}”计算，路线方案：${routeLabels[routeMode]}。`
-    : '填写后会显示到各单子的公里数和预计时间。';
+    ? `当前按“${teacherOrigin}”显示直线距离；${routeLabels[routeMode]}路线只在地图详情中计算。`
+    : '选择位置后，本地显示所有订单的直线距离。';
 }
 
 function renderBadges() {
@@ -433,8 +418,12 @@ function filteredOrders() {
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
     .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) && Number(o.distanceKm) <= maxKm))
-    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0)
-      || (Number(a.distanceKm || Number.MAX_SAFE_INTEGER) - Number(b.distanceKm || Number.MAX_SAFE_INTEGER)));
+    .sort((a, b) => {
+      const distanceDifference = Number(a.distanceKm || Number.MAX_SAFE_INTEGER)
+        - Number(b.distanceKm || Number.MAX_SAFE_INTEGER);
+      if (teacherOrigin && distanceDifference) return distanceDifference;
+      return Number(b.score || 0) - Number(a.score || 0);
+    });
 }
 
 function compactText(value) {
@@ -1736,30 +1725,57 @@ async function resetUserPassword(userId) {
   await load();
 }
 
+function coordinatePair(value) {
+  const match = String(value || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+function straightLineKm(origin, destination) {
+  if (!origin || !destination) return 0;
+  const radians = value => value * Math.PI / 180;
+  const latitudeDelta = radians(destination[1] - origin[1]);
+  const longitudeDelta = radians(destination[0] - origin[0]);
+  const a = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(origin[1])) * Math.cos(radians(destination[1]))
+    * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 async function updateTeacherDistances(form, { silent = false } = {}) {
   const data = Object.fromEntries(new FormData(form).entries());
   const origin = String(data.origin || '').trim();
   if (!origin) return toast('请先填写你的位置');
   routeMode = $('#routeModeSelect').value || 'cycling';
   localStorage.setItem('routeMode', routeMode);
-  $('#teacherLocationStatus').textContent = '正在计算路线...';
-  const res = await api('/api/distance-preview', { method: 'POST', body: { origin: selectedOriginCoordinates || origin, mode: routeMode } }, teacherToken);
-  for (const item of res.distances || []) {
-    const previous = distanceOverrides[item.id] || {};
-    distanceOverrides[item.id] = {
-      ...previous,
-      ...item,
-      routeOptions: { ...(previous.routeOptions || {}), ...(item.routeOptions || {}) }
+  $('#teacherLocationStatus').textContent = '正在计算直线距离…';
+  if (!selectedOriginCoordinates) {
+    const result = await api(`/api/location-suggestions?q=${encodeURIComponent(origin)}`);
+    selectedOriginCoordinates = result.suggestions?.[0]?.location || '';
+  }
+  const originPair = coordinatePair(selectedOriginCoordinates);
+  if (!originPair) throw new Error('无法识别“我的位置”，请从地点候选中选择');
+  await loadOrderMapLocations();
+  distanceOverrides = {};
+  for (const order of state.orders) {
+    const distances = (orderMapLocations.get(order.id) || [])
+      .map(coordinatePair)
+      .filter(Boolean)
+      .map(destination => straightLineKm(originPair, destination))
+      .filter(distance => distance > 0);
+    if (!distances.length) continue;
+    distanceOverrides[order.id] = {
+      distanceKm: Math.min(...distances),
+      routeMode: '直线'
     };
   }
   teacherOrigin = origin;
   localStorage.setItem('teacherOrigin', origin);
-  if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
+  localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
   applyDistanceOverrides();
   fillTeacherLocation();
   renderOrders();
   queueTeacherPreferencesSave();
-  if (!silent) toast('已按你的位置更新路线');
+  if (!silent) toast('已按直线距离完成排序');
 }
 
 function clearTeacherDistances() {
@@ -1804,9 +1820,9 @@ async function showLocationSuggestions(query) {
       localStorage.setItem('teacherOrigin', teacherOrigin);
       if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
       hideLocationSuggestions();
-      $('#teacherLocationStatus').textContent = '正在计算并按通勤距离排序…';
+      $('#teacherLocationStatus').textContent = '正在计算并按直线距离排序…';
       updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
-        $('#teacherLocationStatus').textContent = `路线计算失败：${error.message}`;
+        $('#teacherLocationStatus').textContent = `直线距离计算失败：${error.message}`;
       });
     });
     root.appendChild(button);
@@ -1937,13 +1953,8 @@ $('#clearTeacherFilters').addEventListener('click', () => {
 $('#routeModeSelect').addEventListener('change', () => {
   routeMode = $('#routeModeSelect').value || 'cycling';
   localStorage.setItem('routeMode', routeMode);
-  applyDistanceOverrides();
   fillTeacherLocation();
-  renderOrders();
   queueTeacherPreferencesSave();
-  if (teacherOrigin) {
-    updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(err => toast(err.message));
-  }
 });
 
 $('#refreshOrdersButton').addEventListener('click', () => {
@@ -2039,7 +2050,7 @@ $('#teacherLocationForm').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;
   await updateTeacherDistances(form).catch(err => {
-    $('#teacherLocationStatus').textContent = '路线计算失败，请稍后再试。';
+    $('#teacherLocationStatus').textContent = '直线距离计算失败，请重新选择位置。';
     toast(err.message);
   });
 });

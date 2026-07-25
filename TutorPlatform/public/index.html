@@ -125,7 +125,7 @@
               <div id="originSuggestions" class="suggestions hidden" role="listbox"></div>
             </div>
           </div>
-          <label class="route-field">出行方式
+          <label class="route-field">地图导航方式
             <select id="routeModeSelect" name="routeMode">
               <option value="cycling">骑行</option>
               <option value="walking">步行</option>
@@ -133,9 +133,9 @@
               <option value="transit">公共交通</option>
             </select>
           </label>
-          <button type="submit" class="primary">计算距离</button>
+          <button type="submit" class="primary">显示直线距离</button>
           <button type="button" class="secondary" id="clearTeacherLocation">清除</button>
-          <span id="teacherLocationStatus" class="location-status">选择位置后计算路线</span>
+          <span id="teacherLocationStatus" class="location-status">选择位置后显示直线距离</span>
         </form>
 
         <div id="teacherFilters" class="toolbar" aria-label="订单筛选">
@@ -342,6 +342,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260725-10"></script>
+  <script src="./app.js?v=20260725-11"></script>
 </body>
 </html>
