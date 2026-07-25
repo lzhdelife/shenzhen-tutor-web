@@ -32,6 +32,7 @@ let ordersRefreshBusy = false;
 let clipboardBridgeBusy = false;
 let clipboardBridgeUnavailable = false;
 let backgroundStateRefreshTimer = 0;
+let teacherDistanceRequest = 0;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
@@ -1818,19 +1819,23 @@ function straightLineKm(origin, destination) {
 }
 
 async function updateTeacherDistances(form, { silent = false } = {}) {
+  const requestId = ++teacherDistanceRequest;
   const data = Object.fromEntries(new FormData(form).entries());
   const origin = String(data.origin || '').trim();
   if (!origin) return toast('请先填写你的位置');
   routeMode = $('#routeModeSelect').value || 'cycling';
   localStorage.setItem('routeMode', routeMode);
   $('#teacherLocationStatus').textContent = '正在计算直线距离…';
-  if (!selectedOriginCoordinates) {
+  let originCoordinates = selectedOriginCoordinates;
+  if (!originCoordinates) {
     const result = await api(`/api/location-suggestions?q=${encodeURIComponent(origin)}`);
-    selectedOriginCoordinates = result.suggestions?.[0]?.location || '';
+    originCoordinates = result.suggestions?.[0]?.location || '';
   }
-  const originPair = coordinatePair(selectedOriginCoordinates);
+  if (requestId !== teacherDistanceRequest) return;
+  const originPair = coordinatePair(originCoordinates);
   if (!originPair) throw new Error('无法识别“我的位置”，请从地点候选中选择');
   await loadOrderMapLocations();
+  if (requestId !== teacherDistanceRequest) return;
   distanceOverrides = {};
   for (const order of state.orders) {
     const distances = (orderMapLocations.get(order.id) || [])
@@ -1845,6 +1850,7 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
     };
   }
   teacherOrigin = origin;
+  selectedOriginCoordinates = originCoordinates;
   localStorage.setItem('teacherOrigin', origin);
   localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
   applyDistanceOverrides();
@@ -1855,12 +1861,13 @@ async function updateTeacherDistances(form, { silent = false } = {}) {
 }
 
 function clearTeacherDistances() {
+  teacherDistanceRequest++;
   teacherOrigin = '';
   distanceOverrides = {};
   localStorage.removeItem('teacherOrigin');
   selectedOriginCoordinates = '';
   localStorage.removeItem('teacherOriginCoordinates');
-  fillTeacherLocation();
+  $('#teacherLocationStatus').textContent = '选择位置后，本地显示所有订单的直线距离。';
   queueTeacherPreferencesSave();
   load().catch(err => toast(err.message));
 }
@@ -2144,9 +2151,12 @@ $('#teacherLocationForm').addEventListener('submit', async event => {
   });
 });
 
-$('#clearTeacherLocation').addEventListener('click', clearTeacherDistances);
-
 $('#teacherOrigin').addEventListener('input', () => {
+  if (!$('#teacherOrigin').value.trim()) {
+    hideLocationSuggestions();
+    clearTeacherDistances();
+    return;
+  }
   selectedOriginCoordinates = '';
   localStorage.removeItem('teacherOriginCoordinates');
   queueLocationSuggestions();
