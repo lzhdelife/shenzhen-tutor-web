@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { canonicalOrderText } = require('../shared/order-dedupe');
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutor-preview-test-'));
 const port = 18791;
@@ -127,6 +128,32 @@ async function run() {
     headers: { authorization: `Bearer ${login.agencyToken}` }
   }).then(response => response.json());
   assert.deepEqual(clipboardInbox.items.map(item => item.captureId), [orderCaptureId]);
+
+  const duplicateRaw = '宝安区西乡去重花园，高二物理，每周六下午，300元/小时，需要有经验老师';
+  const firstDuplicateImport = await fetch(`${base}/api/import`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${login.agencyToken}` },
+    body: JSON.stringify({ orders: [{ raw: duplicateRaw }] })
+  }).then(response => response.json());
+  assert.equal(firstDuplicateImport.created.length, 1);
+
+  const secondLogin = await fetch(`${base}/api/account/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: '第二个去重账号', phone: ['138', '0013', '8001'].join(''), password: 'preview-test-password' })
+  }).then(response => response.json());
+  const repeatedAcrossAccounts = await fetch(`${base}/api/import`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${secondLogin.agencyToken}` },
+    body: JSON.stringify({ orders: [{ raw: `📚 ${duplicateRaw}！！！` }] })
+  }).then(response => response.json());
+  assert.equal(repeatedAcrossAccounts.created.length, 0, 'the same order from another account must be skipped platform-wide');
+  assert.equal(repeatedAcrossAccounts.duplicatesSkipped, 1);
+
+  const stateAfterDuplicate = await fetch(`${base}/api/state`, {
+    headers: { authorization: `Bearer ${login.teacherToken}` }
+  }).then(response => response.json());
+  assert.equal(stateAfterDuplicate.orders.filter(order => canonicalOrderText(order.raw) === canonicalOrderText(duplicateRaw)).length, 1);
   console.log('PASS preview API regression tests');
 }
 

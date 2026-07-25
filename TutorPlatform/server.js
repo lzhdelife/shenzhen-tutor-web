@@ -8,7 +8,7 @@ const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter
 const { recognizeOrders } = require('./parser/recognizer');
 const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
-const { canonicalOrderText } = require('../shared/order-dedupe');
+const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe');
 const { isExpiredOrder, millisecondsUntilShanghaiNoon } = require('../shared/order-retention');
 
 const PORT = Number(process.env.PORT || 8787);
@@ -2256,8 +2256,18 @@ function sanitizeTeacherPreferences(value = {}) {
 }
 
 function publicDb(db, viewer = null) {
-  const orders = db.orders.map(order => {
+  const teacherVisibleIds = new Set(dedupeOrdersByCanonicalRaw(
+    db.orders.filter(order => order.status !== 'closed')
+  ).map(order => order.id));
+  const visibleOrders = viewer?.role === 'admin' || viewer?.role === 'agency'
+    ? db.orders
+    : [
+        ...dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed')),
+        ...db.orders.filter(order => order.status === 'closed')
+      ];
+  const orders = visibleOrders.map(order => {
     const copy = { ...order, score: score(order, db.settings) };
+    copy.teacherVisible = order.status !== 'closed' && teacherVisibleIds.has(order.id);
     const ownsPreciseLocation = viewer && (
       viewer.role === 'admin' ||
       (viewer.role === 'agency' && order.agencyId === viewer.id)
@@ -2349,7 +2359,7 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/map-orders') {
     const teacher = requireRole(req, res, 'teacher');
     if (!teacher) return;
-    const orders = db.orders.filter(order => order.status === 'open').map(order => ({
+    const orders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status === 'open')).map(order => ({
       id: order.id,
       locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
         ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
@@ -2725,7 +2735,7 @@ async function handleApi(req, res) {
     const data = await bodyJson(req);
     const origin = textOf(data.origin);
     if (!origin) return send(res, 400, { error: '请填写你的位置' });
-    const openOrders = db.orders.filter(order => order.status !== 'closed');
+    const openOrders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed'));
     const unresolved = openOrders.filter(order => order.locationVerified === false
       && order.district
       && (isGenericLocationValue(order.place) || (order.locationCandidates || []).some(candidate => candidate?.location)));
@@ -2942,7 +2952,22 @@ async function handleApi(req, res) {
     const data = await bodyJson(req);
     const source = agency.name;
     const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
-    const order = await enrichOrder({ ...parseOrder(orderData.raw || '', source, agency.id), ...orderData, agencyId: agency.id, source, id: undefined }, db.settings);
+    const base = { ...parseOrder(orderData.raw || '', source, agency.id), ...orderData, agencyId: agency.id, source, id: undefined };
+    const fingerprint = canonicalOrderText(base.raw) ? rawOrderFingerprint(base.raw) : '';
+    const orderCode = extractOrderCode(base.raw);
+    const semanticFingerprint = semanticOrderFingerprint(base);
+    const recentCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    const duplicate = db.orders.some(existing => (
+      (fingerprint && rawOrderFingerprint(existing.raw) === fingerprint)
+      || (orderCode && extractOrderCode(existing.raw) === orderCode)
+      || (semanticFingerprint
+        && existing.status === 'open'
+        && Date.parse(existing.createdAt || 0) >= recentCutoff
+        && (existing.importFingerprint || semanticOrderFingerprint(parseOrder(existing.raw, existing.source, existing.agencyId))) === semanticFingerprint)
+    ));
+    if (duplicate) return send(res, 409, { error: '这条订单已经存在，已阻止重复发布' });
+    const order = await enrichOrder(base, db.settings);
+    order.importFingerprint = semanticFingerprint;
     order.id = 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     order.createdAt = new Date().toISOString();
     order.applicants = [];
@@ -2978,16 +3003,13 @@ async function handleApi(req, res) {
       : dedupeImportBlocks(splitImportBlocks(data.text || ''), agency.name, agency.id).map(raw => ({ raw }));
     let duplicatesSkipped = 0;
     let incompleteSkipped = 0;
-    const fingerprints = new Set(db.orders
-      .filter(order => order.agencyId === agency.id)
-      .map(order => rawOrderFingerprint(order.raw)));
+    const fingerprints = new Set(db.orders.map(order => rawOrderFingerprint(order.raw)));
     const orderCodes = new Set(db.orders
-      .filter(order => order.agencyId === agency.id)
       .map(order => extractOrderCode(order.raw))
       .filter(Boolean));
     const recentCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
     const semanticFingerprints = new Set(db.orders
-      .filter(order => order.agencyId === agency.id && order.status === 'open' && Date.parse(order.createdAt || 0) >= recentCutoff)
+      .filter(order => order.status === 'open' && Date.parse(order.createdAt || 0) >= recentCutoff)
       .map(order => order.importFingerprint || semanticOrderFingerprint(parseOrder(order.raw, agency.name, agency.id)))
       .filter(Boolean));
     const accepted = [];

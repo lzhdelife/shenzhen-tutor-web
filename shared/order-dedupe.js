@@ -8,4 +8,19 @@ function canonicalOrderText(value) {
     .replace(/[\p{P}\p{S}\s]+/gu, '');
 }
 
-module.exports = { canonicalOrderText };
+function orderRawText(order) {
+  return String(order?.raw || order?.structured?.raw || order?.structured?.rawText || '');
+}
+
+function dedupeOrdersByCanonicalRaw(orders) {
+  const seen = new Set();
+  return (Array.isArray(orders) ? orders : []).filter(order => {
+    const canonical = canonicalOrderText(orderRawText(order));
+    if (!canonical) return true;
+    if (seen.has(canonical)) return false;
+    seen.add(canonical);
+    return true;
+  });
+}
+
+module.exports = { canonicalOrderText, orderRawText, dedupeOrdersByCanonicalRaw };

@@ -5,7 +5,7 @@ const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
-const { canonicalOrderText } = require('../shared/order-dedupe.js');
+const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe.js');
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -266,7 +266,7 @@ function createWorker(dependencies = {}) {
         if (method === 'GET' && path === '/api/map-orders') {
           const teacher = await requireRole(repo, request, 'teacher');
           if (!teacher) return error('请先以老师身份登录', 401);
-          const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status === 'open').map(order => ({
+          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status === 'open')).map(order => ({
             id: order.id,
             locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
@@ -277,7 +277,19 @@ function createWorker(dependencies = {}) {
         if (method === 'GET' && path === '/api/state') {
           const state = await repo.getPublicState();
           const visibleOrders = viewer ? await repo.listOrders({ limit: 500 }) : (state.orders || []);
-          const orders = await Promise.all(visibleOrders.map(async order => cleanOrder(order, await repo.listApplications({ orderId: order.id }), viewer)));
+          const teacherVisibleIds = new Set(dedupeOrdersByCanonicalRaw(
+            visibleOrders.filter(order => order.status !== 'closed')
+          ).map(order => order.id));
+          const displayOrders = viewer?.role === 'admin' || viewer?.role === 'agency'
+            ? visibleOrders
+            : [
+                ...dedupeOrdersByCanonicalRaw(visibleOrders.filter(order => order.status !== 'closed')),
+                ...visibleOrders.filter(order => order.status === 'closed')
+              ];
+          const orders = await Promise.all(displayOrders.map(async order => ({
+            ...cleanOrder(order, await repo.listApplications({ orderId: order.id }), viewer),
+            teacherVisible: order.status !== 'closed' && teacherVisibleIds.has(order.id)
+          })));
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const allUsers = viewer?.role === 'admin' ? await repo.listUsers() : [];
@@ -340,7 +352,7 @@ function createWorker(dependencies = {}) {
           if (!teacher) return error('请先以老师身份登录', 401);
           const data = await bodyJson(request), origin = text(data.origin);
           if (!origin) return error('请填写你的位置');
-          const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed');
+          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed'));
           const settings = await repo.getSettings();
           const distances = await mapWithConcurrency(orders, 4, async order => {
             const destinations = Array.isArray(order.locationOptions) && order.locationOptions.length > 1
@@ -371,7 +383,19 @@ function createWorker(dependencies = {}) {
           if (!agency) return error('请先以中介身份登录', 401);
           const data = await bodyJson(request);
           const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
-          return json(await repo.createOrder({ ...orderData, id: undefined, agencyId: agency.id, source: agency.name, status: data.status || 'open', structured: orderData }));
+          const raw = text(orderData.raw);
+          const importFingerprint = raw ? await sha256(canonicalOrderText(raw)) : '';
+          if (importFingerprint) {
+            const existingOrders = await repo.listOrders({ limit: 500 });
+            const duplicate = (await Promise.all(existingOrders.map(async order => {
+              const existingRaw = text(order.raw || order.structured?.raw);
+              return text(order.importFingerprint) === importFingerprint
+                || (existingRaw && await sha256(canonicalOrderText(existingRaw)) === importFingerprint);
+            }))).some(Boolean);
+            if (duplicate) return error('这条订单已经存在，已阻止重复发布', 409);
+          }
+          return json(await repo.createOrder({ ...orderData, id: undefined, agencyId: agency.id, source: agency.name,
+            status: data.status || 'open', importFingerprint, structured: orderData }));
         }
         if (method === 'POST' && path === '/api/import') {
           const agency = await requireRole(repo, request, 'agency');
@@ -379,17 +403,17 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request);
           const incoming = Array.isArray(data.orders) ? data.orders.slice(0, 200) : [];
           if (!incoming.length) return error('请先识别并确认要导入的订单');
-          const existingOrders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
+          const existingOrders = await repo.listOrders({ limit: 500 });
           const knownFingerprints = new Set((await Promise.all(existingOrders.map(async order => {
             const raw = text(order.raw || order.structured?.raw);
             return [
               text(order.importFingerprint),
-              raw ? await sha256(`${agency.id}|${canonicalOrderText(raw)}`) : ''
+              raw ? await sha256(canonicalOrderText(raw)) : ''
             ];
           }))).flat().filter(Boolean));
           const fingerprinted = await Promise.all(incoming.map(async item => {
             const raw = text(item.raw);
-            return { item, importFingerprint: raw ? await sha256(`${agency.id}|${canonicalOrderText(raw)}`) : '' };
+            return { item, importFingerprint: raw ? await sha256(canonicalOrderText(raw)) : '' };
           }));
           const accepted = [];
           let duplicatesSkipped = 0;

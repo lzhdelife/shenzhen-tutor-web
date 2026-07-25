@@ -422,6 +422,7 @@ function filteredOrders() {
   const maxKm = Number(state.settings.maxBikeKm || 12);
   return state.orders
     .filter(o => o.status !== 'closed')
+    .filter(o => o.teacherVisible !== false)
     .filter(o => !teacherFilterSelections.district.size || teacherFilterSelections.district.has(String(o.district || '').replace(/区$/, '')))
     .filter(o => matchesSelection(subjectBuckets(o), teacherFilterSelections.subject))
     .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
