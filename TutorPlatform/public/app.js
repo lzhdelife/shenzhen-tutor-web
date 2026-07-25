@@ -149,21 +149,22 @@ function setView(name) {
 
 function syncShell() {
   const isAdmin = Boolean(state.viewer?.role === 'admin' && adminToken);
-  const isMember = Boolean(state.viewer && !isAdmin && teacherToken && agencyToken);
-  const signedIn = isAdmin || isMember;
-  $('#authScreen').classList.toggle('hidden', signedIn);
-  $('#appShell').classList.toggle('hidden', !signedIn);
-  if (!signedIn) return;
+  const hasMemberSession = Boolean(state.viewer && !isAdmin && teacherToken && agencyToken);
+  // 普通访问始终进入订单页；登录壳只在用户主动打开管理员入口时显示。
+  $('#authScreen').classList.add('hidden');
+  $('#appShell').classList.remove('hidden');
 
-  const normalTabs = $$('.tabs button[data-view="teacher"], .tabs button[data-view="agency"]');
-  normalTabs.forEach(button => button.classList.toggle('hidden', isAdmin));
+  $('.tabs button[data-view="teacher"]').classList.toggle('hidden', isAdmin);
+  $('.tabs button[data-view="agency"]').classList.toggle('hidden', isAdmin || !hasMemberSession);
   $('#adminTab').classList.toggle('hidden', !isAdmin);
   $('#accountBadge').textContent = isAdmin
     ? '管理员已登录'
-    : '打开即用 · 设置保存在本浏览器';
+    : hasMemberSession
+      ? '打开即用 · 设置保存在本浏览器'
+      : '共享订单 · 当前为只读模式';
   $('#logoutButton').textContent = isAdmin ? '退出管理端' : '管理员入口';
   if (isAdmin) setView('admin');
-  else setView(['teacher', 'agency'].includes(activeView) ? activeView : 'teacher');
+  else setView(hasMemberSession && ['teacher', 'agency'].includes(activeView) ? activeView : 'teacher');
 }
 
 function renderPlatformStats() {
