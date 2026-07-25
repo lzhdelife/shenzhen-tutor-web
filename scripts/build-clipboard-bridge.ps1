@@ -28,6 +28,7 @@ try {
     --clean `
     --onefile `
     --windowed `
+    --hidden-import "runtime_config" `
     --name "ShenzhenTutorClipboardBridge" `
     --distpath $dist `
     --workpath $work `
