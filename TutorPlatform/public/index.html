@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260725-9">
+  <link rel="stylesheet" href="./styles.css?v=20260725-12">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -90,7 +90,7 @@
         <button data-view="agency">发单</button>
         <button data-view="admin" id="adminTab" class="hidden">管理端</button>
       </nav>
-      <button id="logoutButton" class="secondary logout-button" type="button">管理员入口</button>
+      <button id="logoutButton" class="admin-entry-button" type="button" aria-label="管理员入口" title="系统管理">⋯</button>
     </header>
 
     <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
@@ -172,6 +172,7 @@
                   <option value="driving">开车</option>
                   <option value="transit">公共交通</option>
                 </select>
+                <button id="showAllMapOrders" class="secondary map-overview-button" type="button">总览全部订单</button>
                 <span id="activeMapRouteHint">从订单卡点击“地图查看”后，可切换真实路线</span>
               </div>
               <div id="orderMapRouteSummary" class="order-map-route-summary hidden" role="status"></div>
@@ -347,6 +348,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260725-16"></script>
+  <script src="./app.js?v=20260725-20"></script>
 </body>
 </html>

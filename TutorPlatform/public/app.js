@@ -168,7 +168,11 @@ function syncShell() {
     : hasMemberSession
       ? '打开即用 · 设置保存在本浏览器'
       : '共享订单 · 当前为只读模式';
-  $('#logoutButton').textContent = isAdmin ? '退出管理端' : '管理员入口';
+  const adminEntry = $('#logoutButton');
+  adminEntry.textContent = isAdmin ? '退出管理端' : '⋯';
+  adminEntry.classList.toggle('admin-session', isAdmin);
+  adminEntry.setAttribute('aria-label', isAdmin ? '退出管理端' : '管理员入口');
+  adminEntry.title = isAdmin ? '退出管理端' : '系统管理';
   if (isAdmin) setView('admin');
   else setView(hasMemberSession && ['teacher', 'agency'].includes(activeView) ? activeView : 'teacher');
 }
@@ -878,6 +882,22 @@ function handleMapClusterClick(event) {
   openMapClusterOrders(clusterData, marker);
 }
 
+function fitOrderMapPoints(points = []) {
+  if (!orderMap || !orderMapApi || !points.length) return;
+  if (points.length === 1) {
+    orderMap.setZoomAndCenter(15, points[0].lnglat);
+    return;
+  }
+  const longitudes = points.map(point => Number(point.lnglat[0])).filter(Number.isFinite);
+  const latitudes = points.map(point => Number(point.lnglat[1])).filter(Number.isFinite);
+  if (!longitudes.length || !latitudes.length) return;
+  const bounds = new orderMapApi.Bounds(
+    new orderMapApi.LngLat(Math.min(...longitudes), Math.min(...latitudes)),
+    new orderMapApi.LngLat(Math.max(...longitudes), Math.max(...latitudes))
+  );
+  orderMap.setBounds(bounds, true, [56, 56, 56, 56]);
+}
+
 async function renderOrderMap(orders = filteredOrders()) {
   showOrderMapStatus('正在加载订单地图…');
   const AMap = await loadOrderMapApi();
@@ -913,7 +933,8 @@ async function renderOrderMap(orders = filteredOrders()) {
     }
   });
   orderMapCluster.on('click', handleMapClusterClick);
-  orderMap.setFitView();
+  await new Promise(resolve => window.setTimeout(resolve, 120));
+  fitOrderMapPoints(points);
   showOrderMapStatus('');
 }
 
@@ -1101,6 +1122,20 @@ async function focusOrderOnMap(orderId) {
   if (!routeResult) return;
   renderOrderCommuteSummary(routeResult, orderId);
   showOrderMapStatus('');
+}
+
+async function showAllOrdersOnMap() {
+  const visibleOrders = filteredOrders();
+  orderMapInfoWindow?.close();
+  orderMapRouteService?.clear?.();
+  orderMapRouteService = null;
+  activeMapRouteOrderId = '';
+  $('#orderMapRouteSummary').classList.add('hidden');
+  $('#activeMapRouteHint').textContent = '正在总览当前筛选中的全部订单';
+  await renderOrderMap(visibleOrders);
+  await new Promise(resolve => window.setTimeout(resolve, 420));
+  fitOrderMapPoints(orderMapPoints(visibleOrders));
+  toast('已显示全部订单位置');
 }
 
 function renderAdmin() {
@@ -2004,6 +2039,10 @@ $('#routeModeSelect').addEventListener('change', () => {
     showOrderMapStatus(`正在切换为${routeLabels[routeMode]}路线…`);
     focusOrderOnMap(activeMapRouteOrderId).catch(error => showOrderMapStatus(error.message));
   }
+});
+
+$('#showAllMapOrders').addEventListener('click', () => {
+  showAllOrdersOnMap().catch(error => showOrderMapStatus(error.message));
 });
 
 $('#refreshOrdersButton').addEventListener('click', () => {
