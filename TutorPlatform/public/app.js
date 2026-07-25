@@ -71,7 +71,12 @@ const routeLabels = {
 const $ = (s, root = document) => root ? root.querySelector(s) : null;
 const $$ = (s, root = document) => root ? [...root.querySelectorAll(s)] : [];
 
-async function api(path, options = {}, token = '') {
+async function api(path, options = {}, token = '', retryGuestSession = true) {
+  const tokenRole = token && token === teacherToken
+    ? 'teacher'
+    : token && token === agencyToken
+      ? 'agency'
+      : '';
   const res = await fetch(path, {
     credentials: 'same-origin',
     headers: {
@@ -83,6 +88,10 @@ async function api(path, options = {}, token = '') {
     body: options.body ? JSON.stringify(options.body) : undefined
   });
   if (!res.ok) {
+    if (res.status === 401 && tokenRole && retryGuestSession) {
+      await ensureGuestSession(true);
+      return api(path, options, tokenRole === 'teacher' ? teacherToken : agencyToken, false);
+    }
     let message = '请求失败';
     try { message = (await res.json()).error || message; } catch {}
     const error = new Error(message);
@@ -1479,8 +1488,8 @@ function guestDeviceId() {
   return value;
 }
 
-async function ensureGuestSession() {
-  if (teacherToken && agencyToken && currentTeacher && currentAgency) return;
+async function ensureGuestSession(force = false) {
+  if (!force && teacherToken && agencyToken && currentTeacher && currentAgency) return;
   const result = await api('/api/account/guest', { method: 'POST', body: { deviceId: guestDeviceId() } });
   storeMemberSession(result);
 }
