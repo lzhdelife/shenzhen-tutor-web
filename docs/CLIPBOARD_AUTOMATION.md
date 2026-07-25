@@ -29,6 +29,7 @@ python .\clipboard_bridge\clipboard_collector.py
 
 ```powershell
 python -m pip install pyinstaller
+$env:SHENZHEN_TUTOR_BRIDGE_TOKEN = '<共享桥接授权>'
 powershell -ExecutionPolicy Bypass -File .\scripts\build-clipboard-bridge.ps1
 ```
 
