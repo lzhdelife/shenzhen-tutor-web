@@ -9,6 +9,7 @@ const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/or
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const LISTS = {
   districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'],
@@ -47,6 +48,13 @@ async function proxyAmapJsService(request, env, fetchImpl = fetch) {
 }
 function publicUser(user) { return user ? { id: user.id, role: user.role, name: user.name, phone: user.phone || '' } : null; }
 function validPhone(phone) { return /^1[3-9]\d{9}$/.test(phone); }
+function bridgeToken(request) {
+  return text(request.headers.get('x-clipboard-bridge-token'));
+}
+function bridgeAuthorized(request, env) {
+  const expected = text(env.CLIPBOARD_BRIDGE_TOKEN);
+  return Boolean(expected && bridgeToken(request) && bridgeToken(request) === expected);
+}
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const results = new Array(items.length);
@@ -193,8 +201,14 @@ function createWorker(dependencies = {}) {
         await Promise.all(expired.map(order => repo.deleteOrder(order.id)));
         return expired.length;
       };
+      const clipboardCleanup = async () => {
+        if (typeof repo.deleteClipboardCapturesOlderThan === 'function') return repo.deleteClipboardCapturesOlderThan(cutoff);
+        return 0;
+      };
       if (ctx?.waitUntil) ctx.waitUntil(cleanup());
       else await cleanup();
+      if (ctx?.waitUntil) ctx.waitUntil(clipboardCleanup());
+      else await clipboardCleanup();
     },
     async fetch(request, env, ctx) {
       const repo = dependencies.createRepository ? dependencies.createRepository(env) : createRepository(env);
@@ -234,6 +248,29 @@ function createWorker(dependencies = {}) {
             { 'set-cookie': sessionCookie(agencyToken) });
         }
 
+        if (path.startsWith('/api/clipboard/')) {
+          if (path === '/api/clipboard/health' && method === 'GET') {
+            if (!bridgeAuthorized(request, env)) return error('剪贴板桥接授权无效', 401);
+            return json({ ok: true, mode: 'shared' });
+          }
+          if (path === '/api/clipboard/capture' && method === 'POST') {
+            if (!bridgeAuthorized(request, env)) return error('剪贴板桥接授权无效', 401);
+            const data = await bodyJson(request), raw = String(data.text || '');
+            if (!raw.trim()) return error('剪贴板原文不能为空');
+            if (new TextEncoder().encode(raw).byteLength > MAX_CLIPBOARD_TEXT_BYTES) return error('单条剪贴板内容过大', 413);
+            const captureId = /^[A-Za-z0-9_-]{8,100}$/.test(text(data.captureId)) ? text(data.captureId) : crypto.randomUUID();
+            const existing = await repo.getClipboardCapture(captureId);
+            if (existing) return json({ ok: true, captureId, status: existing.status, duplicate: true });
+            await repo.createClipboardCapture({ captureId, text: raw, capturedAt: text(data.capturedAt) || new Date().toISOString() });
+            return json({ ok: true, captureId, status: 'pending', duplicate: false });
+          }
+          if (path === '/api/clipboard/status' && method === 'GET') {
+            if (!bridgeAuthorized(request, env)) return error('剪贴板桥接授权无效', 401);
+            const capture = await repo.getClipboardCapture(text(url.searchParams.get('captureId')));
+            return json({ captureId: text(url.searchParams.get('captureId')), status: capture?.status || 'unknown' });
+          }
+        }
+
         if (method === 'POST' && path === '/api/admin/setup') {
           const data = await bodyJson(request), settings = await repo.getSettings();
           if (settings.adminPasswordHash) return error('管理员密码已经设置', 409);
@@ -260,7 +297,19 @@ function createWorker(dependencies = {}) {
         const viewer = await actorOf(repo, request);
         if (method === 'GET' && path === '/api/clipboard/inbox') {
           if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
-          return json({ items: [], pending: 0, unavailable: true });
+          const items = await repo.listClipboardCaptures(10);
+          return json({ items: items.map(item => ({ captureId: item.captureId, text: item.text, capturedAt: item.capturedAt, attempts: item.attempts || 0 })), pending: items.length });
+        }
+        const clipboardAction = path.match(/^\/api\/clipboard\/([A-Za-z0-9_-]{8,100})\/(complete|fail)$/);
+        if (method === 'POST' && clipboardAction) {
+          if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
+          const captureId = clipboardAction[1], action = clipboardAction[2], data = await bodyJson(request);
+          if (action === 'complete') {
+            const capture = await repo.completeClipboardCapture(captureId, data.outcome === 'ignored' ? 'ignored' : 'completed');
+            return json({ ok: true, captureId, status: capture?.status || 'unknown' });
+          }
+          const capture = await repo.failClipboardCapture(captureId, text(data.error));
+          return json({ ok: true, captureId, status: capture?.status || 'unknown', attempts: capture?.attempts || 0, nextAttemptAt: capture?.nextAttemptAt || 0 });
         }
         if (method === 'GET' && path === '/api/map-config') {
           return json(mapConfigured(env)

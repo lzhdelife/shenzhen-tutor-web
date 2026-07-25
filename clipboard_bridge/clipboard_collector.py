@@ -17,8 +17,12 @@ from tkinter import ttk
 
 
 APP_NAME = "深圳家教剪贴板桥接器"
-DEFAULT_SERVICE_URL = "http://127.0.0.1:8787"
+DEFAULT_SERVICE_URL = "https://tutor.liuzonghao.top"
 BRIDGE_HEADER = "shenzhen-tutor-local-v1"
+try:
+    from runtime_config import BRIDGE_TOKEN
+except ImportError:
+    BRIDGE_TOKEN = os.getenv("SHENZHEN_TUTOR_BRIDGE_TOKEN", "")
 STATUS_PENDING = "等待发送"
 STATUS_SENDING = "正在发送"
 STATUS_QUEUED = "等待网页导入"
@@ -55,11 +59,15 @@ def find_repo_root():
 
 
 class BridgeClient:
-    def __init__(self, base_url):
+    def __init__(self, base_url, token=""):
         self.base_url = base_url.rstrip("/")
+        self.token = token
+        self.remote = self.base_url.startswith("https://")
 
     def request(self, path, method="GET", body=None, timeout=8):
         headers = {"Accept": "application/json", "X-Clipboard-Bridge": BRIDGE_HEADER}
+        if self.remote and self.token:
+            headers["X-Clipboard-Bridge-Token"] = self.token
         data = None
         if body is not None:
             headers["Content-Type"] = "application/json"
@@ -77,7 +85,7 @@ class BridgeClient:
                 message = str(caught)
             raise RuntimeError(message) from caught
         except (urllib.error.URLError, TimeoutError, OSError) as caught:
-            raise RuntimeError(f"本地网站暂不可用：{caught}") from caught
+            raise RuntimeError(f"官网暂不可用：{caught}") from caught
 
     def capture(self, record):
         return self.request("/api/clipboard/capture", "POST", {
@@ -91,7 +99,7 @@ class BridgeClient:
         return self.request(f"/api/clipboard/status?captureId={encoded}")
 
     def health(self):
-        return self.request("/api/state", timeout=3)
+        return self.request("/api/clipboard/health" if self.remote else "/api/state", timeout=3)
 
 
 class ClipboardBridgeApp:
@@ -101,7 +109,7 @@ class ClipboardBridgeApp:
         self.records = self._load_json(self.data_file, [])
         if not isinstance(self.records, list):
             self.records = []
-        self.client = BridgeClient(DEFAULT_SERVICE_URL)
+        self.client = BridgeClient(DEFAULT_SERVICE_URL, BRIDGE_TOKEN)
         self.collecting = True
         self.last_clipboard = self._read_clipboard()
         self.inflight = set()
@@ -262,7 +270,8 @@ class ClipboardBridgeApp:
             self.client.health()
             return
         except Exception:
-            pass
+            if self.client.remote:
+                raise RuntimeError("官网桥接授权无效或暂时不可用，请联系平台管理员")
         repo = find_repo_root()
         if not repo:
             raise RuntimeError("未找到网站项目，请先运行 npm start")
@@ -354,8 +363,7 @@ class ClipboardBridgeApp:
         self.footer_label.configure(text="正在监听 Windows 剪贴板。" if self.collecting else "采集已暂停，已保存的原文仍会继续发送。")
 
     def open_website(self):
-        base = DEFAULT_SERVICE_URL.replace("127.0.0.1", "localhost")
-        webbrowser.open(f"{base}/?view=agency")
+        webbrowser.open(f"{DEFAULT_SERVICE_URL}/?view=agency")
 
     def _record(self, record_id):
         return next((record for record in self.records if record.get("id") == record_id), None)
