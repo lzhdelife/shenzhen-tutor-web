@@ -27,12 +27,22 @@ function memoryRepository() {
     async updateApplication(id, patch) { const item = state.applications.find(value => value.id === id); Object.assign(item, patch); return item; },
     async getSettings() { return { ...state.settings }; },
     async setSetting(key, value) { state.settings[key] = value; return value; },
+    async incrementSetting(key) { state.settings[key] = Math.max(0, Number(state.settings[key]) || 0) + 1; return state.settings[key]; },
     async listFeedback() { return state.feedback; },
     async createFeedback(input) { state.feedback.push(input); return input; },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
   };
 }
+
+test('访问量按页面打开持久累计并出现在公共状态中', async () => {
+  const { call } = harness();
+  assert.deepEqual(await (await call('/api/visit', { method: 'POST' })).json(), { totalVisits: 1 });
+  assert.deepEqual(await (await call('/api/visit', { method: 'POST' })).json(), { totalVisits: 2 });
+  assert.deepEqual(await (await call('/api/stats')).json(), { totalVisits: 2 });
+  const state = await (await call('/api/state')).json();
+  assert.deepEqual(state.stats, { totalVisits: 2 });
+});
 
 function harness(extra = {}, envOverrides = {}) {
   const repo = memoryRepository();

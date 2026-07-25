@@ -51,6 +51,9 @@ async function previewBatch(token, text) {
 
 async function run() {
   await waitForServer();
+  assert.deepEqual(await fetch(`${base}/api/visit`, { method: 'POST' }).then(response => response.json()), { totalVisits: 1 });
+  assert.deepEqual(await fetch(`${base}/api/visit`, { method: 'POST' }).then(response => response.json()), { totalVisits: 2 });
+  assert.deepEqual(await fetch(`${base}/api/stats`).then(response => response.json()), { totalVisits: 2 });
   const loginResponse = await fetch(`${base}/api/account/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

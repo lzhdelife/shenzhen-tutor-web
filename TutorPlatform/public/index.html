@@ -14,10 +14,8 @@
         <span class="brand-mark">教</span>
         <div>
           <h1>深圳家教接单平台</h1>
-          <p>找家教、看距离、接好单</p>
           <div class="platform-stats auth-platform-stats" aria-label="平台使用数据">
-            <span><strong data-stat="registered">0</strong><small>注册用户</small></span>
-            <span><strong data-stat="online">0</strong><small>当前在线</small></span>
+            <span><strong data-stat="visits">0</strong><small>总访问量</small></span>
           </div>
         </div>
       </div>
@@ -32,7 +30,6 @@
           <label>手机号<input name="phone" required inputmode="tel" autocomplete="tel" maxlength="11" placeholder="请输入手机号"></label>
           <label>密码<input name="password" required type="password" minlength="6" autocomplete="current-password" placeholder="至少6位"></label>
           <button class="primary wide-button" type="submit">登录 / 首次注册</button>
-          <small class="form-note">首次使用会按昵称、手机号和密码创建账号；之后请使用相同信息登录。</small>
           <div class="login-options">
             <label class="login-check"><input id="rememberPassword" name="rememberAccount" type="checkbox"> 记住登录</label>
             <label class="login-check"><input id="autoLogin" name="autoLogin" type="checkbox"> 自动登录</label>
@@ -55,7 +52,6 @@
             <label>新密码<input name="newPassword" required type="password" minlength="6" autocomplete="new-password" placeholder="至少6位"></label>
           </div>
           <button type="submit" class="primary">确认修改</button>
-          <p class="form-note">忘记原密码时，请联系平台管理员重置。</p>
         </form>
 
         <form id="adminLogin" class="auth-card compact-auth hidden">
@@ -77,10 +73,9 @@
         <span class="brand-mark small">教</span>
         <div>
           <strong>深圳家教接单平台</strong>
-          <small id="accountBadge">工作台</small>
+          <small id="accountBadge" class="hidden"></small>
           <div class="platform-stats compact-platform-stats" aria-label="平台使用数据">
-            <span>注册 <b data-stat="registered">0</b></span>
-            <span>在线 <b data-stat="online">0</b></span>
+            <span>总访问量 <b data-stat="visits">0</b></span>
           </div>
         </div>
       </div>
@@ -123,7 +118,7 @@
             </div>
           </div>
           <button type="submit" class="primary">显示直线距离</button>
-          <span id="teacherLocationStatus" class="location-status">选择位置后显示直线距离</span>
+          <span id="teacherLocationStatus" class="location-status"></span>
         </form>
 
         <div id="teacherFilters" class="toolbar" aria-label="订单筛选">
@@ -172,7 +167,7 @@
                   <option value="transit">公共交通</option>
                 </select>
                 <button id="showAllMapOrders" class="secondary map-overview-button" type="button">总览全部订单</button>
-                <span id="activeMapRouteHint">从订单卡点击“地图查看”后，可切换真实路线</span>
+                <span id="activeMapRouteHint"></span>
               </div>
               <div id="orderMapRouteSummary" class="order-map-route-summary hidden" role="status"></div>
             </aside>
@@ -189,7 +184,6 @@
         <form id="importForm" class="panel agency-import-panel">
           <div class="agency-primary-heading">
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
-            <p>粘贴后点击一次即可完成识别和导入；剪贴板桥接器送来的内容会自动处理。</p>
           </div>
           <div class="clipboard-automation-bar">
             <label><input id="clipboardAutomationEnabled" type="checkbox" checked> 自动接收并导入剪贴板订单</label>
@@ -197,15 +191,15 @@
           </div>
           <div class="import-workspace">
             <div class="import-input-column">
-              <div class="import-column-title"><strong>粘贴原文</strong><span>支持一条或多条订单</span></div>
+              <div class="import-column-title"><strong>粘贴原文</strong></div>
               <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
               <div class="actions">
                 <button type="submit" id="parseAndImport" class="primary">识别并导入</button>
               </div>
             </div>
             <div class="import-preview-column">
-              <div class="import-column-title"><strong>识别结果</strong><span>逐条检查地点、年级、科目和课酬</span></div>
-              <div id="parsePreview" class="preview"><div class="import-preview-empty">识别后，结构化结果会显示在这里。</div></div>
+              <div class="import-column-title"><strong>识别结果</strong></div>
+              <div id="parsePreview" class="preview"><div class="import-preview-empty"></div></div>
             </div>
           </div>
         </form>
@@ -221,7 +215,7 @@
         </section>
         <details class="panel manual-entry-panel">
           <summary>
-            <span><strong>手动录入</strong><small>低频使用：单独填写一条订单</small></span>
+            <span><strong>手动录入</strong></span>
             <b>展开</b>
           </summary>
           <form id="orderForm" class="manual-entry-form">
@@ -255,12 +249,11 @@
             <h2>平台设置</h2>
             <input name="homeAddress" placeholder="默认出发地">
             <input name="maxBikeKm" type="number" placeholder="范围公里">
-            <p class="form-note">高德 Key 仅通过服务端 Secret 配置。</p>
             <button type="submit" class="primary">保存设置</button>
           </form>
           <section class="panel admin-orders-panel">
             <div class="admin-section-head">
-              <div><h2>订单管理</h2><p>查看订单详情、调整状态或批量清理失效订单。</p></div>
+              <div><h2>订单管理</h2></div>
               <div class="bulk-toolbar">
                 <label class="selection-check"><input id="selectAllAdminOrders" type="checkbox">全选</label>
                 <span id="adminOrderSelectionCount" class="selection-count">已选 0 条</span>
@@ -271,7 +264,7 @@
           </section>
           <section class="panel admin-users-panel">
             <div class="admin-section-head">
-              <div><h2>账号与密码</h2><p>统一管理老师和中介账号。</p></div>
+              <div><h2>账号与密码</h2></div>
               <div class="bulk-toolbar">
                 <label class="selection-check"><input id="selectAllAdminUsers" type="checkbox">全选</label>
                 <span id="adminUserSelectionCount" class="selection-count">已选 0 个</span>
@@ -307,7 +300,6 @@
           <div><span class="section-kicker">接单申请</span><h2 id="applicationPanelTitle">请上传者协助联系</h2></div>
           <button id="applicationClose" class="icon-button" type="button" aria-label="关闭接单申请" title="关闭">×</button>
         </div>
-        <p class="form-note">你的信息只会提供给这张订单的匿名上传者，由上传者回微信群协助联系。</p>
         <input name="orderId" type="hidden">
         <label>你的称呼<input name="name" required maxlength="40" placeholder="例如：李老师"></label>
         <label>联系方式<input name="contact" required maxlength="80" placeholder="手机号或微信号"></label>
@@ -338,7 +330,6 @@
         <input name="name" placeholder="你的称呼（可不填）">
         <input name="contact" placeholder="联系方式（可不填）">
         <textarea name="content" required placeholder="请写下你遇到的问题或建议"></textarea>
-        <p class="form-note">你们反馈的问题，开发者都会看，感谢反馈。</p>
         <button type="submit" class="primary">提交反馈</button>
       </form>
     </div>
@@ -347,6 +338,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260725-23"></script>
+  <script src="./app.js?v=20260725-24"></script>
 </body>
 </html>

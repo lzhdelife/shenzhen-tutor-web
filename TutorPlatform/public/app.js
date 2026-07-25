@@ -1,4 +1,4 @@
-let state = { viewer: null, announcement: null, settings: {}, users: [], orders: [], feedback: [], stats: { registeredUsers: 0, onlineUsers: 0 }, lists: { districts: [], subjects: [], grades: [] } };
+let state = { viewer: null, announcement: null, settings: {}, users: [], orders: [], feedback: [], stats: { totalVisits: 0 }, lists: { districts: [], subjects: [], grades: [] } };
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
 let teacherToken = sessionStorage.getItem('teacherToken') || '';
@@ -173,11 +173,8 @@ function syncShell() {
   $$('.tabs button[data-view="teacher"]').forEach(button => button.classList.toggle('hidden', isAdmin));
   $('.tabs button[data-view="agency"]').classList.toggle('hidden', isAdmin || !hasMemberSession);
   $('#adminTab').classList.toggle('hidden', !isAdmin);
-  $('#accountBadge').textContent = isAdmin
-    ? '管理员已登录'
-    : hasMemberSession
-      ? '打开即用 · 设置保存在本浏览器'
-      : '共享订单 · 当前为只读模式';
+  $('#accountBadge').textContent = isAdmin ? '管理员' : '';
+  $('#accountBadge').classList.toggle('hidden', !isAdmin);
   const adminEntry = $('#logoutButton');
   adminEntry.textContent = isAdmin ? '退出管理端' : '⋯';
   adminEntry.classList.toggle('admin-session', isAdmin);
@@ -188,8 +185,7 @@ function syncShell() {
 }
 
 function renderPlatformStats() {
-  $$('[data-stat="registered"]').forEach(node => { node.textContent = Number(state.stats?.registeredUsers || 0).toLocaleString(); });
-  $$('[data-stat="online"]').forEach(node => { node.textContent = Number(state.stats?.onlineUsers || 0).toLocaleString(); });
+  $$('[data-stat="visits"]').forEach(node => { node.textContent = Number(state.stats?.totalVisits || 0).toLocaleString(); });
 }
 
 async function refreshPlatformStats() {
@@ -247,7 +243,7 @@ function routeText(order) {
   }
   const straightKm = Number(distanceOverrides[order.id]?.distanceKm || 0);
   if (straightKm) return `直线约 ${straightKm.toFixed(1)}公里`;
-  return teacherOrigin ? '直线距离待计算' : '设置“我的位置”后显示直线距离';
+  return teacherOrigin ? '直线距离待计算' : '';
 }
 
 function applyDistanceOverrides() {
@@ -377,9 +373,7 @@ function fillTeacherLocation() {
   if (!form) return;
   form.origin.value = teacherOrigin;
   $('#routeModeSelect').value = routeMode;
-  $('#teacherLocationStatus').textContent = teacherOrigin
-    ? `当前按“${teacherOrigin}”显示直线距离；真实路线请进入地图查看。`
-    : '选择位置后，本地显示所有订单的直线距离。';
+  $('#teacherLocationStatus').textContent = '';
 }
 
 function renderBadges() {
@@ -716,9 +710,10 @@ function orderDisplayMeta(o) {
 
 function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
   const schedule = splitSchedule(o);
+  const distance = routeText(o);
   return `<div class="detail-grid">
     ${detailItem('价格', priceLabel(o))}
-    ${detailItem('位置/距离', `${meta.location}；${routeText(o)}`)}
+    ${detailItem('位置/距离', `${meta.location}${distance ? `；${distance}` : ''}`)}
     ${detailItem('开始时间', schedule.start)}
     ${detailItem('次数/时段', `${schedule.count}；${schedule.slot}`)}
     ${detailItem('学生年级科目', studentSummary(o), true)}
@@ -743,7 +738,6 @@ function orderCard(o) {
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
       <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
-      <span class="application-hint">由匿名上传者回群协助联系</span>
     </div>
   </article>`;
 }
@@ -1881,7 +1875,7 @@ function clearTeacherDistances() {
   localStorage.removeItem('teacherOrigin');
   selectedOriginCoordinates = '';
   localStorage.removeItem('teacherOriginCoordinates');
-  $('#teacherLocationStatus').textContent = '选择位置后，本地显示所有订单的直线距离。';
+  $('#teacherLocationStatus').textContent = '';
   queueTeacherPreferencesSave();
   load().catch(err => toast(err.message));
 }
@@ -2334,6 +2328,7 @@ clipboardAutomationToggle.addEventListener('change', () => {
 
 async function initializeApp() {
   hydrateLoginForm();
+  await api('/api/visit', { method: 'POST' }).catch(() => {});
   try {
     await ensureGuestSession();
   } catch (error) {

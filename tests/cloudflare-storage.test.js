@@ -27,7 +27,12 @@ class MockD1 {
       const row = Object.fromEntries(columns.map((column, index) => [column, values[index]]));
       const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : 'id';
       const existing = this.tables[table].find(item => item[key] === row[key]);
-      if (existing && /ON CONFLICT/i.test(sql)) Object.assign(existing, row);
+      if (existing && /ON CONFLICT/i.test(sql)) {
+        if (table === 'settings' && /CAST\(COALESCE\(CAST\(settings\.value_json AS INTEGER\)/i.test(sql)) {
+          existing.value_json = String(Math.max(0, Number(existing.value_json) || 0) + 1);
+          existing.updated_at = row.updated_at;
+        } else Object.assign(existing, row);
+      }
       else if (existing) throw new Error(`mock unique constraint: ${table}.${key}`);
       else this.tables[table].push(row);
       return { success: true, meta: { changes: 1 } };
@@ -116,6 +121,8 @@ async function run() {
 
   await repo.setSetting('maxBikeKm', 12);
   await repo.setSetting('adminPasswordHash', 'must-not-leak');
+  assert.equal(await repo.incrementSetting('totalVisits'), 1);
+  assert.equal(await repo.incrementSetting('totalVisits'), 2);
   await repo.createAnnouncement({ id: 'n-one', title: '测试公告', content: '仅合成内容', active: true });
   await repo.createFeedback({ id: 'f-one', name: '访客', content: '测试反馈' });
   const state = await repo.getPublicState();

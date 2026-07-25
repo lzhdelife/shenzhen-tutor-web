@@ -233,6 +233,15 @@ function createRepository(env = {}) {
     return value;
   }
 
+  async function incrementSetting(key) {
+    await run(`INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        value_json=CAST(COALESCE(CAST(settings.value_json AS INTEGER), 0) + 1 AS TEXT),
+        updated_at=excluded.updated_at`, [key, '1', nowIso()]);
+    const row = await first('SELECT value_json FROM settings WHERE key = ?', [key]);
+    return Math.max(0, Number(parseJson(row?.value_json, 0)) || 0);
+  }
+
   async function createFeedback(input) {
     const id = input.id || makeId('f');
     await run('INSERT INTO feedback (id, name, contact, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -283,7 +292,7 @@ function createRepository(env = {}) {
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
-    updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting,
+    updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
     listFeedback, createFeedback, listAnnouncements, createAnnouncement };
 }
 

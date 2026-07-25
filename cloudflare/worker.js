@@ -297,18 +297,20 @@ function createWorker(dependencies = {}) {
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const allUsers = viewer?.role === 'admin' ? await repo.listUsers() : [];
-          const identities = new Set(allUsers.filter(user => ['teacher', 'agency'].includes(user.role)).map(user => `${user.name}\u0000${user.phone}`));
+          const platformSettings = await repo.getSettings();
           return json({ ...state, announcement: announcements ? (announcements[0] || null) : state.announcement,
             settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm || 12 }, viewer,
             adminConfigured: Boolean(state.adminConfigured), orders,
             users: allUsers.map(user => ({ id: user.id, role: user.role, name: user.name, phone: user.phone, passwordSet: Boolean(user.passwordHash), createdAt: user.createdAt })),
             feedback: viewer?.role === 'admin' ? await repo.listFeedback() : [],
-            stats: { registeredUsers: identities.size, onlineUsers: 0 }, lists: LISTS });
+            stats: { totalVisits: Math.max(0, Number(platformSettings.totalVisits) || 0) }, lists: LISTS });
         }
         if (method === 'GET' && path === '/api/stats') {
-          const users = await repo.listUsers();
-          const identities = new Set(users.filter(user => ['teacher', 'agency'].includes(user.role)).map(user => `${user.name}\u0000${user.phone}`));
-          return json({ registeredUsers: identities.size, onlineUsers: 0 });
+          const settings = await repo.getSettings();
+          return json({ totalVisits: Math.max(0, Number(settings.totalVisits) || 0) });
+        }
+        if (method === 'POST' && path === '/api/visit') {
+          return json({ totalVisits: await repo.incrementSetting('totalVisits') });
         }
         if (method === 'POST' && path === '/api/feedback') {
           const data = await bodyJson(request), content = text(data.content);

@@ -20,8 +20,6 @@ const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const MAX_CLIPBOARD_INBOX = 500;
 const sessions = new Map();
-const visitors = new Map();
-const ACTIVE_VISITOR_MS = 5 * 60 * 1000;
 const REMEMBER_COOKIE = 'tutor_remember';
 const REMEMBER_LOGIN_MS = 30 * 24 * 60 * 60 * 1000;
 const SMS_CODE_TTL_MS = 5 * 60 * 1000;
@@ -380,24 +378,8 @@ function agencyContactForOrder(db, order) {
   };
 }
 
-function touchVisitor(req) {
-  const visitorId = textOf(req.headers['x-visitor-id']);
-  if (/^[A-Za-z0-9-]{8,80}$/.test(visitorId)) visitors.set(visitorId, Date.now());
-}
-
 function platformStats(db) {
-  const now = Date.now();
-  for (const [visitorId, lastSeen] of visitors) {
-    if (now - lastSeen > ACTIVE_VISITOR_MS) visitors.delete(visitorId);
-  }
-  const registered = new Set();
-  for (const user of db.users) {
-    if (!['teacher', 'agency'].includes(user.role)) continue;
-    const phone = textOf(user.phone);
-    const name = textOf(user.name);
-    registered.add(`identity:${name}|${phone}`);
-  }
-  return { registeredUsers: registered.size, onlineUsers: visitors.size };
+  return { totalVisits: Math.max(0, Number(db.settings.totalVisits) || 0) };
 }
 
 function sessionOf(req) {
@@ -2250,7 +2232,6 @@ function serveStatic(req, res) {
 
 async function handleApi(req, res) {
   const db = readDb();
-  touchVisitor(req);
   const url = new URL(req.url, `http://localhost:${PORT}`);
   if (url.pathname.startsWith('/api/auth/')) return send(res, 404, { error: '该登录方式已移除，请使用昵称、手机号和密码登录' });
   if (req.method === 'GET' && url.pathname === '/api/state') {
@@ -2362,6 +2343,12 @@ async function handleApi(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/stats') {
     sessionOf(req);
+    return send(res, 200, platformStats(db));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/visit') {
+    db.settings.totalVisits = Math.max(0, Number(db.settings.totalVisits) || 0) + 1;
+    writeDb(db);
     return send(res, 200, platformStats(db));
   }
 
