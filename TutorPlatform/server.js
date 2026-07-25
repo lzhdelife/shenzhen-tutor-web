@@ -2338,8 +2338,11 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/map-config') {
     const key = envValue('AMAP_JS_API_KEY');
     const securityCode = envValue('AMAP_JS_SECURITY_CODE');
+    const forwardedProto = textOf(req.headers['x-forwarded-proto']).split(',')[0];
+    const protocol = forwardedProto === 'https' ? 'https' : 'http';
+    const requestHost = textOf(req.headers.host) || `localhost:${PORT}`;
     return send(res, 200, key && securityCode
-      ? { configured: true, key, version: '2.0', serviceHost: `${url.origin}/_AMapService` }
+      ? { configured: true, key, version: '2.0', serviceHost: `${protocol}://${requestHost}/_AMapService` }
       : { configured: false, reason: '高德地图 JS API 尚未配置' });
   }
 
