@@ -35,6 +35,9 @@ let backgroundStateRefreshTimer = 0;
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
 const CLIPBOARD_AUTOMATION_KEY = 'clipboardAutomationEnabled';
+const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
+const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
+const APPLICANT_PROFILE_KEY = 'tutorPlatformApplicantProfile';
 const requestedView = new URLSearchParams(location.search).get('view');
 if (['teacher', 'agency'].includes(requestedView)) activeView = requestedView;
 
@@ -157,7 +160,8 @@ function syncShell() {
   $('#adminTab').classList.toggle('hidden', !isAdmin);
   $('#accountBadge').textContent = isAdmin
     ? '管理员已登录'
-    : `${currentTeacher?.name || currentAgency?.name || state.viewer.name || '账号'} 已登录`;
+    : '打开即用 · 设置保存在本浏览器';
+  $('#logoutButton').textContent = isAdmin ? '退出管理端' : '管理员入口';
   if (isAdmin) setView('admin');
   else setView(['teacher', 'agency'].includes(activeView) ? activeView : 'teacher');
 }
@@ -329,8 +333,8 @@ function applyTeacherPreferences(preferences = {}) {
 }
 
 async function saveTeacherPreferences() {
-  if (!teacherToken || !teacherPreferencesLoaded) return;
-  await api('/api/teacher/preferences', { method: 'PUT', body: currentTeacherPreferences() }, teacherToken);
+  if (!teacherPreferencesLoaded) return;
+  localStorage.setItem(BROWSER_PREFERENCES_KEY, JSON.stringify(currentTeacherPreferences()));
 }
 
 function queueTeacherPreferencesSave() {
@@ -340,15 +344,12 @@ function queueTeacherPreferencesSave() {
 }
 
 async function loadTeacherPreferences() {
-  if (!teacherToken) return;
-  const result = await api('/api/teacher/preferences', {}, teacherToken);
-  if (result.exists) {
-    applyTeacherPreferences(result.preferences || {});
-  } else {
-    teacherPreferencesLoaded = true;
-    await saveTeacherPreferences();
-    return;
+  let preferences = {};
+  try { preferences = JSON.parse(localStorage.getItem(BROWSER_PREFERENCES_KEY) || '{}'); } catch {}
+  if (!Object.keys(preferences).length) {
+    preferences = { origin: teacherOrigin, originCoordinates: selectedOriginCoordinates, routeMode };
   }
+  applyTeacherPreferences(preferences);
   teacherPreferencesLoaded = true;
   if (teacherOrigin) {
     $('#teacherLocationStatus').textContent = '正在按你的常用位置计算并排序…';
@@ -722,15 +723,16 @@ function orderCard(o) {
     <div class="card-head">
       <div>
         <div class="title">${escapeHtml(meta.title)}</div>
-        <div class="source-line">${escapeHtml(cleanDisplayText(o.source || '', 28) || '平台订单')} · ${new Date(o.createdAt).toLocaleString()}</div>
+        <div class="source-line">平台订单 · ${new Date(o.createdAt).toLocaleString()}</div>
       </div>
       <div class="score">${o.score || 0}分</div>
     </div>
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
-      <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">接单并查看联系人</button>
+      <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
       <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
+      <span class="application-hint">由匿名上传者回群协助联系</span>
     </div>
   </article>`;
 }
@@ -1145,7 +1147,7 @@ function renderAgencyOrders() {
   const closeAllButton = $('#closeAllAgencyOrders');
   const deleteAllButton = $('#deleteAllAgencyOrders');
   if (!currentAgency || !agencyToken) {
-    root.innerHTML = '<div class="raw">登录中介账号后，这里会显示你发布的订单。</div>';
+    root.innerHTML = '<div class="raw">正在恢复这个浏览器的发单记录…</div>';
     closeAllButton.disabled = true;
     deleteAllButton.disabled = true;
     return;
@@ -1161,7 +1163,7 @@ function renderAgencyOrders() {
       <div class="applicant-list">
         ${(o.applicants || []).length
           ? o.applicants.map(a => `<div class="applicant-item">
-              <div><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <a href="tel:${escapeHtml(a.phone || '')}">${escapeHtml(a.phone || '未填写')}</a>，已接单</div>
+              <div><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <span>${escapeHtml(a.phone || '未填写')}</span>，已申请</div>
               <div class="raw">${a.at ? new Date(a.at).toLocaleString() : ''}${a.note ? ` · ${escapeHtml(a.note)}` : ''}</div>
             </div>`).join('')
           : '<div class="raw">暂时还没有老师申请。</div>'}
@@ -1172,7 +1174,7 @@ function renderAgencyOrders() {
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
       </div>
     </div>`;
-  }).join('') : '<div class="raw">这个账号还没有发布订单。</div>';
+  }).join('') : '<div class="raw">这个浏览器还没有发布订单。</div>';
 }
 
 function statusLabel(status) {
@@ -1357,6 +1359,21 @@ function storeMemberSession(result) {
   sessionStorage.setItem('agencyToken', agencyToken);
 }
 
+function guestDeviceId() {
+  let value = localStorage.getItem(GUEST_DEVICE_KEY) || '';
+  if (!/^[A-Za-z0-9_-]{16,128}$/.test(value)) {
+    value = `browser_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+    localStorage.setItem(GUEST_DEVICE_KEY, value);
+  }
+  return value;
+}
+
+async function ensureGuestSession() {
+  if (teacherToken && agencyToken && currentTeacher && currentAgency) return;
+  const result = await api('/api/account/guest', { method: 'POST', body: { deviceId: guestDeviceId() } });
+  storeMemberSession(result);
+}
+
 async function login(role, form) {
   const data = Object.fromEntries(new FormData(form).entries());
   data.passwordProof = await passwordProof(data.password, data.name, data.phone);
@@ -1453,6 +1470,21 @@ async function changePasswordByIdentity(form) {
 }
 
 function logout() {
+  if (adminToken) {
+    adminToken = '';
+    sessionStorage.removeItem('adminToken');
+    ensureGuestSession().then(load).catch(error => toast(error.message));
+    return;
+  }
+  $('#authScreen').classList.remove('hidden');
+  $('#appShell').classList.add('hidden');
+  $('#unifiedLogin').classList.add('hidden');
+  $('#identityPasswordForm').classList.add('hidden');
+  $('#adminLogin').classList.remove('hidden');
+  return;
+}
+
+function legacyLogout() {
   const preference = readLoginPreference();
   if (preference?.rememberAccount) {
     writeLoginPreference({ ...preference, autoLogin: false });
@@ -1475,16 +1507,15 @@ function logout() {
 }
 
 async function applyOrder(id) {
-  if (!currentTeacher || !teacherToken) return toast('请先登录老师账号');
-  const result = await api(`/api/orders/${id}/apply`, {
-    method: 'POST',
-    body: {
-      note: '我有意向接这个单'
-    }
-  }, teacherToken);
-  openAgencyContact(result.contact);
-  toast(result.alreadyApplied ? '你已接过这个单，已重新显示联系人' : '接单成功，发单人已收到你的联系方式');
-  await load();
+  const form = $('#applicationForm');
+  let profile = {};
+  try { profile = JSON.parse(localStorage.getItem(APPLICANT_PROFILE_KEY) || '{}'); } catch {}
+  form.elements.orderId.value = id;
+  form.elements.name.value = profile.name || '';
+  form.elements.contact.value = profile.contact || '';
+  form.elements.note.value = '';
+  $('#applicationPanel').classList.remove('hidden');
+  (form.elements.name.value ? form.elements.note : form.elements.name).focus();
 }
 
 async function setStatus(id, status) {
@@ -1925,6 +1956,10 @@ $('#toggleAdminPanel').addEventListener('click', () => {
 
 $$('.close-auth-panel').forEach(button => button.addEventListener('click', () => {
   button.closest('form').classList.add('hidden');
+  if (button.closest('form').id === 'adminLogin' && teacherToken && agencyToken) {
+    $('#authScreen').classList.add('hidden');
+    $('#appShell').classList.remove('hidden');
+  }
 }));
 
 $('#logoutButton').addEventListener('click', logout);
@@ -2068,6 +2103,22 @@ $('#copyAgencyContact').addEventListener('click', () => copyAgencyContact().catc
 $('#contactPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeAgencyContact();
 });
+$('#applicationClose').addEventListener('click', () => $('#applicationPanel').classList.add('hidden'));
+$('#applicationPanel').addEventListener('click', event => {
+  if (event.target === event.currentTarget) $('#applicationPanel').classList.add('hidden');
+});
+$('#applicationForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form).entries());
+  const orderId = data.orderId;
+  delete data.orderId;
+  localStorage.setItem(APPLICANT_PROFILE_KEY, JSON.stringify({ name: data.name, contact: data.contact }));
+  const result = await api(`/api/orders/${orderId}/apply`, { method: 'POST', body: data }, teacherToken);
+  $('#applicationPanel').classList.add('hidden');
+  toast(result.alreadyApplied ? '你已经申请过这张订单' : '申请已发送，等待上传者协助联系');
+  await load();
+});
 $('#rawTextClose').addEventListener('click', closeRawText);
 $('#copyRawText').addEventListener('click', () => copyRawText().catch(err => toast(err.message)));
 $('#rawTextPanel').addEventListener('click', event => {
@@ -2075,6 +2126,7 @@ $('#rawTextPanel').addEventListener('click', event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
+  if (event.key === 'Escape' && !$('#applicationPanel').classList.contains('hidden')) $('#applicationPanel').classList.add('hidden');
   if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
 
@@ -2116,17 +2168,10 @@ clipboardAutomationToggle.addEventListener('change', () => {
 
 async function initializeApp() {
   hydrateLoginForm();
+  await ensureGuestSession();
   await load();
   setTeacherViewMode(teacherViewMode);
-  const signedIn = Boolean(
-    (state.viewer?.role === 'admin' && adminToken)
-    || (state.viewer && teacherToken && agencyToken)
-  );
-  if (signedIn && teacherToken && !teacherPreferencesLoaded) await loadTeacherPreferences();
-  const preference = readLoginPreference();
-  if (!signedIn && preference?.autoLogin && preference.hasCredential) {
-    await unifiedLogin($('#unifiedLogin'), { automatic: true });
-  }
+  if (!teacherPreferencesLoaded) await loadTeacherPreferences();
   await pollClipboardInbox();
 }
 

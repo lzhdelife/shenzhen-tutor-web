@@ -170,6 +170,7 @@ function cleanOrder(order, applications, viewer) {
   const copy = { ...order, applicantCount: applications.length, applicants: canSee ? applications : [] };
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
   if (!canSee) {
+    copy.source = '';
     delete copy.address; delete copy.locationAddress; delete copy.locationCoordinates;
     delete copy.locationQuery; delete copy.locationQueries; delete copy.locationCandidates; delete copy.structured;
     copy.locationOptions = (copy.locationOptions || []).map(option => {
@@ -204,6 +205,22 @@ function createWorker(dependencies = {}) {
         if (!path.startsWith('/api/')) return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
         if (method === 'OPTIONS') return new Response(null, { status: 204 });
         if (method === 'POST' && path === '/api/account/login') return pairedLogin(repo, request, await bodyJson(request), env);
+        if (method === 'POST' && path === '/api/account/guest') {
+          const data = await bodyJson(request), deviceId = text(data.deviceId);
+          if (!/^[A-Za-z0-9_-]{16,128}$/.test(deviceId)) return error('浏览器身份无效，请刷新后重试');
+          const identity = (await sha256(deviceId)).slice(0, 24);
+          const ensureGuest = async role => {
+            const id = `guest-${role}-${identity}`;
+            return await repo.getUserById(id) || repo.createUser({
+              id, role, name: '匿名用户', phone: `guest-${identity}`, passwordHash: '', guest: true
+            });
+          };
+          const [teacher, agency] = await Promise.all([ensureGuest('teacher'), ensureGuest('agency')]);
+          const [teacherToken, agencyToken] = await Promise.all([
+            issueSession(repo, request, teacher), issueSession(repo, request, agency)
+          ]);
+          return json({ teacher: publicUser(teacher), agency: publicUser(agency), teacherToken, agencyToken, guest: true });
+        }
         if (method === 'POST' && path === '/api/login') return loginOne(repo, request, await bodyJson(request), env);
         if (method === 'POST' && path === '/api/account/remember-login') {
           const remembered = await actorOf(repo, request);
@@ -418,9 +435,13 @@ function createWorker(dependencies = {}) {
           if (order.status === 'closed') return error('这个订单已经下架');
           const existing = (await repo.listApplications({ orderId: order.id })).find(item => item.teacherId === teacher.id);
           const data = await bodyJson(request);
-          const applicant = existing || await repo.createApplication({ orderId: order.id, teacherId: teacher.id, name: teacher.name, phone: teacher.phone, note: text(data.note) });
-          const agency = await repo.getUserById(order.agencyId);
-          return json({ ok: true, alreadyApplied: Boolean(existing), contact: { name: agency?.name || order.source || '发单人', phone: agency?.phone || '' },
+          const name = text(data.name).slice(0, 40) || teacher.name || '未命名老师';
+          const contact = text(data.contact).slice(0, 80);
+          if (!contact) return error('请填写方便上传者联系你的方式');
+          const applicant = existing
+            ? await repo.updateApplication(existing.id, { name, phone: contact, note: text(data.note) })
+            : await repo.createApplication({ orderId: order.id, teacherId: teacher.id, name, phone: contact, note: text(data.note) });
+          return json({ ok: true, alreadyApplied: Boolean(existing),
             applicant: { name: applicant.name, phone: applicant.phone, at: applicant.createdAt } });
         }
         const locationConfirmation = path.match(/^\/api\/orders\/([^/]+)\/location\/confirm$/);

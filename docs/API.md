@@ -5,8 +5,8 @@
 ## 认证方式
 
 - 普通 API 使用 `Authorization: Bearer <token>`。
-- 老师、中介和管理员 Token 由登录接口返回，只保存在服务进程内存中。
-- 自动登录使用名为 `tutor_remember` 的 `HttpOnly` Cookie，浏览器请求需保持同源 Cookie。
+- 普通页面首次打开时用浏览器生成的随机设备 ID 调用 `/api/account/guest`，取得成对的老师/发单 Token；无需手机号或密码。
+- 管理员 Token 仍由管理员登录接口返回。
 - 批量导入使用中介 Token 调用 `/api/import`。
 
 错误通常返回；地图上游错误还会包含稳定的 `code` 和不含密钥的 `details`：
@@ -24,12 +24,26 @@
 | GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
 | GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
 | GET | `/api/map-orders` | teacher | 仅返回开放订单 ID 与已确认坐标，不返回门牌地址或学生信息 |
+| POST | `/api/account/guest` | 公共 | 按匿名浏览器设备 ID 建立或恢复成对的老师/发单身份 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
 | POST | `/api/feedback` | 公共 | 提交问题反馈，最多保留最近 200 条 |
 
-### 统一密码登录
+### 匿名浏览器身份
+
+```http
+POST /api/account/guest
+Content-Type: application/json
+
+{ "deviceId": "<浏览器生成的16至128位随机标识>" }
+```
+
+成功返回 `teacher`、`agency`、`teacherToken` 和 `agencyToken`。相同设备 ID 会恢复相同身份；不同设备只能查看自己上传订单的申请人资料。设备 ID 保存在浏览器本地，清除网站数据后无法恢复原来的匿名上传归属。
+
+旧的密码登录接口仅保留为兼容和管理迁移能力，普通页面不展示登录入口。
+
+### 兼容的统一密码登录
 
 ```http
 POST /api/account/login
@@ -82,9 +96,9 @@ Content-Type: application/json
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/distance-preview` | teacher | 对所有未关闭订单计算指定路线模式 |
-| GET | `/api/teacher/preferences` | teacher | 读取账号保存的筛选偏好 |
-| PUT | `/api/teacher/preferences` | teacher | 保存多选筛选、起点、路线和最低课酬 |
-| POST | `/api/orders/:id/apply` | teacher | 申请订单并返回发单人联系方式 |
+| GET | `/api/teacher/preferences` | teacher | 兼容接口；当前网页偏好保存在浏览器 |
+| PUT | `/api/teacher/preferences` | teacher | 兼容接口；当前网页不调用 |
+| POST | `/api/orders/:id/apply` | teacher | 提交申请人姓名、联系方式和备注；不返回上传者资料 |
 
 路线预览请求：
 

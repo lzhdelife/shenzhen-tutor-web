@@ -2267,6 +2267,7 @@ function publicDb(db, viewer = null) {
     delete copy.sourceImages;
     delete copy.importFingerprint;
     if (!ownsPreciseLocation) {
+      copy.source = '';
       delete copy.address;
       delete copy.locationAddress;
       delete copy.locationCoordinates;
@@ -2578,6 +2579,32 @@ async function handleApi(req, res) {
     const login = memberLoginResponse(db, paired.teacher, paired.agency, rememberAccount, req);
     if (paired.changed || login.changed) writeDb(db);
     return send(res, 200, login.body, 'application/json; charset=utf-8', { 'Set-Cookie': login.rememberCookie });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/account/guest') {
+    const data = await bodyJson(req);
+    const deviceId = textOf(data.deviceId);
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(deviceId)) return send(res, 400, { error: '浏览器身份无效，请刷新后重试' });
+    const identity = sha256(deviceId).slice(0, 24);
+    const ensureGuest = role => {
+      const id = `guest-${role}-${identity}`;
+      let user = db.users.find(item => item.id === id && item.role === role);
+      if (!user) {
+        user = { id, role, name: '匿名用户', phone: '', guest: true, createdAt: new Date().toISOString() };
+        db.users.push(user);
+      }
+      return user;
+    };
+    const teacher = ensureGuest('teacher');
+    const agency = ensureGuest('agency');
+    writeDb(db);
+    return send(res, 200, {
+      teacher: publicUser(teacher),
+      agency: publicUser(agency),
+      teacherToken: createSession({ id: teacher.id, role: 'teacher', name: teacher.name }),
+      agencyToken: createSession({ id: agency.id, role: 'agency', name: agency.name }),
+      guest: true
+    });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/account/remember-login') {
@@ -3036,19 +3063,21 @@ async function handleApi(req, res) {
     const teacherUser = db.users.find(user => user.id === teacher.id && user.role === 'teacher');
     if (!teacherUser) return send(res, 404, { error: '老师账号不存在' });
     order.applicants ||= [];
-    const name = textOf(teacherUser.name) || '未命名老师';
-    const phone = textOf(teacherUser.phone);
+    const name = textOf(data.name).slice(0, 40) || textOf(teacherUser.name) || '未命名老师';
+    const phone = textOf(data.contact).slice(0, 80) || textOf(teacherUser.phone);
+    if (!phone) return send(res, 400, { error: '请填写方便上传者联系你的方式' });
     let applicant = order.applicants.find(item => item.teacherId === teacher.id || (phone && item.phone === phone));
     const alreadyApplied = Boolean(applicant);
     if (!applicant) {
       applicant = { teacherId: teacher.id, name, phone, note: textOf(data.note), at: new Date().toISOString(), status: 'pending' };
       order.applicants.push(applicant);
-      writeDb(db);
+    } else {
+      Object.assign(applicant, { name, phone, note: textOf(data.note), at: new Date().toISOString() });
     }
+    writeDb(db);
     return send(res, 200, {
       ok: true,
       alreadyApplied,
-      contact: agencyContactForOrder(db, order),
       applicant: { name: applicant.name, phone: applicant.phone, at: applicant.at }
     });
   }

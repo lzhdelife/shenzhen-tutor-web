@@ -104,6 +104,7 @@ test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪�
   const mapBody = await (await call('/api/map-orders', { headers: { authorization: `Bearer ${login.teacherToken}` } })).json();
   assert.deepEqual(mapBody.orders, [{ id: order.id, locations: ['113.9000,22.5000'] }]);
   const teacherState = await (await call('/api/state', { headers: { authorization: `Bearer ${login.teacherToken}` } })).json();
+  assert.equal(teacherState.orders[0].source, '');
   assert.equal('locationCoordinates' in teacherState.orders[0], false);
   assert.equal('address' in teacherState.orders[0], false);
   assert.equal('locationCandidates' in teacherState.orders[0], false);
@@ -136,8 +137,12 @@ test('agency creates an order and teacher applies without duplicate application'
   const order = await createdResponse.json();
   assert.equal(order.agencyId, login.agency.id);
 
-  const apply = () => call(`/api/orders/${order.id}/apply`, { method: 'POST', headers: { authorization: `Bearer ${login.teacherToken}` }, body: { note: '可周末上课' } });
-  assert.equal((await (await apply()).json()).alreadyApplied, false);
+  const apply = () => call(`/api/orders/${order.id}/apply`, { method: 'POST', headers: { authorization: `Bearer ${login.teacherToken}` }, body: {
+    name: '李老师', contact: 'wechat-test-contact', note: '可周末上课'
+  } });
+  const firstApplication = await (await apply()).json();
+  assert.equal(firstApplication.alreadyApplied, false);
+  assert.equal('contact' in firstApplication, false, 'applicant must not receive uploader contact');
   assert.equal((await (await apply()).json()).alreadyApplied, true);
   assert.equal(repo.state.applications.length, 1);
 
@@ -151,6 +156,35 @@ test('agency creates an order and teacher applies without duplicate application'
   const deleteAll = await (await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'delete' } })).json();
   assert.equal(deleteAll.affected, 1);
   assert.equal(repo.state.orders.size, 0);
+});
+
+test('guest device receives stable paired roles without a login form', async () => {
+  const { repo, call } = harness();
+  const body = { deviceId: 'browser_1234567890abcdef' };
+  const first = await (await call('/api/account/guest', { method: 'POST', body })).json();
+  const second = await (await call('/api/account/guest', { method: 'POST', body })).json();
+  assert.equal(first.guest, true);
+  assert.equal(first.teacher.id, second.teacher.id);
+  assert.equal(first.agency.id, second.agency.id);
+  assert.equal(repo.state.users.size, 2);
+
+  const other = await (await call('/api/account/guest', { method: 'POST', body: {
+    deviceId: 'browser_fedcba0987654321'
+  } })).json();
+  const order = await (await call('/api/orders', {
+    method: 'POST', headers: { authorization: `Bearer ${first.agencyToken}` },
+    body: { district: '南山', subject: '物理', grade: '高二', price: 300 }
+  })).json();
+  const application = await (await call(`/api/orders/${order.id}/apply`, {
+    method: 'POST', headers: { authorization: `Bearer ${other.teacherToken}` },
+    body: { name: '李老师', contact: 'wechat-contact', note: '有经验' }
+  })).json();
+  assert.equal(application.alreadyApplied, false);
+  assert.equal('contact' in application, false);
+  const ownerState = await (await call('/api/state', { headers: { authorization: `Bearer ${first.agencyToken}` } })).json();
+  assert.equal(ownerState.orders[0].applicants[0].phone, 'wechat-contact');
+  const otherState = await (await call('/api/state', { headers: { authorization: `Bearer ${other.agencyToken}` } })).json();
+  assert.equal(otherState.orders[0].applicants.length, 0);
 });
 
 test('password login and injectable parser have explicit behavior', async () => {

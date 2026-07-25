@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260725-3">
+  <link rel="stylesheet" href="./styles.css?v=20260725-4">
 </head>
 <body>
-  <section id="authScreen" class="auth-screen">
+  <section id="authScreen" class="auth-screen hidden">
     <div class="auth-layout">
       <div class="auth-brand" aria-label="深圳家教接单平台">
         <span class="brand-mark">教</span>
@@ -23,7 +23,7 @@
       </div>
 
       <div class="auth-stack">
-        <form id="unifiedLogin" class="auth-card">
+        <form id="unifiedLogin" class="auth-card hidden">
           <div class="auth-heading">
             <span class="section-kicker">账号登录</span>
             <h2>进入工作台</h2>
@@ -71,7 +71,7 @@
     </div>
   </section>
 
-  <div id="appShell" class="app-shell hidden">
+  <div id="appShell" class="app-shell">
     <header class="topbar">
       <div class="brand-inline">
         <span class="brand-mark small">教</span>
@@ -89,7 +89,7 @@
         <button data-view="agency">发单端</button>
         <button data-view="admin" id="adminTab" class="hidden">管理端</button>
       </nav>
-      <button id="logoutButton" class="secondary logout-button" type="button">退出登录</button>
+      <button id="logoutButton" class="secondary logout-button" type="button">管理员入口</button>
     </header>
 
     <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
@@ -296,6 +296,23 @@
       </div>
     </div>
 
+    <div id="applicationPanel" class="contact-panel hidden" role="dialog" aria-modal="true" aria-labelledby="applicationPanelTitle">
+      <form id="applicationForm" class="contact-card">
+        <div class="contact-head">
+          <div><span class="section-kicker">接单申请</span><h2 id="applicationPanelTitle">请上传者协助联系</h2></div>
+          <button id="applicationClose" class="icon-button" type="button" aria-label="关闭接单申请" title="关闭">×</button>
+        </div>
+        <p class="form-note">你的信息只会提供给这张订单的匿名上传者，由上传者回微信群协助联系。</p>
+        <input name="orderId" type="hidden">
+        <label>你的称呼<input name="name" required maxlength="40" placeholder="例如：李老师"></label>
+        <label>联系方式<input name="contact" required maxlength="80" placeholder="手机号或微信号"></label>
+        <label>补充说明<textarea name="note" placeholder="例如：深大物理专业，有相关经验"></textarea></label>
+        <div class="contact-actions">
+          <button class="primary" type="submit">提交接单申请</button>
+        </div>
+      </form>
+    </div>
+
     <div id="rawTextPanel" class="contact-panel hidden" role="dialog" aria-modal="true" aria-labelledby="rawTextTitle">
       <div class="contact-card raw-text-card">
         <div class="contact-head">
@@ -325,6 +342,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260725-6"></script>
+  <script src="./app.js?v=20260725-7"></script>
 </body>
 </html>

@@ -461,6 +461,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--blue); }
 .order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 12px; }
 .order-list .card.highlight { outline: 3px solid var(--blue); box-shadow: 0 12px 30px rgba(30, 82, 180, .2); }
+.application-hint { align-self: center; color: var(--muted); font-size: 12px; }
 .view-toggle { display: inline-flex; gap: 4px; }
 .view-toggle button { min-height: 36px; padding: 7px 12px; }
 .view-toggle button.active { color: #fff; border-color: var(--ink); background: var(--ink); }
