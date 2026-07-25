@@ -8,6 +8,7 @@ const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter
 const { recognizeOrders } = require('./parser/recognizer');
 const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
+const { canonicalOrderText } = require('../shared/order-dedupe');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -1433,7 +1434,7 @@ function extractOrderCode(raw) {
 }
 
 function rawOrderFingerprint(raw) {
-  return crypto.createHash('sha1').update(textOf(raw).replace(/\s+/g, '')).digest('hex');
+  return crypto.createHash('sha1').update(canonicalOrderText(raw)).digest('hex');
 }
 
 function semanticOrderFingerprint(order) {

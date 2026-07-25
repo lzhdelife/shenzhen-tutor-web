@@ -5,6 +5,7 @@ const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
+const { canonicalOrderText } = require('../shared/order-dedupe.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -347,11 +348,31 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request);
           const incoming = Array.isArray(data.orders) ? data.orders.slice(0, 200) : [];
           if (!incoming.length) return error('请先识别并确认要导入的订单');
-          const prepared = await mapWithConcurrency(incoming, 3, item => prepareCloudflareImportedOrder(item, agency, amap));
-          const outcomes = await mapWithConcurrency(prepared, 3, async (orderData, index) => {
-            const item = incoming[index];
+          const existingOrders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
+          const knownFingerprints = new Set((await Promise.all(existingOrders.map(async order => {
+            const raw = text(order.raw || order.structured?.raw);
+            return [
+              text(order.importFingerprint),
+              raw ? await sha256(`${agency.id}|${canonicalOrderText(raw)}`) : ''
+            ];
+          }))).flat().filter(Boolean));
+          const fingerprinted = await Promise.all(incoming.map(async item => {
             const raw = text(item.raw);
-            const importFingerprint = item.importFingerprint || (raw ? await sha256(raw.replace(/\s+/g, '')) : '');
+            return { item, importFingerprint: raw ? await sha256(`${agency.id}|${canonicalOrderText(raw)}`) : '' };
+          }));
+          const accepted = [];
+          let duplicatesSkipped = 0;
+          for (const entry of fingerprinted) {
+            if (entry.importFingerprint && knownFingerprints.has(entry.importFingerprint)) {
+              duplicatesSkipped++;
+              continue;
+            }
+            if (entry.importFingerprint) knownFingerprints.add(entry.importFingerprint);
+            accepted.push(entry);
+          }
+          const prepared = await mapWithConcurrency(accepted, 3, entry => prepareCloudflareImportedOrder(entry.item, agency, amap));
+          const outcomes = await mapWithConcurrency(prepared, 3, async (orderData, index) => {
+            const importFingerprint = accepted[index].importFingerprint;
             try {
               return { order: await repo.createOrder({ ...orderData, importFingerprint }) };
             } catch (caught) {
@@ -360,7 +381,7 @@ function createWorker(dependencies = {}) {
             }
           });
           const created = outcomes.filter(result => result.order).map(result => result.order);
-          const duplicatesSkipped = outcomes.filter(result => result.duplicate).length;
+          duplicatesSkipped += outcomes.filter(result => result.duplicate).length;
           return json({ created, duplicatesSkipped, incompleteSkipped: 0 });
         }
         if (method === 'POST' && path === '/api/agency/orders/bulk') {

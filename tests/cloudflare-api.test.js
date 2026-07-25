@@ -203,3 +203,26 @@ test('import reuses verified preview locations and resolves only unverified orde
     ['', '待计算', 'pending'], ['', '待计算', 'pending']
   ]);
 });
+
+test('import skips the same order despite whitespace punctuation and emoji differences', async () => {
+  const { call } = harness();
+  const name = '去重测试机构', phone = ['136', '0013', '6000'].join(''), password = 'secret1';
+  const login = await (await call('/api/login', { method: 'POST', body: {
+    role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
+  } })).json();
+  const headers = { authorization: `Bearer ${login.token}` };
+  const base = {
+    district: '宝安', place: '西乡测试花园', grade: '高二', subject: '物理', price: 300,
+    locationVerified: true, locationStatus: 'verified', locationPoiId: 'dedupe-poi',
+    locationCoordinates: '113.8600,22.5800'
+  };
+  const first = await (await call('/api/import', { method: 'POST', headers, body: { orders: [{
+    ...base, raw: '宝安区·西乡测试花园，高二物理，300元/小时'
+  }] } })).json();
+  const repeated = await (await call('/api/import', { method: 'POST', headers, body: { orders: [{
+    ...base, raw: '📚 宝安区 西乡测试花园  高二物理；300元／小时！！！'
+  }] } })).json();
+  assert.equal(first.created.length, 1);
+  assert.equal(repeated.created.length, 0);
+  assert.equal(repeated.duplicatesSkipped, 1);
+});
