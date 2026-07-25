@@ -2168,7 +2168,13 @@ clipboardAutomationToggle.addEventListener('change', () => {
 
 async function initializeApp() {
   hydrateLoginForm();
-  await ensureGuestSession();
+  try {
+    await ensureGuestSession();
+  } catch (error) {
+    // 兼容仍在运行的旧本地后端：公共订单应始终可读，重启后再恢复匿名写入权限。
+    if (error.status !== 404) throw error;
+    console.warn('匿名浏览器接口尚未加载，当前以只读模式展示共享订单。');
+  }
   await load();
   setTeacherViewMode(teacherViewMode);
   if (!teacherPreferencesLoaded) await loadTeacherPreferences();
