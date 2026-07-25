@@ -192,10 +192,8 @@
           <div class="import-workspace">
             <div class="import-input-column">
               <div class="import-column-title"><strong>粘贴原文</strong></div>
-              <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字"></textarea>
-              <div class="actions">
-                <button type="submit" id="parseAndImport" class="primary">识别并导入</button>
-              </div>
+              <textarea name="text" class="large" placeholder="粘贴一条或多条订单文字，粘贴后自动识别"></textarea>
+              <div id="importInputStatus" class="form-note" role="status"></div>
             </div>
             <div class="import-preview-column">
               <div class="import-column-title"><strong>识别结果</strong></div>
@@ -338,6 +336,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260726-25"></script>
+  <script src="./app.js?v=20260726-26"></script>
 </body>
 </html>

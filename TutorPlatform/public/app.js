@@ -1745,6 +1745,8 @@ async function parseAndImportText(text) {
   const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
   mergeCreatedOrders(imported.created || []);
   scheduleBackgroundStateRefresh();
+  const textarea = $('#importForm')?.elements.text;
+  if (textarea) textarea.value = '';
   return { imported, parsedCount: parsedImport.length };
 }
 
@@ -1777,9 +1779,7 @@ async function pollClipboardInbox() {
       if (!$('#clipboardAutomationEnabled').checked) break;
       activeItem = item;
       setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
-      const textarea = $('#importForm').elements.text;
       const { imported, parsedCount } = await parseAndImportText(item.text);
-      textarea.value = item.text;
       await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
         created: imported.created?.length || 0,
         duplicatesSkipped: imported.duplicatesSkipped || 0
@@ -2246,23 +2246,41 @@ $('#orderForm').addEventListener('submit', async event => {
   await load();
 });
 
-$('#importForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
+let manualImportTimer = 0;
+let manualImportBusy = false;
+async function autoImportPastedText() {
+  const form = $('#importForm');
+  const textarea = form?.elements.text;
+  const status = $('#importInputStatus');
+  if (!form || !textarea || manualImportBusy || !textarea.value.trim()) return;
   if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  const button = $('#parseAndImport');
-  button.disabled = true;
-  button.textContent = '正在识别并导入…';
+  manualImportBusy = true;
+  if (status) status.textContent = '正在识别…';
   try {
     const { imported, parsedCount } = await parseAndImportText(form.text.value);
     const created = imported.created?.length || 0;
-    toast(created ? `已识别并导入 ${created} 条` : `已识别 ${parsedCount} 条，没有新增订单`);
+    if (status) status.textContent = created ? `已导入 ${created} 条` : `已识别 ${parsedCount} 条，没有新增订单`;
+    toast(created ? `已自动导入 ${created} 条` : '内容已处理，没有新增订单');
   } catch (error) {
+    if (status) status.textContent = error.message;
     toast(error.message);
   } finally {
-    button.disabled = false;
-    button.textContent = '识别并导入';
+    manualImportBusy = false;
   }
+}
+
+const importTextarea = $('#importForm')?.elements.text;
+$('#importForm')?.addEventListener('submit', event => {
+  event.preventDefault();
+  autoImportPastedText().catch(error => toast(error.message));
+});
+importTextarea?.addEventListener('paste', () => {
+  window.setTimeout(() => autoImportPastedText().catch(error => toast(error.message)), 0);
+});
+importTextarea?.addEventListener('input', () => {
+  window.clearTimeout(manualImportTimer);
+  if (!importTextarea.value.trim()) return;
+  manualImportTimer = window.setTimeout(() => autoImportPastedText().catch(error => toast(error.message)), 650);
 });
 
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
