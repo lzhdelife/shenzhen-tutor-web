@@ -806,6 +806,17 @@ function openMapOrder(point, marker) {
   orderMapInfoWindow.open(orderMap, marker.getPosition());
 }
 
+function mapPointCoordinates(value) {
+  if (Array.isArray(value) && value.length >= 2) return [Number(value[0]), Number(value[1])];
+  if (value && typeof value.getLng === 'function' && typeof value.getLat === 'function') {
+    return [Number(value.getLng()), Number(value.getLat())];
+  }
+  if (value && Number.isFinite(Number(value.lng)) && Number.isFinite(Number(value.lat))) {
+    return [Number(value.lng), Number(value.lat)];
+  }
+  return [];
+}
+
 function openMapClusterOrders(clusterData, marker) {
   const AMap = orderMapApi;
   const uniqueOrders = [...new Map(clusterData
@@ -828,25 +839,33 @@ function openMapClusterOrders(clusterData, marker) {
   content.append(title, list);
   orderMapInfoWindow ||= new AMap.InfoWindow({ offset: new AMap.Pixel(0, -20) });
   orderMapInfoWindow.setContent(content);
-  const firstCoordinates = clusterData[0]?.lnglat || [];
+  const firstCoordinates = mapPointCoordinates(clusterData[0]?.lnglat);
   const position = marker?.getPosition?.()
     || (firstCoordinates.length === 2 ? new AMap.LngLat(firstCoordinates[0], firstCoordinates[1]) : null);
   if (position) orderMapInfoWindow.open(orderMap, position);
 }
 
 function handleMapClusterClick(event) {
-  const clusterData = Array.isArray(event?.clusterData) ? event.clusterData : [];
+  const clusterData = Array.isArray(event?.clusterData)
+    ? event.clusterData
+    : Array.isArray(event?.marker)
+      ? event.marker
+      : Array.isArray(event?.markers)
+        ? event.markers
+        : [];
   if (clusterData.length === 1 && clusterData[0]?.order?.id) {
     focusOrderFromMap(clusterData[0].order.id);
     return;
   }
   if (!clusterData.length) return;
 
-  const marker = event.marker || event.target;
+  const marker = event.cluster || (!Array.isArray(event.marker) ? event.marker : null);
   const currentZoom = Number(orderMap.getZoom?.() || 11);
-  const coordinates = new Set(clusterData.map(point => (point.lnglat || []).join(',')));
+  const coordinates = new Set(clusterData
+    .map(point => mapPointCoordinates(point.lnglat).join(','))
+    .filter(Boolean));
   if (currentZoom < 18 && coordinates.size > 1) {
-    const center = marker?.getPosition?.() || event.lnglat;
+    const center = marker?.getPosition?.() || event.lnglat || mapPointCoordinates(clusterData[0]?.lnglat);
     orderMapInfoWindow?.close();
     orderMap.setZoomAndCenter(Math.min(18, currentZoom + 2), center, false, 260);
     return;
