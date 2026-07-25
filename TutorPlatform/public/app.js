@@ -19,6 +19,7 @@ let orderMapCluster = null;
 let orderMapInfoWindow = null;
 let orderMapApi = null;
 let orderMapLocations = null;
+let orderMapRouteService = null;
 let feedbackHideTimer = 0;
 let activeAgencyContact = null;
 let activeRawText = '';
@@ -764,7 +765,11 @@ async function loadOrderMapApi() {
   const config = await api('/api/map-config');
   if (!config.configured) throw new Error(config.reason || '高德地图 JS API 尚未配置');
   window._AMapSecurityConfig = { serviceHost: config.serviceHost };
-  orderMapApi = await window.AMapLoader.load({ key: config.key, version: config.version || '2.0', plugins: ['AMap.MarkerCluster'] });
+  orderMapApi = await window.AMapLoader.load({
+    key: config.key,
+    version: config.version || '2.0',
+    plugins: ['AMap.MarkerCluster', 'AMap.Walking', 'AMap.Riding', 'AMap.Driving', 'AMap.Transfer']
+  });
   return orderMapApi;
 }
 
@@ -858,6 +863,13 @@ function focusOrderFromMap(orderId) {
 }
 
 async function focusOrderOnMap(orderId) {
+  const origin = String($('#teacherOrigin')?.value || teacherOrigin || '').trim();
+  if (!origin) {
+    toast('请先填写“我的位置”，再查看导航路线');
+    $('#teacherOrigin')?.focus();
+    $('#teacherLocationForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   await setTeacherViewMode('map');
   const locations = orderMapLocations?.get(orderId) || [];
   const coordinates = String(locations[0] || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
@@ -865,9 +877,47 @@ async function focusOrderOnMap(orderId) {
     showOrderMapStatus('该订单还没有可用的地图坐标');
     return;
   }
-  orderMap.setZoomAndCenter(16, [Number(coordinates[1]), Number(coordinates[2])]);
-  showOrderMapStatus('已定位到所选订单');
-  setTimeout(() => showOrderMapStatus(''), 1800);
+  const destination = new orderMapApi.LngLat(Number(coordinates[1]), Number(coordinates[2]));
+  let originCoordinates = selectedOriginCoordinates;
+  if (!originCoordinates) {
+    const result = await api(`/api/location-suggestions?q=${encodeURIComponent(origin)}`);
+    originCoordinates = result.suggestions?.[0]?.location || '';
+  }
+  const originMatch = String(originCoordinates).match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
+  if (!originMatch) {
+    showOrderMapStatus('无法识别“我的位置”，请从地点候选中重新选择');
+    return;
+  }
+  selectedOriginCoordinates = originCoordinates;
+  localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
+  const start = new orderMapApi.LngLat(Number(originMatch[1]), Number(originMatch[2]));
+  orderMapRouteService?.clear?.();
+  const options = { map: orderMap, autoFitView: true, hideMarkers: false };
+  orderMapRouteService = routeMode === 'walking'
+    ? new orderMapApi.Walking(options)
+    : routeMode === 'driving'
+      ? new orderMapApi.Driving(options)
+      : routeMode === 'transit'
+        ? new orderMapApi.Transfer({ ...options, city: '深圳市', cityd: '深圳市', policy: orderMapApi.TransferPolicy.LEAST_TIME })
+        : new orderMapApi.Riding(options);
+  showOrderMapStatus('正在规划导航路线…');
+  const routeResult = await new Promise((resolve, reject) => {
+    orderMapRouteService.search(start, destination, (status, result) => {
+      if (status === 'complete') resolve(result);
+      else reject(new Error(result?.info || '导航路线规划失败'));
+    });
+  }).catch(error => {
+    showOrderMapStatus(error.message);
+    return null;
+  });
+  if (!routeResult) return;
+  const route = routeResult.routes?.[0] || routeResult.plans?.[0] || {};
+  const km = Number(route.distance) ? `${(Number(route.distance) / 1000).toFixed(1)} 公里` : '距离待定';
+  const minutes = Number(route.time) ? `约 ${Math.max(1, Math.round(Number(route.time) / 60))} 分钟` : '时间待定';
+  const summary = $('#orderMapRouteSummary');
+  summary.innerHTML = `<strong>${escapeHtml(routeLabels[routeMode])}导航</strong><span>${escapeHtml(km)} · ${escapeHtml(minutes)}</span>`;
+  summary.classList.remove('hidden');
+  showOrderMapStatus('');
 }
 
 function renderAdmin() {

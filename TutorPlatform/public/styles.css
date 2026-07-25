@@ -468,6 +468,23 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .order-map { width: 100%; height: 560px; }
 .order-map-status { position: absolute; top: 12px; left: 50%; z-index: 5; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 9px 14px; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.96); box-shadow: 0 5px 18px rgba(23,33,43,.14); }
 .order-map-status.hidden { display: none; }
+.order-map-route-summary {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(23, 33, 43, .92);
+  box-shadow: 0 8px 24px rgba(23, 33, 43, .22);
+}
+.order-map-route-summary strong { font-size: 16px; }
+.order-map-route-summary span { color: #eef4ff; }
+.order-map-route-summary.hidden { display: none; }
 .map-order-popup { min-width: 220px; max-width: 300px; line-height: 1.55; }
 .map-order-popup strong { display: block; margin-bottom: 5px; }
 .map-order-popup button { margin-top: 8px; }
