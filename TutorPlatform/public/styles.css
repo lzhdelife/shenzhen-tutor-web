@@ -266,15 +266,15 @@ button.danger:hover { background: #f1d3d7; }
 .tabs {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(106px, 1fr);
-  padding: 4px;
+  grid-auto-columns: minmax(118px, 1fr);
+  padding: 5px;
   border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #edf0f3;
+  border-radius: 10px;
+  background: #e9eef5;
 }
-.tabs button { min-height: 36px; color: #485563; background: transparent; }
+.tabs button { min-height: 43px; padding-inline: 18px; color: #405168; background: transparent; font-size: 15px; font-weight: 800; }
 .tabs button:hover { color: var(--ink); background: #e0e5ea; }
-.tabs button.active { color: #fff; background: #25313c; }
+.tabs button.active { color: #fff; background: linear-gradient(135deg, #243746, #1f55b8); box-shadow: 0 5px 14px rgba(30,70,135,.2); }
 .logout-button { justify-self: end; min-height: 36px; }
 main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .view { display: none; }
@@ -462,9 +462,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 12px; }
 .order-list .card.highlight { outline: 3px solid var(--blue); box-shadow: 0 12px 30px rgba(30, 82, 180, .2); }
 .application-hint { align-self: center; color: var(--muted); font-size: 12px; }
-.view-toggle { display: inline-flex; gap: 4px; }
-.view-toggle button { min-height: 36px; padding: 7px 12px; }
-.view-toggle button.active { color: #fff; border-color: var(--ink); background: var(--ink); }
 .order-map-panel { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: #eef3f6; }
 .order-map-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); height: 620px; }
 .order-map-sidebar {
@@ -961,7 +958,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .multi-filter-menu,
   .multi-filter[data-filter-group="gender"] .multi-filter-menu { position: static; right: auto; left: auto; width: auto; margin-top: 6px; box-shadow: none; }
   .order-list { grid-template-columns: 1fr; }
-  .view-toggle button { min-height: 34px; padding: 6px 9px; }
   .order-map-layout { grid-template-rows: minmax(430px, 62vh) auto; }
   .order-map-canvas { min-height: 430px; }
   .order-map-sidebar { padding: 10px; }

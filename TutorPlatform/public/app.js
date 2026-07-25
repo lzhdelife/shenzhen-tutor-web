@@ -144,7 +144,12 @@ function setView(name) {
   if (!target) return;
   activeView = name;
   sessionStorage.setItem('activeView', name);
-  $$('.tabs button').forEach(button => button.classList.toggle('active', button.dataset.view === name));
+  $$('.tabs button').forEach(button => {
+    const teacherModeMatches = name !== 'teacher'
+      || !button.dataset.teacherMode
+      || button.dataset.teacherMode === teacherViewMode;
+    button.classList.toggle('active', button.dataset.view === name && teacherModeMatches);
+  });
   $$('.view').forEach(view => view.classList.toggle('active', view.id === name));
 }
 
@@ -155,7 +160,7 @@ function syncShell() {
   $('#authScreen').classList.add('hidden');
   $('#appShell').classList.remove('hidden');
 
-  $('.tabs button[data-view="teacher"]').classList.toggle('hidden', isAdmin);
+  $$('.tabs button[data-view="teacher"]').forEach(button => button.classList.toggle('hidden', isAdmin));
   $('.tabs button[data-view="agency"]').classList.toggle('hidden', isAdmin || !hasMemberSession);
   $('#adminTab').classList.toggle('hidden', !isAdmin);
   $('#accountBadge').textContent = isAdmin
@@ -917,8 +922,7 @@ function setTeacherViewMode(mode) {
   localStorage.setItem('teacherViewMode', teacherViewMode);
   $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
-  $('#showOrderList').classList.toggle('active', teacherViewMode === 'list');
-  $('#showOrderMap').classList.toggle('active', teacherViewMode === 'map');
+  if (activeView === 'teacher') setView('teacher');
   if (teacherViewMode === 'map') return renderOrderMap().catch(error => showOrderMapStatus(error.message));
   return Promise.resolve();
 }
@@ -1939,7 +1943,12 @@ function escapeHtml(text) {
 }
 
 $$('.tabs button').forEach(btn => {
-  btn.addEventListener('click', () => setView(btn.dataset.view));
+  btn.addEventListener('click', () => {
+    setView(btn.dataset.view);
+    if (btn.dataset.view === 'teacher' && btn.dataset.teacherMode) {
+      setTeacherViewMode(btn.dataset.teacherMode);
+    }
+  });
 });
 
 ['filterMinPrice', 'filterBike'].forEach(id => {
@@ -2243,9 +2252,6 @@ $('#feedbackForm').addEventListener('submit', async event => {
   closeFeedback();
   toast('感谢反馈，开发者会查看');
 });
-$('#showOrderList').addEventListener('click', () => setTeacherViewMode('list'));
-$('#showOrderMap').addEventListener('click', () => setTeacherViewMode('map'));
-
 window.addEventListener('scroll', () => {
   const button = $('#feedbackButton');
   if (!button || !$('#feedbackPanel').classList.contains('hidden')) return;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260725-7">
+  <link rel="stylesheet" href="./styles.css?v=20260725-9">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -85,8 +85,9 @@
         </div>
       </div>
       <nav class="tabs" aria-label="工作台切换">
-        <button data-view="teacher" class="active">接单端</button>
-        <button data-view="agency">发单端</button>
+        <button id="showOrderList" data-view="teacher" data-teacher-mode="list" class="active">信息列表</button>
+        <button id="showOrderMap" data-view="teacher" data-teacher-mode="map">地图看单</button>
+        <button data-view="agency">发单</button>
         <button data-view="admin" id="adminTab" class="hidden">管理端</button>
       </nav>
       <button id="logoutButton" class="secondary logout-button" type="button">管理员入口</button>
@@ -109,10 +110,6 @@
           <div><span class="section-kicker">接单端</span><h2>适合你的家教单</h2></div>
           <div class="workspace-heading-actions">
             <span id="orderCount" class="count-label"></span>
-            <div class="view-toggle" role="group" aria-label="订单展示方式">
-              <button id="showOrderList" class="secondary active" type="button">列表</button>
-              <button id="showOrderMap" class="secondary" type="button">地图</button>
-            </div>
             <button id="refreshOrdersButton" class="refresh-button" type="button" title="刷新家教单" aria-label="刷新家教单"><span aria-hidden="true">↻</span><b>刷新</b></button>
           </div>
         </div>
@@ -350,6 +347,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260725-14"></script>
+  <script src="./app.js?v=20260725-16"></script>
 </body>
 </html>
