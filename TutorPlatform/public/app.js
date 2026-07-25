@@ -17,6 +17,8 @@ let teacherViewMode = localStorage.getItem('teacherViewMode') === 'map' ? 'map' 
 let orderMap = null;
 let orderMapCluster = null;
 let orderMapInfoWindow = null;
+let orderMapOriginMarker = null;
+let orderMapRenderRequest = 0;
 let orderMapApi = null;
 let orderMapLocations = null;
 let orderMapRouteService = null;
@@ -887,14 +889,53 @@ function handleMapClusterClick(event) {
   openMapClusterOrders(clusterData, marker);
 }
 
+function mapOriginPoint() {
+  const lnglat = coordinatePair(selectedOriginCoordinates);
+  return lnglat ? { lnglat } : null;
+}
+
+function syncOrderMapOriginMarker() {
+  if (!orderMap || !orderMapApi) return null;
+  const origin = mapOriginPoint();
+  if (!origin) {
+    orderMapOriginMarker?.setMap(null);
+    orderMapOriginMarker = null;
+    return null;
+  }
+  const position = new orderMapApi.LngLat(origin.lnglat[0], origin.lnglat[1]);
+  if (!orderMapOriginMarker) {
+    const marker = document.createElement('div');
+    marker.className = 'order-map-origin-marker';
+    const dot = document.createElement('span');
+    const label = document.createElement('b');
+    label.textContent = '我的位置';
+    marker.append(dot, label);
+    orderMapOriginMarker = new orderMapApi.Marker({
+      map: orderMap,
+      position,
+      content: marker,
+      offset: new orderMapApi.Pixel(-14, -14),
+      title: '我的位置',
+      zIndex: 300
+    });
+  } else {
+    orderMapOriginMarker.setPosition(position);
+    orderMapOriginMarker.setMap(orderMap);
+  }
+  return orderMapOriginMarker;
+}
+
 function fitOrderMapPoints(points = []) {
-  if (!orderMap || !orderMapApi || !points.length) return;
-  if (points.length === 1) {
-    orderMap.setZoomAndCenter(15, points[0].lnglat);
+  if (!orderMap || !orderMapApi) return;
+  const origin = mapOriginPoint();
+  const visiblePoints = origin ? [...points, origin] : [...points];
+  if (!visiblePoints.length) return;
+  if (visiblePoints.length === 1) {
+    orderMap.setZoomAndCenter(15, visiblePoints[0].lnglat);
     return;
   }
-  const longitudes = points.map(point => Number(point.lnglat[0])).filter(Number.isFinite);
-  const latitudes = points.map(point => Number(point.lnglat[1])).filter(Number.isFinite);
+  const longitudes = visiblePoints.map(point => Number(point.lnglat[0])).filter(Number.isFinite);
+  const latitudes = visiblePoints.map(point => Number(point.lnglat[1])).filter(Number.isFinite);
   if (!longitudes.length || !latitudes.length) return;
   const bounds = new orderMapApi.Bounds(
     new orderMapApi.LngLat(Math.min(...longitudes), Math.min(...latitudes)),
@@ -903,17 +944,30 @@ function fitOrderMapPoints(points = []) {
   orderMap.setBounds(bounds, true, [56, 56, 56, 56]);
 }
 
+function scheduleOrderMapFit() {
+  window.setTimeout(() => {
+    if (teacherViewMode !== 'map' || activeMapRouteOrderId || orderMapRouteService) return;
+    fitOrderMapPoints(orderMapPoints(filteredOrders()));
+  }, 1400);
+}
+
 async function renderOrderMap(orders = filteredOrders()) {
+  const renderRequest = ++orderMapRenderRequest;
   showOrderMapStatus('正在加载订单地图…');
   const AMap = await loadOrderMapApi();
+  if (renderRequest !== orderMapRenderRequest) return;
   await loadOrderMapLocations();
+  if (renderRequest !== orderMapRenderRequest) return;
   orderMap ||= new AMap.Map('orderMap', { zoom: 11, center: [114.0579, 22.5431], viewMode: '2D', mapStyle: 'amap://styles/whitesmoke' });
+  syncOrderMapOriginMarker();
   if (orderMapCluster) {
     orderMapCluster.setMap(null);
     orderMapCluster = null;
   }
   const points = orderMapPoints(orders);
   if (!points.length) {
+    if (renderRequest !== orderMapRenderRequest) return;
+    fitOrderMapPoints(points);
     showOrderMapStatus('当前筛选结果中没有已确认坐标的订单');
     return;
   }
@@ -939,7 +993,12 @@ async function renderOrderMap(orders = filteredOrders()) {
   });
   orderMapCluster.on('click', handleMapClusterClick);
   await new Promise(resolve => window.setTimeout(resolve, 120));
+  if (renderRequest !== orderMapRenderRequest) return;
   fitOrderMapPoints(points);
+  await new Promise(resolve => window.setTimeout(resolve, 420));
+  if (renderRequest !== orderMapRenderRequest) return;
+  fitOrderMapPoints(points);
+  scheduleOrderMapFit();
   showOrderMapStatus('');
 }
 
