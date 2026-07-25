@@ -9,13 +9,16 @@ $source = Join-Path $repoRoot "clipboard_bridge\clipboard_collector.py"
 $dist = Join-Path $repoRoot "dist\clipboard-bridge"
 $work = Join-Path $repoRoot "build\clipboard-bridge"
 $spec = Join-Path $repoRoot "build"
-$runtimeConfig = Join-Path $repoRoot "clipboard_bridge\runtime_config.py"
+$packSource = Join-Path $work "clipboard_collector_pack.py"
 
 if ([string]::IsNullOrWhiteSpace($BridgeToken)) {
   throw "请先设置 SHENZHEN_TUTOR_BRIDGE_TOKEN，再打包公网剪贴板桥接器"
 }
 $pythonToken = $BridgeToken | ConvertTo-Json -Compress
-Set-Content -LiteralPath $runtimeConfig -Value "BRIDGE_TOKEN = $pythonToken" -Encoding utf8
+$sourceText = Get-Content -LiteralPath $source -Raw -Encoding utf8
+$sourceText = $sourceText -replace '(?s)try:\r?\n    from runtime_config import BRIDGE_TOKEN\r?\nexcept ImportError:\r?\n    BRIDGE_TOKEN = os.getenv\("SHENZHEN_TUTOR_BRIDGE_TOKEN", ""\)', "BRIDGE_TOKEN = $pythonToken"
+New-Item -ItemType Directory -Path $work -Force | Out-Null
+Set-Content -LiteralPath $packSource -Value $sourceText -Encoding utf8
 
 try {
   & $Python -m PyInstaller --version *> $null
@@ -28,19 +31,18 @@ try {
     --clean `
     --onefile `
     --windowed `
-    --hidden-import "runtime_config" `
     --name "ShenzhenTutorClipboardBridge" `
     --distpath $dist `
     --workpath $work `
     --specpath $spec `
-    $source
+    $packSource
 
   if ($LASTEXITCODE -ne 0) {
     throw "剪贴板桥接器打包失败"
   }
 }
 finally {
-  Remove-Item -LiteralPath $runtimeConfig -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $packSource -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "EXE: $(Join-Path $dist 'ShenzhenTutorClipboardBridge.exe')"
