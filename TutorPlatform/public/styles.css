@@ -504,6 +504,10 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   box-shadow: 0 18px 48px rgba(23, 33, 43, .24);
   backdrop-filter: blur(14px);
 }
+.order-map-route-summary.compact { width: min(360px, calc(100% - 32px)); }
+.order-map-route-summary.compact .commute-card-head { padding: 12px 15px 10px; }
+.order-map-route-summary.compact .commute-primary { padding: 14px 16px 16px; }
+.order-map-route-summary.compact .commute-primary > strong { font-size: 30px; }
 .commute-card-head {
   display: flex;
   align-items: flex-start;
@@ -894,6 +898,18 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .columns { grid-template-columns: 1fr; }
   .import-workspace { grid-template-columns: 1fr; }
   .import-preview-column { padding-top: 16px; padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
+  .order-map-route-summary {
+    left: 10px;
+    bottom: 10px;
+    width: min(420px, calc(100% - 20px));
+    max-height: 46%;
+    border-radius: 14px;
+  }
+  .order-map-route-summary.compact { width: min(340px, calc(100% - 20px)); max-height: none; }
+  .order-map-route-summary.transit .commute-card-head { padding: 12px 15px 10px; }
+  .order-map-route-summary.transit .commute-primary { padding: 12px 15px 10px; }
+  .order-map-route-summary.transit .commute-metrics { padding: 0 15px 10px; }
+  .order-map-route-summary.transit .commute-route-chain { padding: 11px 15px 14px; }
 }
 
 @media (max-width: 700px) {
@@ -936,6 +952,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .order-list { grid-template-columns: 1fr; }
   .view-toggle button { min-height: 34px; padding: 6px 9px; }
   .order-map-panel, .order-map { min-height: 440px; height: 440px; }
+  .order-map-route-summary { max-height: 44%; }
+  .order-map-route-summary.compact { right: 8px; left: 8px; bottom: 8px; width: auto; }
   .admin-order-list { grid-template-columns: 1fr; }
   .admin-section-head { align-items: stretch; flex-direction: column; }
   .bulk-toolbar { justify-content: flex-start; }

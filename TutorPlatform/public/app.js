@@ -1003,18 +1003,19 @@ function renderOrderCommuteSummary(routeResult = {}, orderId = '') {
     return mode && mode !== 'WALK';
   });
   const transfers = Math.max(0, transitSegments.length - 1);
-  const metrics = [
+  const isTransit = routeMode === 'transit';
+  const metrics = isTransit ? [
     walking ? { value: walking, label: '步行' } : null,
-    routeMode === 'transit' ? { value: `${transfers}次`, label: '换乘' } : null,
+    { value: `${transfers}次`, label: '换乘' },
     Number(route.cost) ? { value: `¥${Number(route.cost).toFixed(1)}`, label: '费用' } : null,
-    Number(route.tolls) ? { value: `¥${Number(route.tolls).toFixed(0)}`, label: '过路费' } : null,
-    Number(route.traffic_lights || route.trafficLights) ? { value: Number(route.traffic_lights || route.trafficLights), label: '红绿灯' } : null,
     routes.length > 1 ? { value: routes.length, label: '可选方案' } : null
-  ].filter(Boolean);
-  const steps = routeStepDetails(route);
+  ].filter(Boolean) : [];
+  const steps = isTransit ? routeStepDetails(route) : [];
   const order = state.orders.find(item => item.id === orderId);
   const destination = order ? orderDisplayMeta(order).location : '订单地点';
   const summary = $('#orderMapRouteSummary');
+  summary.classList.toggle('transit', isTransit);
+  summary.classList.toggle('compact', !isTransit);
   summary.innerHTML = `
     <div class="commute-card-head">
       <div>
