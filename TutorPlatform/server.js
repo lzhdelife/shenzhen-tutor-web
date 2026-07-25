@@ -16,10 +16,7 @@ const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, 'public');
 const DATA_DIR = process.env.TUTOR_DATA_DIR ? path.resolve(process.env.TUTOR_DATA_DIR) : path.join(ROOT, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
-const SOURCE_IMAGE_DIR = path.join(DATA_DIR, 'source-images');
-const MAX_SOURCE_IMAGES = 40;
-const MAX_SOURCE_IMAGE_BYTES = 8 * 1024 * 1024;
-const MAX_REQUEST_BYTES = 30 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const MAX_CLIPBOARD_INBOX = 500;
 const sessions = new Map();
@@ -452,7 +449,7 @@ function bodyJson(req) {
       size += chunk.length;
       if (size > MAX_REQUEST_BYTES) {
         req.destroy();
-        reject(new Error('上传内容过大，请减少每次读取的屏数'));
+        reject(new Error('请求内容过大，请减少每次导入的订单数量'));
         return;
       }
       data += chunk;
@@ -461,30 +458,6 @@ function bodyJson(req) {
       try { resolve(data ? JSON.parse(data) : {}); } catch (err) { reject(err); }
     });
   });
-}
-
-function saveSourceImages(values) {
-  const items = Array.isArray(values) ? values.slice(0, MAX_SOURCE_IMAGES) : [];
-  if (!items.length) return [];
-  fs.mkdirSync(SOURCE_IMAGE_DIR, { recursive: true });
-  const stored = [];
-  for (const item of items) {
-    const source = textOf(typeof item === 'string' ? item : item?.data);
-    const match = source.match(/^data:image\/(png|jpe?g);base64,([A-Za-z0-9+/=\r\n]+)$/i);
-    if (!match) continue;
-    const extension = match[1].toLowerCase() === 'png' ? 'png' : 'jpg';
-    const buffer = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
-    if (!buffer.length || buffer.length > MAX_SOURCE_IMAGE_BYTES) continue;
-    const validPng = extension === 'png' && buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    const validJpeg = extension === 'jpg' && buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-    if (!validPng && !validJpeg) continue;
-    const digest = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 32);
-    const fileName = `source-${digest}.${extension}`;
-    const target = path.join(SOURCE_IMAGE_DIR, fileName);
-    if (!fs.existsSync(target)) fs.writeFileSync(target, buffer);
-    stored.push(fileName);
-  }
-  return uniq(stored);
 }
 
 function ocrComparable(value) {
@@ -498,70 +471,11 @@ function textNgrams(value, size = 2) {
   return grams;
 }
 
-function sourcePageScore(orderText, pageText) {
-  const order = ocrComparable(orderText);
-  const page = ocrComparable(pageText);
-  if (!order || !page) return 0;
-  if (page.includes(order)) return 1000 + order.length;
-  const orderGrams = textNgrams(orderText);
-  const pageGrams = textNgrams(pageText);
-  if (!orderGrams.size || !pageGrams.size) return 0;
-  let common = 0;
-  for (const gram of orderGrams) if (pageGrams.has(gram)) common++;
-  const coverage = common / orderGrams.size;
-  const precision = common / pageGrams.size;
-  const anchors = [...textOf(orderText).matchAll(/(?:深圳)?[A-Z]{0,4}\d{6,}[A-Z]?|[\u4e00-\u9fff]{2,12}(?:小区|花园|公馆|中心|地铁站|学校|酒店|大厦|广场|村|城)/gi)]
-    .map(match => ocrComparable(match[0]));
-  const anchorHits = anchors.filter(anchor => anchor && page.includes(anchor)).length;
-  return (coverage * 100) + (precision * 20) + (anchorHits * 25);
-}
-
-function saveSourcePages(pages, fallbackImages = []) {
-  const result = [];
-  const items = Array.isArray(pages) ? pages.slice(0, MAX_SOURCE_IMAGES) : [];
-  for (const item of items) {
-    const data = typeof item === 'string' ? item : item?.image || item?.data || item?.images?.[0];
-    const fileName = saveSourceImages([data])[0];
-    if (!fileName) continue;
-    result.push({ text: textOf(item?.text), fileName });
-  }
-  if (result.length) return result;
-  const stored = saveSourceImages(fallbackImages);
-  return stored.map(fileName => ({ text: '', fileName }));
-}
-
-function sourceImageForOrder(orderText, sourcePages) {
-  if (!sourcePages.length) return [];
-  if (sourcePages.length === 1) return [sourcePages[0].fileName];
-  let best = sourcePages[0];
-  let bestScore = -1;
-  for (const page of sourcePages) {
-    const pageScore = sourcePageScore(orderText, page.text);
-    if (pageScore > bestScore) {
-      best = page;
-      bestScore = pageScore;
-    }
-  }
-  return best?.fileName ? [best.fileName] : [];
-}
-
-function removeUnreferencedSourceImages(db, candidates) {
-  const referenced = new Set(db.orders.flatMap(order => Array.isArray(order.sourceImages) ? order.sourceImages : []));
-  for (const candidate of uniq(Array.isArray(candidates) ? candidates : [])) {
-    const fileName = path.basename(textOf(candidate));
-    if (!fileName || referenced.has(fileName)) continue;
-    const target = path.join(SOURCE_IMAGE_DIR, fileName);
-    if (target.startsWith(SOURCE_IMAGE_DIR + path.sep)) fs.rmSync(target, { force: true });
-  }
-}
-
 function purgeExpiredOrders(db, now = Date.now()) {
   const expired = db.orders.filter(order => isExpiredOrder(order, now));
   if (!expired.length) return 0;
   const expiredIds = new Set(expired.map(order => order.id));
-  const removedImages = expired.flatMap(order => order.sourceImages || []);
   db.orders = db.orders.filter(order => !expiredIds.has(order.id));
-  removeUnreferencedSourceImages(db, removedImages);
   return expired.length;
 }
 
@@ -2835,11 +2749,9 @@ async function handleApi(req, res) {
     if (!orderIds.length) return send(res, 400, { error: '请先选择要删除的订单' });
     const selectedIds = new Set(orderIds);
     const before = db.orders.length;
-    const removedImages = db.orders.filter(order => selectedIds.has(order.id)).flatMap(order => order.sourceImages || []);
     db.orders = db.orders.filter(order => !selectedIds.has(order.id));
     const deletedOrders = before - db.orders.length;
     if (!deletedOrders) return send(res, 404, { error: '所选订单已经不存在' });
-    removeUnreferencedSourceImages(db, removedImages);
     writeDb(db);
     return send(res, 200, { ok: true, deletedOrders });
   }
@@ -2867,10 +2779,8 @@ async function handleApi(req, res) {
 
     db.users = db.users.filter(user => !deletedUserIds.has(user.id));
     const orderCountBefore = db.orders.length;
-    const removedImages = db.orders.filter(order => deletedAgencyIds.has(order.agencyId)).flatMap(order => order.sourceImages || []);
     db.orders = db.orders.filter(order => !deletedAgencyIds.has(order.agencyId));
     const deletedOrders = orderCountBefore - db.orders.length;
-    removeUnreferencedSourceImages(db, removedImages);
     let deletedApplications = 0;
     for (const order of db.orders) {
       const beforeApplicants = order.applicants?.length || 0;
@@ -3071,7 +2981,6 @@ async function handleApi(req, res) {
     } else {
       affected = ownedOrders.length;
       db.orders = db.orders.filter(order => order.agencyId !== agency.id);
-      for (const order of ownedOrders) removeUnreferencedSourceImages(db, order.sourceImages || []);
     }
     if (affected) writeDb(db);
     return send(res, 200, { action: data.action, affected });
@@ -3137,7 +3046,6 @@ async function handleApi(req, res) {
     const allowed = actor && (actor.role === 'admin' || (actor.role === 'agency' && order.agencyId === actor.id));
     if (!allowed) return send(res, 403, { error: '你只能删除自己发布的订单' });
     db.orders.splice(index, 1);
-    removeUnreferencedSourceImages(db, order.sourceImages || []);
     writeDb(db);
     return send(res, 200, { ok: true });
   }
@@ -3214,8 +3122,6 @@ module.exports = {
   sanitizeImportedText,
   extractOrderCode,
   semanticOrderFingerprint,
-  sourcePageScore,
-  sourceImageForOrder,
   validMainlandPhone,
   resolveOrderLocation,
   normalizeLocationDisplayName,
