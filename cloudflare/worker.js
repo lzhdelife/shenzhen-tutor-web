@@ -311,22 +311,22 @@ function createWorker(dependencies = {}) {
           if (!origin) return error('请填写你的位置');
           const orders = (await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed');
           const settings = await repo.getSettings();
-          const distances = [];
-          for (const order of orders) {
+          const distances = await mapWithConcurrency(orders, 4, async order => {
             const destinations = Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => ({ option, value: option.coordinates }))
               : order.locationVerified && order.locationCoordinates ? [{ value: order.locationCoordinates }] : [];
             if (!destinations.length) {
-              distances.push({ id: order.id, status: 'location_unconfirmed', distanceKm: '', routeOptions: {}, locationOptionRoutes: [], score: scoreOrder(order, settings) });
-              continue;
+              return { id: order.id, status: 'location_unconfirmed', distanceKm: '', routeOptions: {}, locationOptionRoutes: [], score: scoreOrder(order, settings) };
             }
-            const routed = [];
-            for (const destination of destinations) routed.push({ ...destination, route: await amap.route(origin, destination.value, data.mode) });
+            const routed = await mapWithConcurrency(destinations, 2, async destination => ({
+              ...destination,
+              route: await amap.route(origin, destination.value, data.mode)
+            }));
             const best = routed.slice().sort((a, b) => a.route.km - b.route.km)[0];
-            distances.push({ id: order.id, status: 'verified', distanceKm: best.route.km, routeMode: best.route.label,
+            return { id: order.id, status: 'verified', distanceKm: best.route.km, routeMode: best.route.label,
               routeOptions: { [best.route.mode]: best.route }, locationOptionRoutes: routed.map(item => ({ ...item.option, routeOptions: { [item.route.mode]: item.route } })),
-              score: scoreOrder({ ...order, distanceKm: best.route.km }, settings) });
-          }
+              score: scoreOrder({ ...order, distanceKm: best.route.km }, settings) };
+          });
           return json({ status: 'verified', distances });
         }
         if (method === 'POST' && path === '/api/parse') {

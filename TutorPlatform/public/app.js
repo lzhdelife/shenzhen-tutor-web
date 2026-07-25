@@ -303,6 +303,7 @@ function currentTeacherPreferences() {
     minPrice: Number($('#filterMinPrice')?.value || 0),
     onlyRange: Boolean($('#filterBike')?.checked),
     origin: String($('#teacherOrigin')?.value || teacherOrigin || '').trim(),
+    originCoordinates: selectedOriginCoordinates,
     routeMode
   };
 }
@@ -314,8 +315,11 @@ function applyTeacherPreferences(preferences = {}) {
     for (const item of Array.isArray(filters[group]) ? filters[group] : []) teacherFilterSelections[group].add(item);
   }
   teacherOrigin = String(preferences.origin || '');
+  selectedOriginCoordinates = String(preferences.originCoordinates || '');
   routeMode = ['walking', 'cycling', 'driving', 'transit'].includes(preferences.routeMode) ? preferences.routeMode : 'cycling';
   localStorage.setItem('teacherOrigin', teacherOrigin);
+  if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
+  else localStorage.removeItem('teacherOriginCoordinates');
   localStorage.setItem('routeMode', routeMode);
   $('#filterMinPrice').value = Number(preferences.minPrice || 0) || '';
   $('#filterBike').checked = Boolean(preferences.onlyRange);
@@ -346,6 +350,12 @@ async function loadTeacherPreferences() {
     return;
   }
   teacherPreferencesLoaded = true;
+  if (teacherOrigin) {
+    $('#teacherLocationStatus').textContent = '正在按你的常用位置计算并排序…';
+    setTimeout(() => updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
+      $('#teacherLocationStatus').textContent = `路线计算失败：${error.message}`;
+    }), 0);
+  }
 }
 
 function fillSettings() {
@@ -421,7 +431,8 @@ function filteredOrders() {
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
     .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) && Number(o.distanceKm) <= maxKm))
-    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0)
+      || (Number(a.distanceKm || Number.MAX_SAFE_INTEGER) - Number(b.distanceKm || Number.MAX_SAFE_INTEGER)));
 }
 
 function compactText(value) {
@@ -1717,6 +1728,10 @@ async function showLocationSuggestions(query) {
       localStorage.setItem('teacherOrigin', teacherOrigin);
       if (selectedOriginCoordinates) localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
       hideLocationSuggestions();
+      $('#teacherLocationStatus').textContent = '正在计算并按通勤距离排序…';
+      updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
+        $('#teacherLocationStatus').textContent = `路线计算失败：${error.message}`;
+      });
     });
     root.appendChild(button);
   }

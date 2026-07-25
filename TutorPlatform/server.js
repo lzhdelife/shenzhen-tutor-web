@@ -2223,6 +2223,9 @@ function sanitizeTeacherPreferences(value = {}) {
     minPrice: Math.max(0, Math.min(100000, Number(value.minPrice || 0))) || 0,
     onlyRange: Boolean(value.onlyRange),
     origin: textOf(value.origin).slice(0, 100),
+    originCoordinates: /^-?\d{1,3}(?:\.\d+)?,-?\d{1,2}(?:\.\d+)?$/.test(textOf(value.originCoordinates))
+      ? textOf(value.originCoordinates)
+      : '',
     routeMode: ['walking', 'cycling', 'driving', 'transit'].includes(value.routeMode) ? value.routeMode : 'cycling',
     updatedAt: new Date().toISOString()
   };
