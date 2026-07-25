@@ -806,6 +806,54 @@ function openMapOrder(point, marker) {
   orderMapInfoWindow.open(orderMap, marker.getPosition());
 }
 
+function openMapClusterOrders(clusterData, marker) {
+  const AMap = orderMapApi;
+  const uniqueOrders = [...new Map(clusterData
+    .filter(point => point?.order?.id)
+    .map(point => [point.order.id, point.order])).values()];
+  if (!uniqueOrders.length) return;
+  const content = document.createElement('div');
+  content.className = 'map-order-popup map-cluster-popup';
+  const title = document.createElement('strong');
+  title.textContent = `这里有 ${uniqueOrders.length} 条家教单`;
+  const list = document.createElement('div');
+  list.className = 'map-cluster-order-list';
+  uniqueOrders.forEach(order => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = orderDisplayMeta(order).title;
+    button.addEventListener('click', () => focusOrderFromMap(order.id));
+    list.append(button);
+  });
+  content.append(title, list);
+  orderMapInfoWindow ||= new AMap.InfoWindow({ offset: new AMap.Pixel(0, -20) });
+  orderMapInfoWindow.setContent(content);
+  const firstCoordinates = clusterData[0]?.lnglat || [];
+  const position = marker?.getPosition?.()
+    || (firstCoordinates.length === 2 ? new AMap.LngLat(firstCoordinates[0], firstCoordinates[1]) : null);
+  if (position) orderMapInfoWindow.open(orderMap, position);
+}
+
+function handleMapClusterClick(event) {
+  const clusterData = Array.isArray(event?.clusterData) ? event.clusterData : [];
+  if (clusterData.length === 1 && clusterData[0]?.order?.id) {
+    focusOrderFromMap(clusterData[0].order.id);
+    return;
+  }
+  if (!clusterData.length) return;
+
+  const marker = event.marker || event.target;
+  const currentZoom = Number(orderMap.getZoom?.() || 11);
+  const coordinates = new Set(clusterData.map(point => (point.lnglat || []).join(',')));
+  if (currentZoom < 18 && coordinates.size > 1) {
+    const center = marker?.getPosition?.() || event.lnglat;
+    orderMapInfoWindow?.close();
+    orderMap.setZoomAndCenter(Math.min(18, currentZoom + 2), center, false, 260);
+    return;
+  }
+  openMapClusterOrders(clusterData, marker);
+}
+
 async function renderOrderMap(orders = filteredOrders()) {
   showOrderMapStatus('正在加载订单地图…');
   const AMap = await loadOrderMapApi();
@@ -840,11 +888,7 @@ async function renderOrderMap(orders = filteredOrders()) {
       context.marker.on('click', () => focusOrderFromMap(point.order.id));
     }
   });
-  orderMapCluster.on('click', event => {
-    const clusterData = Array.isArray(event?.clusterData) ? event.clusterData : [];
-    if (clusterData.length !== 1 || !clusterData[0]?.order?.id) return;
-    focusOrderFromMap(clusterData[0].order.id);
-  });
+  orderMapCluster.on('click', handleMapClusterClick);
   orderMap.setFitView();
   showOrderMapStatus('');
 }

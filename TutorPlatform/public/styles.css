@@ -558,6 +558,20 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   transform: rotate(-45deg);
 }
 .order-map-marker span { transform: rotate(45deg); }
+.map-cluster-popup { min-width: 260px; max-width: min(360px, 72vw); }
+.map-cluster-order-list { display: grid; gap: 7px; margin-top: 10px; max-height: 260px; overflow-y: auto; }
+.map-cluster-order-list button {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid #d8e1eb;
+  border-radius: 9px;
+  background: #f7f9fc;
+  color: var(--ink);
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.map-cluster-order-list button:hover { border-color: var(--blue); background: #eef4ff; }
 .card {
   min-width: 0;
   display: flex;
