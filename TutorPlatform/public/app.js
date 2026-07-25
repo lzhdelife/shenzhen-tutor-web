@@ -1711,6 +1711,11 @@ async function pollClipboardInbox() {
   let activeItem = null;
   try {
     const inbox = await api('/api/clipboard/inbox', {}, agencyToken);
+    if (inbox.unavailable) {
+      clipboardBridgeUnavailable = true;
+      setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
+      return;
+    }
     if (!inbox.items?.length) {
       if (inbox.pending) setClipboardAutomationStatus(`有 ${inbox.pending} 条正在等待重试`);
       return;

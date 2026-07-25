@@ -128,6 +128,17 @@ test('account login creates paired roles and persists only token hashes', async 
   assert.equal(denied.status, 401);
 });
 
+test('public Worker reports the local clipboard bridge as unavailable without a 404', async () => {
+  const { call } = harness();
+  const deviceId = 'browser_clipboard_test_1234';
+  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId } })).json();
+  const anonymous = await call('/api/clipboard/inbox');
+  assert.equal(anonymous.status, 401);
+  const response = await call('/api/clipboard/inbox', { headers: { authorization: `Bearer ${guest.agencyToken}` } });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { items: [], pending: 0, unavailable: true });
+});
+
 test('agency creates an order and teacher applies without duplicate application', async () => {
   const { repo, call } = harness();
   const loginName = '张老师', loginPhone = ['139', '0013', '9000'].join('');

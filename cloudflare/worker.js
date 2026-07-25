@@ -258,6 +258,10 @@ function createWorker(dependencies = {}) {
         }
 
         const viewer = await actorOf(repo, request);
+        if (method === 'GET' && path === '/api/clipboard/inbox') {
+          if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
+          return json({ items: [], pending: 0, unavailable: true });
+        }
         if (method === 'GET' && path === '/api/map-config') {
           return json(mapConfigured(env)
             ? { configured: true, key: text(env.AMAP_JS_API_KEY), version: '2.0', serviceHost: `${url.origin}/_AMapService` }
