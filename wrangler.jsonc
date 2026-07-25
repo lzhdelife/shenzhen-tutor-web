@@ -2,6 +2,13 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "shenzhen-tutor-web",
   "main": "./cloudflare/index.mjs",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "tutor.liuzonghao.top",
+      "custom_domain": true
+    }
+  ],
   "compatibility_date": "2026-07-17",
   "compatibility_flags": ["nodejs_compat"],
   "define": {
