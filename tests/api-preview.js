@@ -104,6 +104,29 @@ async function run() {
   assert.equal(mixed.ignoredBlocks.length, 1, 'ignored raw text remains reviewable');
   assert.equal(mixed.ignoredBlocks[0].rawText, mixedText.split('\n\n')[0]);
   assert.match(mixed.parsed[0].raw, /^单号：合成1545E/);
+
+  const bridgeHeaders = { 'content-type': 'application/json', 'x-clipboard-bridge': 'shenzhen-tutor-local-v1' };
+  const ignoredCaptureId = 'synthetic-ignore-001';
+  const ignoredCapture = await fetch(`${base}/api/clipboard/capture`, {
+    method: 'POST',
+    headers: bridgeHeaders,
+    body: JSON.stringify({ captureId: ignoredCaptureId, text: '明天下午记得把资料发到群里，谢谢' })
+  }).then(response => response.json());
+  assert.equal(ignoredCapture.status, 'ignored', 'non-order clipboard text must terminate without entering the inbox');
+  const ignoredStatus = await fetch(`${base}/api/clipboard/status?captureId=${ignoredCaptureId}`, { headers: bridgeHeaders }).then(response => response.json());
+  assert.equal(ignoredStatus.status, 'ignored');
+
+  const orderCaptureId = 'synthetic-order-001';
+  const orderCapture = await fetch(`${base}/api/clipboard/capture`, {
+    method: 'POST',
+    headers: bridgeHeaders,
+    body: JSON.stringify({ captureId: orderCaptureId, text: '福田香蜜湖高一数学，周末上课，200元每小时，需要有经验老师' })
+  }).then(response => response.json());
+  assert.equal(orderCapture.status, 'pending', 'order-like clipboard text must enter the authenticated Web inbox');
+  const clipboardInbox = await fetch(`${base}/api/clipboard/inbox`, {
+    headers: { authorization: `Bearer ${login.agencyToken}` }
+  }).then(response => response.json());
+  assert.deepEqual(clipboardInbox.items.map(item => item.captureId), [orderCaptureId]);
   console.log('PASS preview API regression tests');
 }
 

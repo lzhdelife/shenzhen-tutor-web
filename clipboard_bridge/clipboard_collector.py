@@ -23,6 +23,7 @@ STATUS_PENDING = "等待发送"
 STATUS_SENDING = "正在发送"
 STATUS_QUEUED = "等待网页导入"
 STATUS_IMPORTED = "网站已导入"
+STATUS_IGNORED = "非家教单已忽略"
 STATUS_RETRY = "等待重试"
 
 
@@ -187,6 +188,8 @@ class ClipboardBridgeApp:
             item.setdefault("attempts", 0)
             item.setdefault("nextRetryAt", 0)
             item.setdefault("error", "")
+            if item["status"] in (STATUS_IMPORTED, STATUS_IGNORED):
+                continue
             if item["status"] == STATUS_SENDING:
                 item["status"] = STATUS_RETRY
             normalized.append(item)
@@ -298,14 +301,22 @@ class ClipboardBridgeApp:
                 record = self._record(record_id)
                 if record:
                     status = result[2].get("status")
-                    record["status"] = STATUS_IMPORTED if status == "completed" else STATUS_QUEUED
-                    record["error"] = "" if status == "completed" else "已送达网站，等待发单端处理"
-                    record["nextRetryAt"] = 0
+                    if status in ("completed", "ignored"):
+                        self._remove_record(record_id)
+                    else:
+                        record["status"] = STATUS_QUEUED
+                        record["error"] = "已送达网站，等待发单端处理"
+                        record["nextRetryAt"] = 0
             elif kind == "status_ok":
                 record = self._record(record_id)
-                if record and result[2].get("status") == "completed":
-                    record["status"] = STATUS_IMPORTED
-                    record["error"] = "自动解析和导入已完成"
+                if record:
+                    status = result[2].get("status")
+                    if status in ("completed", "ignored"):
+                        self._remove_record(record_id)
+                    elif status == "unknown":
+                        record["status"] = STATUS_RETRY
+                        record["error"] = "网站回执已过期，准备重新确认"
+                        record["nextRetryAt"] = 0
             elif kind in ("capture_error", "status_error"):
                 record = self._record(record_id)
                 if record and kind == "capture_error":
@@ -348,6 +359,9 @@ class ClipboardBridgeApp:
 
     def _record(self, record_id):
         return next((record for record in self.records if record.get("id") == record_id), None)
+
+    def _remove_record(self, record_id):
+        self.records = [record for record in self.records if record.get("id") != record_id]
 
     def _refresh_rows(self):
         self.tree.delete(*self.tree.get_children())

@@ -1385,8 +1385,8 @@ async function pollClipboardInbox() {
       activeItem = item;
       setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
       const textarea = $('#importForm').elements.text;
-      textarea.value = item.text;
       const { imported, parsedCount } = await parseAndImportText(item.text);
+      textarea.value = item.text;
       await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
         created: imported.created?.length || 0,
         duplicatesSkipped: imported.duplicatesSkipped || 0
@@ -1401,6 +1401,15 @@ async function pollClipboardInbox() {
     if (error.status === 404 && !activeItem) {
       clipboardBridgeUnavailable = true;
       setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
+      return;
+    }
+    if (activeItem?.captureId && error.message === '没有识别出可以导入的订单') {
+      await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/complete`, {
+        method: 'POST',
+        body: { outcome: 'ignored' }
+      }, agencyToken).catch(() => {});
+      setClipboardAutomationStatus('已忽略非家教单或残缺内容');
+      activeItem = null;
       return;
     }
     if (activeItem?.captureId) {

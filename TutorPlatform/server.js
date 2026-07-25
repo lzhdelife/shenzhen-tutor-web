@@ -6,6 +6,7 @@ const { runParserPipeline } = require('./parser/pipeline');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
 const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
+const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
 
 const PORT = Number(process.env.PORT || 8787);
@@ -2333,9 +2334,15 @@ async function handleApi(req, res) {
     if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_TEXT_BYTES) return send(res, 413, { error: '单条剪贴板内容过大' });
     const captureId = /^[A-Za-z0-9_-]{8,100}$/.test(textOf(data.captureId)) ? textOf(data.captureId) : crypto.randomUUID();
     const completed = db.clipboardReceipts.find(item => item.captureId === captureId);
-    if (completed) return send(res, 200, { ok: true, captureId, status: 'completed', duplicate: true });
+    if (completed) return send(res, 200, { ok: true, captureId, status: completed.outcome || 'completed', duplicate: true });
     const existing = db.clipboardInbox.find(item => item.captureId === captureId);
     if (existing) return send(res, 200, { ok: true, captureId, status: 'pending', duplicate: true });
+    if (!classifyOrderBlock(text).accepted) {
+      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), outcome: 'ignored' });
+      db.clipboardReceipts = db.clipboardReceipts.slice(-500);
+      writeDb(db);
+      return send(res, 200, { ok: true, captureId, status: 'ignored', duplicate: false });
+    }
     if (db.clipboardInbox.length >= MAX_CLIPBOARD_INBOX) return send(res, 507, { error: '网站待处理队列已满，请先打开发单端完成导入' });
     db.clipboardInbox.push({
       captureId,
@@ -2353,7 +2360,8 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/clipboard/status') {
     if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
     const captureId = textOf(url.searchParams.get('captureId'));
-    if (db.clipboardReceipts.some(item => item.captureId === captureId)) return send(res, 200, { captureId, status: 'completed' });
+    const receipt = db.clipboardReceipts.find(item => item.captureId === captureId);
+    if (receipt) return send(res, 200, { captureId, status: receipt.outcome || 'completed' });
     if (db.clipboardInbox.some(item => item.captureId === captureId)) return send(res, 200, { captureId, status: 'pending' });
     return send(res, 200, { captureId, status: 'unknown' });
   }
@@ -2379,11 +2387,13 @@ async function handleApi(req, res) {
     const index = db.clipboardInbox.findIndex(item => item.captureId === captureId);
     if (index < 0) return send(res, 200, { ok: true, captureId, status: db.clipboardReceipts.some(item => item.captureId === captureId) ? 'completed' : 'unknown' });
     if (action === 'complete') {
+      const data = await bodyJson(req);
+      const outcome = data.outcome === 'ignored' ? 'ignored' : 'completed';
       db.clipboardInbox.splice(index, 1);
-      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), agencyId: agency.id });
+      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), agencyId: agency.id, outcome });
       db.clipboardReceipts = db.clipboardReceipts.slice(-500);
       writeDb(db);
-      return send(res, 200, { ok: true, captureId, status: 'completed' });
+      return send(res, 200, { ok: true, captureId, status: outcome });
     }
     const data = await bodyJson(req);
     const item = db.clipboardInbox[index];
