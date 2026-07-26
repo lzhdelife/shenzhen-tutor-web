@@ -2245,6 +2245,7 @@ $('#orderForm').addEventListener('submit', async event => {
 });
 
 const MANUAL_IMPORT_QUEUE_KEY = 'manualImportQueueV1';
+const MAX_MANUAL_IMPORT_BYTES = 2 * 1024 * 1024;
 let manualImportQueue = [];
 try {
   const savedQueue = JSON.parse(sessionStorage.getItem(MANUAL_IMPORT_QUEUE_KEY) || '[]');
@@ -2254,8 +2255,12 @@ let manualImportBusy = false;
 let manualImportRetryTimer = 0;
 
 function saveManualImportQueue() {
-  if (manualImportQueue.length) sessionStorage.setItem(MANUAL_IMPORT_QUEUE_KEY, JSON.stringify(manualImportQueue));
-  else sessionStorage.removeItem(MANUAL_IMPORT_QUEUE_KEY);
+  try {
+    if (manualImportQueue.length) sessionStorage.setItem(MANUAL_IMPORT_QUEUE_KEY, JSON.stringify(manualImportQueue));
+    else sessionStorage.removeItem(MANUAL_IMPORT_QUEUE_KEY);
+  } catch {
+    sessionStorage.removeItem(MANUAL_IMPORT_QUEUE_KEY);
+  }
 }
 
 function setManualImportStatus(message, tone = '') {
@@ -2316,10 +2321,19 @@ async function processManualImportQueue() {
   }
 }
 
-function enqueueManualImport(text) {
+function enqueueManualImport(text, source = '粘贴内容') {
   const rawText = String(text || '').trim();
-  if (!rawText) return;
-  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, attempts: 0, nextAttemptAt: 0 });
+  if (!rawText) {
+    setManualImportStatus('没有可识别的文字', 'error');
+    toast('没有可识别的文字');
+    return false;
+  }
+  if (new TextEncoder().encode(rawText).byteLength > MAX_MANUAL_IMPORT_BYTES) {
+    setManualImportStatus('内容超过 2 MB，请拆分后再导入', 'error');
+    toast('内容超过 2 MB，请拆分后再导入');
+    return false;
+  }
+  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, source, attempts: 0, nextAttemptAt: 0 });
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
@@ -2330,8 +2344,9 @@ function enqueueManualImport(text) {
     window.setTimeout(() => textarea.classList.remove('queue-flash'), 700);
   }
   setManualImportStatus(`已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
-  toast('已加入识别队列');
+  toast(`${source}已加入识别队列`);
   scheduleManualImportQueue();
+  return true;
 }
 
 const importTextarea = $('#importForm')?.elements.text;
@@ -2344,6 +2359,46 @@ importTextarea?.addEventListener('paste', event => {
   if (!text.trim()) return;
   event.preventDefault();
   enqueueManualImport(text);
+});
+async function importTxtFile(file) {
+  if (!file) return;
+  if (!/\.txt$/i.test(file.name)) {
+    setManualImportStatus('请选择 TXT 文档', 'error');
+    return toast('请选择 TXT 文档');
+  }
+  if (file.size > MAX_MANUAL_IMPORT_BYTES) {
+    setManualImportStatus('TXT 超过 2 MB，请拆分后再导入', 'error');
+    return toast('TXT 超过 2 MB，请拆分后再导入');
+  }
+  try {
+    enqueueManualImport(await file.text(), file.name);
+  } catch {
+    setManualImportStatus('TXT 读取失败，请重新选择', 'error');
+    toast('TXT 读取失败，请重新选择');
+  }
+}
+
+$('#txtImportInput')?.addEventListener('change', event => {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = '';
+  importTxtFile(file).catch(error => toast(error.message));
+});
+const txtDropZone = $('#txtDropZone');
+for (const eventName of ['dragenter', 'dragover']) {
+  txtDropZone?.addEventListener(eventName, event => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    txtDropZone.classList.add('is-dragging');
+  });
+}
+for (const eventName of ['dragleave', 'dragend']) {
+  txtDropZone?.addEventListener(eventName, () => txtDropZone.classList.remove('is-dragging'));
+}
+txtDropZone?.addEventListener('drop', event => {
+  event.preventDefault();
+  txtDropZone.classList.remove('is-dragging');
+  importTxtFile(event.dataTransfer?.files?.[0]).catch(error => toast(error.message));
 });
 scheduleManualImportQueue();
 
