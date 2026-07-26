@@ -305,6 +305,12 @@ function createRepository(env = {}) {
     return mapRow(await first('SELECT * FROM publisher_access WHERE user_id = ?', [userId]));
   }
 
+  async function findApprovedPublisherAccess(displayName, contact) {
+    return mapRow(await first(`SELECT * FROM publisher_access
+      WHERE display_name = ? AND contact = ? AND status = 'approved'
+      ORDER BY reviewed_at DESC LIMIT 1`, [displayName, contact]));
+  }
+
   async function submitPublisherAccess(userId, displayName, contact) {
     const timestamp = nowIso();
     await run(`INSERT INTO publisher_access (user_id, display_name, contact, status, requested_at, reviewed_at, updated_at)
@@ -413,7 +419,7 @@ function createRepository(env = {}) {
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
     updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
-    getPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
+    getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
     listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };

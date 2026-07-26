@@ -93,6 +93,9 @@ class MockD1 {
     const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity|amap_usage|publisher_access)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
     let rows = this.tables[tableMatch[1]].map(row => tableMatch[1] === 'amap_usage' ? { ...row, count: row.call_count } : { ...row });
+    if (tableMatch[1] === 'publisher_access' && /display_name = \?.*contact = \?.*status = 'approved'/i.test(sql)) {
+      rows = rows.filter(row => row.display_name === values[0] && row.contact === values[1] && row.status === 'approved');
+    }
     if (/SELECT COUNT\(\*\) AS count FROM visitor_activity/i.test(sql)) {
       if (/last_seen_at >= \?/i.test(sql)) rows = rows.filter(row => row.last_seen_at >= values[0]);
       return [{ count: rows.length }];
@@ -139,6 +142,8 @@ async function run() {
   const approvedAccess = await repo.setPublisherAccessStatus(agency.id, 'approved');
   assert.equal(approvedAccess.status, 'approved');
   assert.ok(approvedAccess.reviewedAt);
+  assert.equal((await repo.findApprovedPublisherAccess('测试称呼', 'wechat-test')).userId, agency.id);
+  assert.equal(await repo.findApprovedPublisherAccess('测试称呼', 'wrong-contact'), null);
   assert.equal((await repo.submitPublisherAccess(agency.id, '新称呼', 'new-contact')).status, 'approved');
 
   await assert.rejects(() => repo.createSession({ userId: teacher.id, expiresAt: Date.now() + 1000 }), /tokenHash is required/);

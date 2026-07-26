@@ -715,21 +715,23 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .admin-metric strong { color: var(--text); font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }
 .admin-metric span { color: var(--muted); font-size: 13px; font-weight: 700; }
 .online-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--soft-green); vertical-align: 1px; }
-.publisher-gate { display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 28px; padding: 24px; }
-.publisher-gate-main { display: grid; align-content: start; gap: 22px; }
+.publisher-gate { width: min(1100px, 100%); min-height: 360px; margin-inline: auto; display: grid; grid-template-columns: minmax(0, 1fr) 230px; gap: 32px; padding: 28px; }
+.publisher-gate-main { display: grid; align-content: center; gap: 28px; }
 .publisher-gate-main h2 { margin: 5px 0 7px; font-size: 22px; }
 .publisher-gate-main p { color: var(--muted); line-height: 1.6; }
-.publisher-access-form { max-width: 560px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.publisher-access-form { width: 100%; max-width: 720px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .publisher-access-form label { display: grid; gap: 6px; color: #435160; font-size: 12px; font-weight: 700; }
 .publisher-access-form button { grid-column: 1 / -1; justify-self: start; min-width: 120px; }
-.publisher-contact { display: grid; align-content: start; gap: 10px; padding-left: 24px; border-left: 1px solid var(--line); }
-.publisher-contact img { width: 100%; aspect-ratio: 890 / 1382; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.publisher-contact { display: grid; align-content: center; gap: 10px; padding-left: 28px; border-left: 1px solid var(--line); }
+.publisher-contact img { width: min(190px, 100%); aspect-ratio: 890 / 1382; justify-self: center; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
 .publisher-contact div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .publisher-contact a { color: var(--blue-dark); font-weight: 800; text-decoration: none; }
 .publisher-request-list { display: grid; gap: 8px; }
 .publisher-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfd; }
 .publisher-request-info { min-width: 0; display: grid; grid-template-columns: minmax(100px, auto) minmax(120px, 1fr); align-items: baseline; gap: 4px 14px; }
-.publisher-request-info a { color: var(--blue-dark); font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+.publisher-contact-copy { width: fit-content; max-width: 100%; padding: 2px 0; border: 0; color: var(--blue-dark); background: transparent; font-weight: 800; text-align: left; overflow-wrap: anywhere; }
+.publisher-contact-copy:hover { text-decoration: underline; }
+.publisher-contact-copy:focus-visible { outline: 3px solid rgba(62, 127, 196, .2); outline-offset: 2px; }
 .publisher-request-info small { grid-column: 1 / -1; color: var(--muted); }
 .publisher-status { min-width: 58px; padding: 5px 8px; border-radius: 4px; background: #edf0f3; color: #526070; font-size: 12px; font-weight: 800; text-align: center; }
 .publisher-status.approved { background: var(--soft-green); color: #176344; }
@@ -1032,10 +1034,12 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .workspace-heading h2 { font-size: 21px; }
   .workspace-heading-actions { align-self: center; }
   .agency-primary-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .publisher-gate { grid-template-columns: 1fr; gap: 22px; padding: 18px; }
+  .publisher-gate { min-height: 0; grid-template-columns: 1fr; gap: 22px; padding: 18px; }
+  .publisher-gate-main { align-content: start; gap: 22px; }
   .publisher-access-form { grid-template-columns: 1fr; }
   .publisher-access-form button { width: 100%; }
   .publisher-contact { grid-template-columns: minmax(0, 150px) 1fr; align-items: center; padding: 18px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+  .publisher-contact img { width: 100%; }
   .publisher-contact div { align-items: flex-start; flex-direction: column; }
   .publisher-request-row { grid-template-columns: minmax(0, 1fr) auto; }
   .publisher-request-row .actions { grid-column: 1 / -1; justify-content: flex-end; }

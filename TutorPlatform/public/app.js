@@ -1380,7 +1380,7 @@ function renderPublisherAccess() {
   title.textContent = access?.status === 'rejected' ? '重新申请发单权限' : '申请发单权限';
   message.textContent = access?.status === 'rejected'
     ? '本次申请暂未通过。请联系吴老师沟通后重新提交。'
-    : '提交联系方式后，请添加吴老师沟通。审核通过即可发单。';
+    : '首次使用需审核；已通过的联系方式可直接进入。';
   form.elements.displayName.value = access?.displayName || '';
   form.elements.contact.value = access?.contact || '';
 }
@@ -1397,7 +1397,7 @@ function renderAdminPublisherRequests() {
     return `<article class="publisher-request-row">
       <div class="publisher-request-info">
         <strong>${escapeHtml(item.displayName || '未填写称呼')}</strong>
-        <a href="tel:${escapeHtml(item.contact || '')}">${escapeHtml(item.contact || '未填写联系方式')}</a>
+        <button class="publisher-contact-copy" type="button" data-copy-contact="${escapeHtml(item.contact || '')}" title="点击复制联系方式">${escapeHtml(item.contact || '未填写联系方式')}</button>
         <small>${item.requestedAt ? new Date(item.requestedAt).toLocaleString() : ''}</small>
       </div>
       <span class="publisher-status ${escapeHtml(item.status || 'pending')}">${statusText}</span>
@@ -1905,6 +1905,15 @@ async function submitPublisherAccess(form) {
   button.disabled = true;
   try {
     const result = await api('/api/publisher-access', { method: 'POST', body: data }, agencyToken);
+    if (result.recognized && result.agencyToken && result.agency) {
+      agencyToken = result.agencyToken;
+      currentAgency = result.agency;
+      localStorage.setItem('agencyUser', JSON.stringify(currentAgency));
+      sessionStorage.setItem('agencyToken', agencyToken);
+      toast('发单身份已恢复');
+      await load();
+      return;
+    }
     state.publisherAccess = result.access;
     renderPublisherAccess();
     toast('申请已提交');
@@ -2306,6 +2315,15 @@ $('#publisherAccessForm')?.addEventListener('submit', event => {
 });
 
 $('#adminPublisherRequests')?.addEventListener('click', event => {
+  const copyButton = event.target.closest('[data-copy-contact]');
+  if (copyButton) {
+    const contact = copyButton.dataset.copyContact || '';
+    if (!contact) return;
+    navigator.clipboard.writeText(contact)
+      .then(() => toast('联系方式已复制'))
+      .catch(() => toast('复制失败，请手动复制'));
+    return;
+  }
   const button = event.target.closest('[data-publisher-review]');
   if (!button) return;
   button.disabled = true;

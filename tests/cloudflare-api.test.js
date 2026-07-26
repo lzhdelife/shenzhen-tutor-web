@@ -32,6 +32,7 @@ function memoryRepository() {
     async touchVisitor(id) { const item = state.visitors.get(id); state.visitors.set(id, { ...item, lastSeenAt: Date.now(), visits: item?.visits || 1 }); },
     async getVisitorStats(since) { const values = [...state.visitors.values()]; return { totalVisitors: values.length, onlineVisitors: values.filter(item => item.lastSeenAt >= since).length }; },
     async getPublisherAccess(userId) { return state.publisherAccess.get(userId) || null; },
+    async findApprovedPublisherAccess(displayName, contact) { return [...state.publisherAccess.values()].find(item => item.displayName === displayName && item.contact === contact && item.status === 'approved') || null; },
     async submitPublisherAccess(userId, displayName, contact) {
       const existing = state.publisherAccess.get(userId);
       const item = { userId, displayName, contact, status: existing?.status === 'approved' ? 'approved' : 'pending', requestedAt: existing?.requestedAt || new Date().toISOString(), reviewedAt: existing?.reviewedAt || null, updatedAt: new Date().toISOString() };
@@ -249,6 +250,16 @@ test('publisher access requires an application and admin approval before publish
 
   assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 200);
   assert.equal((await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: { district: '南山', subject: '数学' } })).status, 200);
+
+  const otherBrowser = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_other_browser' } })).json();
+  const restored = await (await call('/api/publisher-access', { method: 'POST', headers: { authorization: `Bearer ${otherBrowser.agencyToken}` }, body: {
+    displayName: '申请人', contact: 'wechat-publisher'
+  } })).json();
+  assert.equal(restored.recognized, true);
+  assert.equal(restored.agency.id, guest.agency.id);
+  assert.equal((await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${restored.agencyToken}` }, body: { district: '福田', subject: '英语' } })).status, 200);
+  assert.equal((await call('/api/state', { headers: { authorization: `Bearer ${restored.agencyToken}` } })).status, 200);
+  assert.equal((await call('/api/state', { headers: adminHeaders }).then(response => response.json())).publisherRequests.length, 1);
 });
 
 test('shared clipboard bridge requires its program token and exposes a common queue', async () => {

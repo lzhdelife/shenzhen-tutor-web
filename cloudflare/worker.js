@@ -398,6 +398,17 @@ function createWorker(dependencies = {}) {
           if (!displayName) return error('请填写称呼');
           if (contact.length < 5) return error('请填写微信号或手机号');
           if (typeof repo.submitPublisherAccess !== 'function') return error('发单审核服务尚未配置', 503);
+          const approved = typeof repo.findApprovedPublisherAccess === 'function'
+            ? await repo.findApprovedPublisherAccess(displayName, contact)
+            : null;
+          if (approved && approved.userId !== viewer.id) {
+            const agency = await repo.getUserById(approved.userId);
+            if (agency?.role === 'agency') {
+              const agencyToken = await issueSession(repo, request, agency);
+              return json({ access: approved, agency: publicUser(agency), agencyToken, recognized: true }, 200,
+                { 'set-cookie': sessionCookie(agencyToken) });
+            }
+          }
           return json({ access: await repo.submitPublisherAccess(viewer.id, displayName, contact) });
         }
         const publisherReview = path.match(/^\/api\/admin\/publisher-access\/([^/]+)$/);
