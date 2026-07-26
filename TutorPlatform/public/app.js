@@ -64,8 +64,14 @@ try {
 } catch {
   sessionStorage.removeItem(IMPORT_PREVIEW_HISTORY_KEY);
 }
-const visitorId = localStorage.getItem('tutorPlatformVisitorId')
-  || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+function clientRandomId(prefix = '') {
+  const value = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}${value}`;
+}
+
+const visitorId = localStorage.getItem('tutorPlatformVisitorId') || clientRandomId('visitor-');
 localStorage.setItem('tutorPlatformVisitorId', visitorId);
 
 const K12_FILTER_SUBJECTS = ['语文', '数学', '英语', '物理', '化学', '生物', '历史', '政治', '地理', '体育'];
@@ -1957,7 +1963,7 @@ function storeMemberSession(result) {
 function guestDeviceId() {
   let value = localStorage.getItem(GUEST_DEVICE_KEY) || '';
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(value)) {
-    value = `browser_${crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+    value = clientRandomId('browser_');
     localStorage.setItem(GUEST_DEVICE_KEY, value);
   }
   return value;
@@ -2227,7 +2233,7 @@ async function parseAndImportText(text, onStage = () => {}) {
   ignoredImportBlocks = parsed.ignoredBlocks || [];
   if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
   const previewBatch = {
-    id: crypto.randomUUID(),
+    id: clientRandomId('preview-'),
     createdAt: Date.now(),
     stage: 'publishing',
     orders: parsedImport,
@@ -2862,7 +2868,7 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
     return false;
   }
   recentManualImportFingerprints.set(fingerprint, now);
-  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, source, attempts: 0, nextAttemptAt: Date.now() + 180 });
+  manualImportQueue.push({ id: clientRandomId('import-'), text: rawText, source, attempts: 0, nextAttemptAt: Date.now() + 180 });
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
@@ -2898,10 +2904,10 @@ $('#importForm')?.addEventListener('submit', event => {
 importTextarea?.addEventListener('paste', event => {
   const text = event.clipboardData?.getData('text/plain') || '';
   if (!text.trim()) return;
-  event.preventDefault();
   window.clearTimeout(manualImportTypingTimer);
   lastManualPasteEvent = { text, at: Date.now() };
   enqueueManualImport(text, '粘贴内容', true);
+  event.preventDefault();
 });
 importTextarea?.addEventListener('input', event => {
   const text = importTextarea.value;
@@ -2912,6 +2918,9 @@ importTextarea?.addEventListener('input', event => {
     || (event.data == null && text.trim().length > 4);
   if (insertedAtOnce && text.trim()) scheduleTextareaImport(120, '粘贴内容', true);
   else if (text) scheduleTextareaImport(800, '输入内容');
+});
+importTextarea?.addEventListener('change', () => {
+  if (importTextarea.value.trim()) scheduleTextareaImport(120, '粘贴内容', true);
 });
 async function importTxtFile(file) {
   if (!file) return;

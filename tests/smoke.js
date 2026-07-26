@@ -1,9 +1,15 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const platform = require('../TutorPlatform/server.js');
 const { summarizeScheduleText } = require('../TutorPlatform/public/schedule-format.js');
 const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public/order-score.js');
+
+const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
+assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
+assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固
