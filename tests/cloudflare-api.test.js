@@ -88,6 +88,40 @@ test('万科天誉地点下拉返回多个真实候选且无 Key 明确失败', 
   assert.deepEqual(await missingResponse.json(), { error: '高德服务未配置', code: 'AMAP_NOT_CONFIGURED', details: {} });
 });
 
+test('地点候选缓存相同查询且不在缓存键中暴露地址', async () => {
+  const entries = new Map();
+  const cacheKeys = [];
+  const locationCache = {
+    async match(request) { return entries.get(request.url)?.clone(); },
+    async put(request, response) {
+      cacheKeys.push(request.url);
+      entries.set(request.url, response.clone());
+    }
+  };
+  let upstreamCalls = 0;
+  const configured = harness({
+    locationCache,
+    fetchImpl: async () => {
+      upstreamCalls++;
+      return new Response(JSON.stringify({
+        status: '1',
+        pois: [{ id: 'houhai', name: '后海地铁站', adname: '南山区', address: '后海大道', location: '113.9426,22.5180' }]
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  }, { AMAP_WEB_SERVICE_KEY: 'synthetic-test-value' });
+
+  const path = '/api/location-suggestions?q=%E6%B7%B1%E5%9C%B3%E5%B8%82%E5%8D%97%E5%B1%B1%E5%8C%BA%E5%90%8E%E6%B5%B7';
+  const first = await configured.call(path);
+  const second = await configured.call(path);
+  assert.equal(first.headers.get('x-location-cache'), 'miss');
+  assert.equal(second.headers.get('x-location-cache'), 'hit');
+  assert.match(first.headers.get('cache-control'), /max-age=300/);
+  assert.match(first.headers.get('cache-control'), /s-maxage=86400/);
+  assert.equal(upstreamCalls, 1);
+  assert.equal(cacheKeys.length, 1);
+  assert.doesNotMatch(decodeURIComponent(cacheKeys[0]), /深圳市南山区后海/);
+});
+
 test('地图配置仅公开 JS API Key 并通过同源代理保护安全密钥', async () => {
   const missing = harness();
   assert.deepEqual(await (await missing.call('/api/map-config')).json(), { configured: false, reason: '高德地图 JS API 尚未配置' });

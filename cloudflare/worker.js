@@ -10,6 +10,7 @@ const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
+const LOCATION_CACHE_CONTROL = 'public, max-age=300, s-maxage=86400';
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const LISTS = {
   districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'],
@@ -24,6 +25,35 @@ function json(body, status = 200, headers = {}) {
 function error(message, status = 400) { return json({ error: message }, status); }
 function text(value) { return String(value == null ? '' : value).trim(); }
 function mapConfigured(env) { return Boolean(text(env.AMAP_JS_API_KEY) && text(env.AMAP_JS_SECURITY_CODE)); }
+
+async function locationSuggestionsResponse(amap, url, ctx, cache) {
+  const query = text(url.searchParams.get('q')).replace(/\s+/g, ' ');
+  const district = text(url.searchParams.get('district'));
+  let cacheKey = null;
+  if (cache?.match && cache?.put && query.length >= 2) {
+    const digest = await sha256(`${query.toLowerCase()}|${district.toLowerCase()}`);
+    cacheKey = new Request(`${url.origin}/__location-suggestions-cache/${digest}`);
+    try {
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const headers = new Headers(cached.headers);
+        headers.set('x-location-cache', 'hit');
+        return new Response(cached.body, { status: cached.status, headers });
+      }
+    } catch (_) {}
+  }
+  const result = await amap.candidates(query, district);
+  const response = json({ status: result.status, suggestions: result.candidates }, 200, {
+    'cache-control': LOCATION_CACHE_CONTROL,
+    'x-location-cache': 'miss'
+  });
+  if (cacheKey) {
+    const write = cache.put(cacheKey, response.clone()).catch(() => {});
+    if (ctx?.waitUntil) ctx.waitUntil(write);
+    else await write;
+  }
+  return response;
+}
 
 async function proxyAmapJsService(request, env, fetchImpl = fetch) {
   if (!mapConfigured(env)) return error('高德地图 JS API 尚未配置', 503);
@@ -399,8 +429,8 @@ function createWorker(dependencies = {}) {
           return json({ ok: true });
         }
         if (method === 'GET' && path === '/api/location-suggestions') {
-          const result = await amap.candidates(url.searchParams.get('q'), url.searchParams.get('district'));
-          return json({ status: result.status, suggestions: result.candidates });
+          const cache = dependencies.locationCache || globalThis.caches?.default;
+          return await locationSuggestionsResponse(amap, url, ctx, cache);
         }
         if (method === 'POST' && path === '/api/distance-preview') {
           const teacher = await requireRole(repo, request, 'teacher');

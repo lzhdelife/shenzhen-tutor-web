@@ -2038,7 +2038,7 @@ function queueLocationSuggestions() {
   const query = $('#teacherOrigin').value;
   locationSuggestionTimer = setTimeout(() => {
     showLocationSuggestions(query).catch(error => showLocationSuggestionError(error.message));
-  }, 260);
+  }, 120);
 }
 
 function openRawText(encoded) {
