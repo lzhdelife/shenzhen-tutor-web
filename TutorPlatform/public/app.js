@@ -49,6 +49,7 @@ const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
 const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const PUBLISHER_BROWSER_ACCESS_KEY = 'tutorPlatformPublisherBrowserAccess';
+const ADMIN_BROWSER_ACCESS_KEY = 'tutorPlatformAdminBrowserAccess';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
 const SUBPAGE_HISTORY_KEY = 'tutorPlatformSubpages';
@@ -2003,6 +2004,19 @@ async function restorePublisherBrowserSession() {
   }
 }
 
+async function restoreAdminBrowserSession() {
+  if (localStorage.getItem(ADMIN_BROWSER_ACCESS_KEY) !== 'remembered') return false;
+  if (adminToken) return true;
+  try {
+    const result = await api('/api/admin/remember-login', { method: 'POST', body: {} });
+    adminToken = result.token;
+    sessionStorage.setItem('adminToken', adminToken);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function guestDeviceId() {
   let value = localStorage.getItem(GUEST_DEVICE_KEY) || '';
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(value)) {
@@ -2117,6 +2131,7 @@ function logout() {
   if (adminToken) {
     adminToken = '';
     sessionStorage.removeItem('adminToken');
+    localStorage.removeItem(ADMIN_BROWSER_ACCESS_KEY);
     ensureGuestSession().then(load).catch(error => toast(error.message));
     return;
   }
@@ -3038,6 +3053,7 @@ $('#adminLogin').addEventListener('submit', async event => {
     const result = await api(path, { method: 'POST', body: data });
     adminToken = result.token;
     sessionStorage.setItem('adminToken', adminToken);
+    localStorage.setItem(ADMIN_BROWSER_ACCESS_KEY, 'remembered');
     const passwordInput = document.querySelector('#adminLogin [name="password"]');
     if (passwordInput) passwordInput.value = '';
     toast(state.adminConfigured ? '管理员登录成功' : '管理员密码设置成功');
@@ -3097,8 +3113,11 @@ async function initializeApp() {
   await api('/api/visit', { method: 'POST' }).catch(() => {});
   await sendPresence().catch(() => {});
   try {
-    await restorePublisherBrowserSession();
-    await ensureGuestSession();
+    const adminRestored = await restoreAdminBrowserSession();
+    if (!adminRestored) {
+      await restorePublisherBrowserSession();
+      await ensureGuestSession();
+    }
   } catch (error) {
     // 兼容仍在运行的旧本地后端：公共订单应始终可读，重启后再恢复匿名写入权限。
     if (error.status !== 404) throw error;

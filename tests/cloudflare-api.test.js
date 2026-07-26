@@ -99,10 +99,17 @@ test('管理端统计按访客去重并通过心跳计算在线人数', async ()
   assert.equal((await call('/api/admin/stats')).status, 401);
 
   const password = 'admin-test-password';
-  const setup = await (await call('/api/admin/setup', { method: 'POST', body: {
+  const setupResponse = await call('/api/admin/setup', { method: 'POST', body: {
     password,
     passwordProof: await clientPasswordProof(password, 'admin', '')
-  } })).json();
+  } });
+  const setupCookie = setupResponse.headers.get('set-cookie').split(';')[0];
+  const setup = await setupResponse.json();
+  const rememberedResponse = await call('/api/admin/remember-login', { method: 'POST', headers: { cookie: setupCookie } });
+  assert.equal(rememberedResponse.status, 200);
+  assert.match(rememberedResponse.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
+  assert.ok((await rememberedResponse.json()).token);
+  assert.equal((await call('/api/admin/remember-login', { method: 'POST' })).status, 401);
   const response = await call('/api/admin/stats', { headers: { authorization: `Bearer ${setup.token}` } });
   assert.deepEqual(await response.json(), { totalVisitors: 2, onlineVisitors: 2, totalVisits: 2 });
 

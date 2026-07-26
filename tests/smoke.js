@@ -15,6 +15,8 @@ assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', 
   'map view should hide the list-only filter toolbar');
 assert.match(browserAppSource, /restorePublisherBrowserSession\(\)/,
   'approved publisher access should be restored when the browser is reopened');
+assert.match(browserAppSource, /restoreAdminBrowserSession\(\)/,
+  'admin access should be restored when the browser is reopened');
 assert.match(browserAppSource, /history\.pushState\(\{ \.\.\.history\.state, \[SUBPAGE_HISTORY_KEY\]/,
   'mobile subpages should create a browser history entry');
 assert.match(browserAppSource, /window\.addEventListener\('popstate', event => syncSubpagesFromHistory\(event\.state\)\)/,

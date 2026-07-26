@@ -421,6 +421,14 @@ function createWorker(dependencies = {}) {
           const token = await issueSession(repo, request, admin);
           return json({ token }, 200, { 'set-cookie': sessionCookie(token) });
         }
+        if (method === 'POST' && path === '/api/admin/remember-login') {
+          const remembered = await actorOf(repo, request);
+          if (!remembered || remembered.role !== 'admin') return error('记住的管理员登录已失效，请重新输入密码', 401);
+          const admin = await repo.getUserById('admin');
+          if (!admin || admin.role !== 'admin') return error('管理员账号不存在', 401);
+          const token = await issueSession(repo, request, admin);
+          return json({ token }, 200, { 'set-cookie': sessionCookie(token) });
+        }
 
         const viewer = await actorOf(repo, request);
         if (path === '/api/publisher-access' && method === 'GET') {
