@@ -39,6 +39,8 @@ let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
+let privateStateRefreshBusy = false;
+let lastStateLoadedAt = 0;
 let orderLoadStatusTimer = 0;
 let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
@@ -54,6 +56,7 @@ const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
 const SUBPAGE_HISTORY_KEY = 'tutorPlatformSubpages';
 const SUBPAGE_PANEL_IDS = ['contactPanel', 'applicationPanel', 'rawTextPanel'];
+const PRIVATE_STATE_REFRESH_MS = 60 * 1000;
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 const NEARBY_DISTANCE_KM = 10;
 try {
@@ -217,7 +220,23 @@ async function load({ showProgress = false } = {}) {
   renderPlatformStats();
   renderAdminStats();
   syncShell();
+  lastStateLoadedAt = Date.now();
   if (showProgress) await waitForNextPaint();
+}
+
+async function refreshPrivateState({ force = false } = {}) {
+  const canRefresh = (activeView === 'agency' && agencyToken)
+    || (activeView === 'admin' && adminToken);
+  if (!canRefresh || privateStateRefreshBusy) return;
+  if (!force && Date.now() - lastStateLoadedAt < PRIVATE_STATE_REFRESH_MS) return;
+  privateStateRefreshBusy = true;
+  try {
+    await load();
+  } catch (error) {
+    console.warn('私有订单刷新失败', error);
+  } finally {
+    privateStateRefreshBusy = false;
+  }
 }
 
 function mergeCreatedOrders(created = []) {
@@ -2538,8 +2557,16 @@ function escapeHtml(text) {
 
 $$('.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (btn.dataset.view === 'admin') return setView('admin');
-    if (btn.dataset.view === 'agency') return setView('agency');
+    if (btn.dataset.view === 'admin') {
+      setView('admin');
+      refreshPrivateState({ force: true });
+      return;
+    }
+    if (btn.dataset.view === 'agency') {
+      setView('agency');
+      refreshPrivateState({ force: true });
+      return;
+    }
     setView('teacher');
     setTeacherViewMode(btn.dataset.teacherMode === 'map' ? 'map' : 'list');
   });
@@ -3139,4 +3166,8 @@ setInterval(() => {
 window.addEventListener('focus', () => {
   sendPresence().catch(() => {});
   refreshAdminStats().catch(() => {});
+  refreshPrivateState();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refreshPrivateState();
 });

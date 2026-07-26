@@ -19,6 +19,10 @@ assert.match(browserAppSource, /restoreAdminBrowserSession\(\)/,
   'admin access should be restored when the browser is reopened');
 assert.doesNotMatch(browserAppSource, /removeItem\(ADMIN_BROWSER_ACCESS_KEY\)/,
   'leaving the admin view should preserve browser-level admin access');
+assert.match(browserAppSource, /const PRIVATE_STATE_REFRESH_MS = 60 \* 1000;/,
+  'private order refreshes should be throttled to protect the server');
+assert.match(browserAppSource, /activeView === 'agency' && agencyToken[\s\S]*activeView === 'admin' && adminToken/,
+  'automatic order refreshes should be limited to publisher and admin views');
 assert.match(browserAppSource, /history\.pushState\(\{ \.\.\.history\.state, \[SUBPAGE_HISTORY_KEY\]/,
   'mobile subpages should create a browser history entry');
 assert.match(browserAppSource, /window\.addEventListener\('popstate', event => syncSubpagesFromHistory\(event\.state\)\)/,
