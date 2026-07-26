@@ -2242,6 +2242,7 @@ try {
 } catch {}
 let manualImportBusy = false;
 let manualImportRetryTimer = 0;
+let manualImportClearTimer = 0;
 
 function saveManualImportQueue() {
   try {
@@ -2310,7 +2311,7 @@ async function processManualImportQueue() {
   }
 }
 
-function enqueueManualImport(text, source = '粘贴内容') {
+function enqueueManualImport(text, source = '粘贴内容', showPastedText = false) {
   const rawText = String(text || '').trim();
   if (!rawText) {
     setManualImportStatus('没有可识别的文字', 'error');
@@ -2326,11 +2327,17 @@ function enqueueManualImport(text, source = '粘贴内容') {
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
-    textarea.value = '';
+    window.clearTimeout(manualImportClearTimer);
+    textarea.value = showPastedText ? rawText : '';
     textarea.classList.remove('queue-flash');
     void textarea.offsetWidth;
     textarea.classList.add('queue-flash');
     window.setTimeout(() => textarea.classList.remove('queue-flash'), 520);
+    if (showPastedText) {
+      manualImportClearTimer = window.setTimeout(() => {
+        if (textarea.value === rawText) textarea.value = '';
+      }, 320);
+    }
   }
   setManualImportStatus(`已粘贴成功，已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
   toast(`${source}已粘贴成功`);
@@ -2357,17 +2364,20 @@ importTextarea?.addEventListener('paste', event => {
   const text = event.clipboardData?.getData('text/plain') || '';
   if (!text.trim()) return;
   event.preventDefault();
-  enqueueManualImport(text);
+  enqueueManualImport(text, '粘贴内容', true);
 });
 importTextarea?.addEventListener('beforeinput', event => {
-  if (event.inputType === 'insertFromPaste') return;
+  if (!event.inputType || ['insertFromPaste', 'insertText', 'insertReplacementText'].includes(event.inputType)) return;
   event.preventDefault();
   rejectManualImportTyping();
 });
 importTextarea?.addEventListener('input', event => {
   const text = importTextarea.value;
-  importTextarea.value = '';
-  if (event.inputType === 'insertFromPaste' && text.trim()) enqueueManualImport(text);
+  const insertedText = typeof event.data === 'string' && event.data.length > 1 ? event.data : text;
+  const insertedAtOnce = ['insertFromPaste', 'insertReplacementText'].includes(event.inputType)
+    || (event.inputType === 'insertText' && String(event.data ?? text).length > 1)
+    || (!event.inputType && text.length > 1);
+  if (insertedAtOnce && insertedText.trim()) enqueueManualImport(insertedText, '粘贴内容', true);
   else if (text) rejectManualImportTyping();
 });
 async function importTxtFile(file) {
