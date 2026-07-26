@@ -2306,13 +2306,18 @@ try {
 let manualImportBusy = false;
 let manualImportRetryTimer = 0;
 let manualImportClearTimer = 0;
+let manualImportTypingTimer = 0;
 let manualImportClearGeneration = 0;
 let manualImportActiveFingerprint = '';
+let lastManualPasteEvent = { text: '', at: 0 };
 const recentManualImportFingerprints = new Map(manualImportQueue.map(item => [manualImportFingerprint(item.text), Date.now()]));
 
 function clearManualImportTextarea() {
   manualImportClearGeneration++;
   window.clearTimeout(manualImportClearTimer);
+  window.clearTimeout(manualImportTypingTimer);
+  manualImportClearTimer = 0;
+  manualImportTypingTimer = 0;
   const textarea = $('#importForm')?.elements.text;
   if (textarea) textarea.value = '';
 }
@@ -2323,6 +2328,7 @@ function showPastedTextBriefly(textarea, rawText) {
   textarea.value = rawText;
   manualImportClearTimer = window.setTimeout(() => {
     if (clearGeneration === manualImportClearGeneration) textarea.value = '';
+    manualImportClearTimer = 0;
   }, 320);
 }
 
@@ -2380,8 +2386,11 @@ async function processManualImportQueue() {
     toast(created ? `已自动导入 ${created} 条` : '内容已处理，没有新增订单');
   } catch (error) {
     if (error.message === '没有识别出可以导入的订单') {
-      setManualImportStatus(`已过滤非家教单或残缺内容${manualImportQueue.length ? `，还有 ${manualImportQueue.length} 批` : ''}`, 'muted');
-      toast('内容已检查，没有可导入的家教单');
+      const incompleteMessage = item.source === '输入内容'
+        ? '输入的信息不完整，请直接粘贴'
+        : '没有识别出完整家教单，请检查后重新输入';
+      setManualImportStatus(`${incompleteMessage}${manualImportQueue.length ? `；还有 ${manualImportQueue.length} 批` : ''}`, 'muted');
+      toast(incompleteMessage);
     } else {
       item.attempts = Number(item.attempts || 0) + 1;
       item.nextAttemptAt = Date.now() + Math.min(30000, 1500 * (2 ** Math.min(item.attempts, 4)));
@@ -2414,10 +2423,18 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
     if (now - acceptedAt > MANUAL_IMPORT_EVENT_DEDUPE_MS) recentManualImportFingerprints.delete(key);
   }
   const alreadyQueued = manualImportQueue.some(item => manualImportFingerprint(item.text) === fingerprint);
-  const duplicateEvent = alreadyQueued || manualImportActiveFingerprint === fingerprint
+  const activeDuplicate = manualImportActiveFingerprint === fingerprint;
+  const duplicateEvent = alreadyQueued || activeDuplicate
     || now - Number(recentManualImportFingerprints.get(fingerprint) || 0) <= MANUAL_IMPORT_EVENT_DEDUPE_MS;
   if (duplicateEvent) {
-    clearManualImportTextarea();
+    const textarea = $('#importForm')?.elements.text;
+    if (showPastedText && textarea && !activeDuplicate) {
+      textarea.value = rawText;
+      if (!manualImportClearTimer) showPastedTextBriefly(textarea, rawText);
+      setManualImportStatus('已粘贴成功，内容已在识别队列中', 'queued');
+    } else {
+      clearManualImportTextarea();
+    }
     return false;
   }
   recentManualImportFingerprints.set(fingerprint, now);
@@ -2432,22 +2449,23 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
     textarea.classList.add('queue-flash');
     window.setTimeout(() => textarea.classList.remove('queue-flash'), 520);
   }
-  setManualImportStatus(`已粘贴成功，已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
-  toast(`${source}已粘贴成功`);
+  const queuedCount = manualImportQueue.length + (manualImportBusy ? 1 : 0);
+  setManualImportStatus(source === '粘贴内容'
+    ? `已粘贴成功，已加入识别队列，共 ${queuedCount} 批`
+    : `${source}已加入识别队列，共 ${queuedCount} 批`, 'queued');
+  toast(source === '粘贴内容' ? '已粘贴成功' : `${source}已加入识别队列`);
   scheduleManualImportQueue();
   return true;
 }
 
 const importTextarea = $('#importForm')?.elements.text;
-function rejectManualImportTyping() {
-  if (!importTextarea) return;
-  clearManualImportTextarea();
-  importTextarea.classList.remove('input-blocked');
-  void importTextarea.offsetWidth;
-  importTextarea.classList.add('input-blocked');
-  window.setTimeout(() => importTextarea.classList.remove('input-blocked'), 700);
-  setManualImportStatus('请一次性粘贴完整订单', 'error');
-  toast('这里只支持粘贴完整订单');
+function scheduleTypedManualImport() {
+  window.clearTimeout(manualImportTypingTimer);
+  manualImportTypingTimer = window.setTimeout(() => {
+    manualImportTypingTimer = 0;
+    const text = importTextarea?.value || '';
+    if (text.trim()) enqueueManualImport(text, '输入内容');
+  }, 800);
 }
 $('#importForm')?.addEventListener('submit', event => {
   event.preventDefault();
@@ -2457,21 +2475,20 @@ importTextarea?.addEventListener('paste', event => {
   const text = event.clipboardData?.getData('text/plain') || '';
   if (!text.trim()) return;
   event.preventDefault();
+  window.clearTimeout(manualImportTypingTimer);
+  lastManualPasteEvent = { text, at: Date.now() };
   enqueueManualImport(text, '粘贴内容', true);
-});
-importTextarea?.addEventListener('beforeinput', event => {
-  if (!event.inputType || ['insertFromPaste', 'insertText', 'insertReplacementText'].includes(event.inputType)) return;
-  event.preventDefault();
-  rejectManualImportTyping();
 });
 importTextarea?.addEventListener('input', event => {
   const text = importTextarea.value;
-  const insertedText = typeof event.data === 'string' && event.data.length > 1 ? event.data : text;
+  const recentPasteText = Date.now() - lastManualPasteEvent.at < 1000 ? lastManualPasteEvent.text : '';
+  const insertedText = recentPasteText || (typeof event.data === 'string' && event.data.length > 1 ? event.data : text);
   const insertedAtOnce = ['insertFromPaste', 'insertReplacementText'].includes(event.inputType)
-    || (event.inputType === 'insertText' && String(event.data ?? text).length > 1)
-    || (!event.inputType && text.length > 1);
+    || recentPasteText
+    || String(event.data || '').trim().length > 4
+    || (event.data == null && text.trim().length > 4);
   if (insertedAtOnce && insertedText.trim()) enqueueManualImport(insertedText, '粘贴内容', true);
-  else if (text) rejectManualImportTyping();
+  else if (text) scheduleTypedManualImport();
 });
 async function importTxtFile(file) {
   if (!file) return;
