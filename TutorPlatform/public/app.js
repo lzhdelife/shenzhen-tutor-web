@@ -51,6 +51,8 @@ const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const PUBLISHER_BROWSER_ACCESS_KEY = 'tutorPlatformPublisherBrowserAccess';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
+const SUBPAGE_HISTORY_KEY = 'tutorPlatformSubpages';
+const SUBPAGE_PANEL_IDS = ['contactPanel', 'applicationPanel', 'rawTextPanel'];
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 const NEARBY_DISTANCE_KM = 10;
 try {
@@ -70,6 +72,33 @@ function clientRandomId(prefix = '') {
     ? globalThis.crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}${value}`;
+}
+
+function visibleSubpageIds() {
+  return SUBPAGE_PANEL_IDS.filter(id => !document.getElementById(id)?.classList.contains('hidden'));
+}
+
+function showSubpage(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel || !panel.classList.contains('hidden')) return;
+  history.pushState({ ...history.state, [SUBPAGE_HISTORY_KEY]: [...visibleSubpageIds(), panelId] }, '', location.href);
+  panel.classList.remove('hidden');
+}
+
+function closeSubpage(panelId, finalize) {
+  const stack = Array.isArray(history.state?.[SUBPAGE_HISTORY_KEY]) ? history.state[SUBPAGE_HISTORY_KEY] : [];
+  if (stack.at(-1) === panelId) {
+    history.back();
+    return;
+  }
+  finalize();
+}
+
+function syncSubpagesFromHistory(nextState) {
+  const target = new Set(Array.isArray(nextState?.[SUBPAGE_HISTORY_KEY]) ? nextState[SUBPAGE_HISTORY_KEY] : []);
+  if (!target.has('rawTextPanel') && !$('#rawTextPanel').classList.contains('hidden')) closeRawText(true);
+  if (!target.has('applicationPanel') && !$('#applicationPanel').classList.contains('hidden')) closeApplicationContact(true);
+  if (!target.has('contactPanel') && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact(true);
 }
 
 const visitorId = localStorage.getItem('tutorPlatformVisitorId') || clientRandomId('visitor-');
@@ -2134,7 +2163,7 @@ function openApplicationContact(result) {
   $('#applicationAdminContact').disabled = !adminContact;
   $('#applicationViewRaw').disabled = !result.raw;
   $('#applicationCopyRaw').disabled = !result.raw;
-  $('#applicationPanel').classList.remove('hidden');
+  showSubpage('applicationPanel');
   $('#applicationViewRaw').focus();
 }
 
@@ -2147,13 +2176,17 @@ function openApplicationContactLoading() {
   $('#applicationAdminContact').disabled = false;
   $('#applicationViewRaw').disabled = true;
   $('#applicationCopyRaw').disabled = true;
-  $('#applicationPanel').classList.remove('hidden');
+  showSubpage('applicationPanel');
   $('#applicationClose').focus();
 }
 
-function closeApplicationContact() {
-  applicationContactRequest += 1;
-  $('#applicationPanel').classList.add('hidden');
+function closeApplicationContact(fromHistory = false) {
+  const finalize = () => {
+    applicationContactRequest += 1;
+    $('#applicationPanel').classList.add('hidden');
+  };
+  if (fromHistory) finalize();
+  else closeSubpage('applicationPanel', finalize);
 }
 
 async function applyOrder(id) {
@@ -2441,17 +2474,21 @@ function showRawText(rawText) {
   activeRawText = String(rawText || '');
   $('#rawTextContent').textContent = activeRawText || '这条订单没有保留原文。';
   $('#copyRawText').disabled = !activeRawText;
-  $('#rawTextPanel').classList.remove('hidden');
+  showSubpage('rawTextPanel');
 }
 
 function openRawText(encoded) {
   showRawText(decodeURIComponent(encoded || ''));
 }
 
-function closeRawText() {
-  $('#rawTextPanel').classList.add('hidden');
-  activeRawText = '';
-  $('#rawTextContent').textContent = '';
+function closeRawText(fromHistory = false) {
+  const finalize = () => {
+    $('#rawTextPanel').classList.add('hidden');
+    activeRawText = '';
+    $('#rawTextContent').textContent = '';
+  };
+  if (fromHistory) finalize();
+  else closeSubpage('rawTextPanel', finalize);
 }
 
 async function copyRawText() {
@@ -2467,11 +2504,13 @@ function openAgencyContact(contact) {
   $('#agencyContactName').textContent = name;
   $('#agencyContactPhone').textContent = phone || '未填写';
   $('#copyAgencyContact').disabled = !phone;
-  $('#contactPanel').classList.remove('hidden');
+  showSubpage('contactPanel');
 }
 
-function closeAgencyContact() {
-  $('#contactPanel').classList.add('hidden');
+function closeAgencyContact(fromHistory = false) {
+  const finalize = () => $('#contactPanel').classList.add('hidden');
+  if (fromHistory) finalize();
+  else closeSubpage('contactPanel', finalize);
 }
 
 async function copyAgencyContact() {
@@ -3047,10 +3086,12 @@ $('#rawTextPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeRawText();
 });
 document.addEventListener('keydown', event => {
-  if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
-  if (event.key === 'Escape' && !$('#applicationPanel').classList.contains('hidden')) closeApplicationContact();
-  if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
+  if (event.key !== 'Escape') return;
+  if (!$('#rawTextPanel').classList.contains('hidden')) closeRawText();
+  else if (!$('#applicationPanel').classList.contains('hidden')) closeApplicationContact();
+  else if (!$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
 });
+window.addEventListener('popstate', event => syncSubpagesFromHistory(event.state));
 
 async function initializeApp() {
   hydrateLoginForm();

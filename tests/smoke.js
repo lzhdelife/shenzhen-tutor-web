@@ -15,6 +15,10 @@ assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', 
   'map view should hide the list-only filter toolbar');
 assert.match(browserAppSource, /restorePublisherBrowserSession\(\)/,
   'approved publisher access should be restored when the browser is reopened');
+assert.match(browserAppSource, /history\.pushState\(\{ \.\.\.history\.state, \[SUBPAGE_HISTORY_KEY\]/,
+  'mobile subpages should create a browser history entry');
+assert.match(browserAppSource, /window\.addEventListener\('popstate', event => syncSubpagesFromHistory\(event\.state\)\)/,
+  'browser back should close the active subpage before leaving the site');
 assert.match(browserStylesSource, /@media \(max-width: 700px\)[\s\S]*grid-template-areas: "controls" "map" "summary";/,
   'phone map controls should appear between the location form and map');
 
