@@ -70,10 +70,12 @@ test('map requests are coalesced and concurrency is bounded', async () => {
 
 test('map requests retry briefly after rate limiting', async () => {
   let calls = 0;
+  const outcomes = [];
   const service = createAmapService({ key: 'synthetic-retry-key', fetchImpl: async () => {
     calls++;
     return calls < 3 ? response({}, 429) : response({ status: '1', pois: [] });
-  } });
+  }, onRequest: event => outcomes.push(event.outcome) });
   assert.equal((await service.candidates('retry place')).status, 'not_found');
   assert.equal(calls, 3);
+  assert.deepEqual(outcomes, ['rate_limited', 'rate_limited', 'success']);
 });

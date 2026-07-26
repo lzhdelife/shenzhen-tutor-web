@@ -15,7 +15,7 @@ class MockStatement {
 
 class MockD1 {
   constructor() {
-    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [] };
+    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [], amap_usage: [] };
   }
   prepare(sql) { return new MockStatement(this, sql); }
   async batch(statements) { return Promise.all(statements.map(statement => statement.run())); }
@@ -26,7 +26,8 @@ class MockD1 {
       const columns = insert[2].split(',').map(value => value.trim());
       const row = Object.fromEntries(columns.map((column, index) => [column, values[index]]));
       if (table === 'visitor_activity') row.visit_count = 1;
-      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : 'id';
+      if (table === 'amap_usage') { row.call_count = 1; row.updated_at = values[3]; }
+      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : table === 'amap_usage' ? 'usage_date' : 'id';
       const existing = this.tables[table].find(item => item[key] === row[key]);
       if (existing && /ON CONFLICT/i.test(sql)) {
         if (table === 'settings' && /CAST\(COALESCE\(CAST\(settings\.value_json AS INTEGER\)/i.test(sql)) {
@@ -35,6 +36,10 @@ class MockD1 {
         } else if (table === 'visitor_activity') {
           existing.last_seen_at = row.last_seen_at;
           if (/visit_count=visitor_activity\.visit_count \+ 1/i.test(sql)) existing.visit_count++;
+        } else if (table === 'amap_usage') {
+          const match = this.tables.amap_usage.find(item => item.usage_date === row.usage_date && item.endpoint === row.endpoint && item.outcome === row.outcome);
+          if (match) { match.call_count = Number(match.call_count || 0) + 1; match.updated_at = row.updated_at; }
+          else this.tables.amap_usage.push(row);
         } else Object.assign(existing, row);
       }
       else if (existing) throw new Error(`mock unique constraint: ${table}.${key}`);
@@ -76,9 +81,9 @@ class MockD1 {
       if (/WHERE o.status = \?/i.test(sql)) rows = rows.filter(row => row.status === values[0]);
       return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
-    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity)/i);
+    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity|amap_usage)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
-    let rows = this.tables[tableMatch[1]].map(row => ({ ...row }));
+    let rows = this.tables[tableMatch[1]].map(row => tableMatch[1] === 'amap_usage' ? { ...row, count: row.call_count } : { ...row });
     if (/SELECT COUNT\(\*\) AS count FROM visitor_activity/i.test(sql)) {
       if (/last_seen_at >= \?/i.test(sql)) rows = rows.filter(row => row.last_seen_at >= values[0]);
       return [{ count: rows.length }];
@@ -99,11 +104,18 @@ async function run() {
   assert.match(migration, /token_hash TEXT PRIMARY KEY/);
   const clipboardMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0002_clipboard_shared.sql'), 'utf8');
   assert.match(clipboardMigration, /CREATE TABLE IF NOT EXISTS clipboard_captures\b/);
-  const visitorMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0003_visitor_activity.sql'), 'utf8');
+    const visitorMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0003_visitor_activity.sql'), 'utf8');
   assert.match(visitorMigration, /CREATE TABLE IF NOT EXISTS visitor_activity\b/);
+  const amapMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0004_amap_usage.sql'), 'utf8');
+  assert.match(amapMigration, /CREATE TABLE IF NOT EXISTS amap_usage\b/);
 
   const db = new MockD1();
   const repo = createRepository({ DB: db });
+  await repo.recordAmapUsage({ endpoint: '/v3/place/text', outcome: 'success', date: '2026-07-26' });
+  await repo.recordAmapUsage({ endpoint: '/v3/place/text', outcome: 'success', date: '2026-07-26' });
+  await repo.recordAmapUsage({ endpoint: '/v3/place/text', outcome: 'rate_limited', date: '2026-07-26' });
+  assert.equal((await repo.getAmapUsage('2026-07-26')).total, 3);
+  assert.equal((await repo.getAmapUsage('2026-07-26')).limited, 1);
   const agency = await repo.createUser({ id: 'u-agency', role: 'agency', name: '测试机构', phone: ['138', '0000', '0000'].join(''), passwordHash: 'salt:hash' });
   const teacher = await repo.createUser({ id: 'u-teacher', role: 'teacher', name: '测试老师', phone: ['139', '0000', '0000'].join(''), preferences: { minPrice: 300 } });
   assert.equal((await repo.getUserByPhone(agency.phone)).id, agency.id);

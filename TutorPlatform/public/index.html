@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260726-22">
+  <link rel="stylesheet" href="./styles.css?v=20260726-23">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -231,6 +231,18 @@
             <div class="admin-metric"><strong id="adminTotalVisitors">0</strong><span>累计访客</span></div>
             <div class="admin-metric"><strong id="adminOnlineVisitors">0</strong><span><i class="online-dot"></i>实时在线</span></div>
           </section>
+          <section class="panel admin-amap-panel" aria-label="高德调用统计">
+            <div class="admin-section-head">
+              <div><h2>高德调用</h2><span id="adminAmapDate" class="form-note"></span></div>
+              <div class="amap-usage-summary">
+                <span><strong id="adminAmapTotal">0</strong> 今日</span>
+                <span><strong id="adminAmapPoiMonth">0</strong> 本月 POI / 5,000</span>
+                <span><strong id="adminAmapBaseMonth">0</strong> 本月基础 LBS / 150,000</span>
+                <span><strong id="adminAmapLimited">0</strong> 今日限流</span>
+              </div>
+            </div>
+            <div id="adminAmapUsage" class="amap-usage-list"></div>
+          </section>
           <section class="panel admin-orders-panel">
             <div class="admin-section-head">
               <div><h2>订单管理</h2></div>
@@ -296,6 +308,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260726-41"></script>
+  <script src="./app.js?v=20260726-42"></script>
 </body>
 </html>

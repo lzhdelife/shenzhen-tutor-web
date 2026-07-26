@@ -53,8 +53,11 @@ function serviceError(code, message, status = 502, details = {}) {
   return Object.assign(new Error(message), { code, status, details });
 }
 
-function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
+function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000, onRequest } = {}) {
   const secret = text(key);
+  function report(path, outcome) {
+    try { return onRequest?.({ endpoint: path, outcome }); } catch (_) { return undefined; }
+  }
   function configured() {
     if (!secret) throw serviceError('AMAP_NOT_CONFIGURED', '高德服务未配置', 503);
   }
@@ -67,16 +70,19 @@ function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
       response = await fetchImpl(url.toString(), { signal: AbortSignal.timeout(timeoutMs) });
     } catch (caught) {
       const timeout = caught?.name === 'TimeoutError' || caught?.name === 'AbortError';
+      report(path, timeout ? 'timeout' : 'unavailable');
       throw serviceError(timeout ? 'AMAP_TIMEOUT' : 'AMAP_UNAVAILABLE', timeout ? '地图服务请求超时' : '地图服务暂时不可用', 503);
     }
-    if (response.status === 429) throw serviceError('AMAP_RATE_LIMITED', '地图服务请求过于频繁', 503);
-    if (!response.ok) throw serviceError('AMAP_HTTP_ERROR', '地图服务响应异常', 502, { httpStatus: response.status });
+    if (response.status === 429) { report(path, 'rate_limited'); throw serviceError('AMAP_RATE_LIMITED', '地图服务请求过于频繁', 503); }
+    if (!response.ok) { report(path, `http_${response.status}`); throw serviceError('AMAP_HTTP_ERROR', '地图服务响应异常', 502, { httpStatus: response.status }); }
     let data;
-    try { data = await response.json(); } catch (_) { throw serviceError('AMAP_INVALID_RESPONSE', '地图服务返回了无效响应'); }
+    try { data = await response.json(); } catch (_) { report(path, 'invalid_response'); throw serviceError('AMAP_INVALID_RESPONSE', '地图服务返回了无效响应'); }
     if (data.status !== '1') {
       const limited = /CUQPS_HAS_EXCEEDED|DAILY_QUERY_OVER_LIMIT|USER_DAILY_QUERY_OVER_LIMIT|ACCESS_TOO_FREQUENT/i.test(text(data.infocode) + text(data.info));
+      report(path, limited ? 'rate_limited' : 'api_error');
       throw serviceError(limited ? 'AMAP_RATE_LIMITED' : 'AMAP_API_ERROR', limited ? '地图服务调用额度已用尽' : '地图服务调用失败', limited ? 503 : 502, { infocode: text(data.infocode) });
     }
+    report(path, 'success');
     return data;
   }
   async function request(path, params) {

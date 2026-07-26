@@ -6,6 +6,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function shanghaiDate(value = Date.now()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+}
+
 function makeId(prefix) {
   const uuid = globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function'
     ? globalThis.crypto.randomUUID()
@@ -262,6 +266,40 @@ function createRepository(env = {}) {
     };
   }
 
+  async function recordAmapUsage(input = {}) {
+    const usageDate = String(input.date || shanghaiDate()).slice(0, 10);
+    const endpoint = String(input.endpoint || 'unknown').slice(0, 80);
+    const outcome = String(input.outcome || 'success').slice(0, 40);
+    await run(`INSERT INTO amap_usage (usage_date, endpoint, outcome, call_count, updated_at)
+      VALUES (?, ?, ?, 1, ?)
+      ON CONFLICT(usage_date, endpoint, outcome) DO UPDATE SET call_count=amap_usage.call_count + 1,
+      updated_at=excluded.updated_at`, [usageDate, endpoint, outcome, nowIso()]);
+  }
+
+  async function getAmapUsage(date = shanghaiDate()) {
+    const usageDate = String(date).slice(0, 10);
+    const month = usageDate.slice(0, 7);
+    const rows = await all(`SELECT usage_date, endpoint, outcome, call_count AS count, updated_at
+      FROM amap_usage WHERE usage_date LIKE ? ORDER BY usage_date, endpoint, outcome`, [`${month}-%`]);
+    const byEndpoint = {};
+    let total = 0, monthTotal = 0, limited = 0, poiMonth = 0, baseMonth = 0, jsMonth = 0;
+    for (const row of rows) {
+      const count = Math.max(0, Number(row.count) || 0);
+      monthTotal += count;
+      if (row.endpoint === '/v3/place/text') poiMonth += count;
+      else if (String(row.endpoint).startsWith('js:')) jsMonth += count;
+      else baseMonth += count;
+      if (row.usage_date === usageDate) {
+        total += count;
+        if (row.outcome === 'rate_limited') limited += count;
+      }
+      byEndpoint[row.endpoint] = byEndpoint[row.endpoint] || { total: 0, outcomes: {} };
+      byEndpoint[row.endpoint].total += count;
+      byEndpoint[row.endpoint].outcomes[row.outcome] = (byEndpoint[row.endpoint].outcomes[row.outcome] || 0) + count;
+    }
+    return { date: usageDate, month, total, monthTotal, poiMonth, baseMonth, jsMonth, limited, byEndpoint };
+  }
+
   async function createClipboardCapture(input) {
     const capture = {
       captureId: input.captureId,
@@ -345,7 +383,7 @@ function createRepository(env = {}) {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
     updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
-    recordVisitorVisit, touchVisitor, getVisitorStats,
+    recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };

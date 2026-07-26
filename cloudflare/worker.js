@@ -26,6 +26,11 @@ function json(body, status = 200, headers = {}) {
 function error(message, status = 400) { return json({ error: message }, status); }
 function text(value) { return String(value == null ? '' : value).trim(); }
 function mapConfigured(env) { return Boolean(text(env.AMAP_JS_API_KEY) && text(env.AMAP_JS_SECURITY_CODE)); }
+function queueAmapUsage(repo, ctx, event) {
+  if (typeof repo.recordAmapUsage !== 'function') return;
+  const task = Promise.resolve(repo.recordAmapUsage(event)).catch(() => {});
+  if (ctx?.waitUntil) ctx.waitUntil(task);
+}
 function visitorId(request) {
   const value = text(request.headers.get('x-visitor-id'));
   return /^[A-Za-z0-9_-]{8,100}$/.test(value) ? value : '';
@@ -60,7 +65,7 @@ async function locationSuggestionsResponse(amap, url, ctx, cache) {
   return response;
 }
 
-async function proxyAmapJsService(request, env, fetchImpl = fetch) {
+async function proxyAmapJsService(request, env, fetchImpl = fetch, onRequest) {
   if (!mapConfigured(env)) return error('高德地图 JS API 尚未配置', 503);
   if (request.method !== 'GET') return error('地图代理只接受 GET 请求', 405);
   const incoming = new URL(request.url);
@@ -73,6 +78,7 @@ async function proxyAmapJsService(request, env, fetchImpl = fetch) {
   target.searchParams.set('jscode', text(env.AMAP_JS_SECURITY_CODE));
   try {
     const upstream = await fetchImpl(target.toString(), { headers: { accept: request.headers.get('accept') || '*/*' } });
+    onRequest?.({ endpoint: `js:${suffix.split('?')[0]}`, outcome: upstream.ok ? 'success' : `http_${upstream.status}` });
     return new Response(upstream.body, { status: upstream.status, headers: {
       'content-type': upstream.headers.get('content-type') || 'application/json',
       'cache-control': upstream.headers.get('cache-control') || 'private, max-age=300'
@@ -287,9 +293,11 @@ function createWorker(dependencies = {}) {
     async fetch(request, env, ctx) {
       const repo = dependencies.createRepository ? dependencies.createRepository(env) : createRepository(env);
       const url = new URL(request.url), path = url.pathname, method = request.method.toUpperCase();
-      const amap = createAmapService({ key: env.AMAP_WEB_SERVICE_KEY, fetchImpl: dependencies.fetchImpl || fetch, timeoutMs: dependencies.amapTimeoutMs || 7000 });
+      const amap = createAmapService({ key: env.AMAP_WEB_SERVICE_KEY, fetchImpl: dependencies.fetchImpl || fetch, timeoutMs: dependencies.amapTimeoutMs || 7000,
+        onRequest: event => queueAmapUsage(repo, ctx, event) });
       try {
-        if (path.startsWith('/_AMapService/')) return proxyAmapJsService(request, env, dependencies.fetchImpl || fetch);
+        if (path.startsWith('/_AMapService/')) return proxyAmapJsService(request, env, dependencies.fetchImpl || fetch,
+          event => queueAmapUsage(repo, ctx, event));
         if (!path.startsWith('/api/')) return env.ASSETS ? env.ASSETS.fetch(request) : new Response('Not found', { status: 404 });
         if (method === 'OPTIONS') return new Response(null, { status: 204 });
         if (method === 'POST' && path === '/api/account/login') return pairedLogin(repo, request, await bodyJson(request), env);
@@ -446,7 +454,8 @@ function createWorker(dependencies = {}) {
           if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);
           const settings = await repo.getSettings();
           const visitors = await repo.getVisitorStats(Date.now() - ONLINE_WINDOW_MS);
-          return json({ ...visitors, totalVisits: Math.max(0, Number(settings.totalVisits) || 0) });
+          const amapUsage = typeof repo.getAmapUsage === 'function' ? await repo.getAmapUsage() : null;
+          return json({ ...visitors, totalVisits: Math.max(0, Number(settings.totalVisits) || 0), ...(amapUsage ? { amapUsage } : {}) });
         }
         if (path === '/api/teacher/preferences' && ['GET', 'PUT'].includes(method)) {
           const teacher = await requireRole(repo, request, 'teacher');

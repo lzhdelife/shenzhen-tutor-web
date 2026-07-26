@@ -693,6 +693,15 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 
 .columns { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; }
 .admin-metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.admin-amap-panel { grid-column: 1 / -1; }
+.amap-usage-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; color: var(--muted); font-size: 12px; }
+.amap-usage-summary > span { white-space: nowrap; }
+.amap-usage-summary strong { color: var(--ink); font-size: 22px; }
+.amap-usage-list { display: grid; gap: 7px; }
+.amap-usage-row { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 2px 12px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 5px; background: #fbfcfd; }
+.amap-usage-row strong { font-size: 13px; }
+.amap-usage-row span { color: var(--ink); font-weight: 700; text-align: right; }
+.amap-usage-row small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .admin-metric { min-height: 112px; padding: 22px 26px; display: grid; align-content: center; gap: 7px; }
 .admin-metric + .admin-metric { border-left: 1px solid var(--line); }
 .admin-metric strong { color: var(--text); font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }

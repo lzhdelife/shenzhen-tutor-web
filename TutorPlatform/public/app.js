@@ -1,4 +1,4 @@
-let state = { viewer: null, settings: {}, orders: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0 }, lists: { districts: [], subjects: [], grades: [] } };
+let state = { viewer: null, settings: {}, orders: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0, amapUsage: { date: '', total: 0, limited: 0, byEndpoint: {} } }, lists: { districts: [], subjects: [], grades: [] } };
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
 let teacherToken = sessionStorage.getItem('teacherToken') || '';
@@ -207,6 +207,26 @@ function renderAdminStats() {
   const online = $('#adminOnlineVisitors');
   if (total) total.textContent = Number(state.adminStats?.totalVisitors || 0).toLocaleString();
   if (online) online.textContent = Number(state.adminStats?.onlineVisitors || 0).toLocaleString();
+  const usage = state.adminStats?.amapUsage || {};
+  const date = $('#adminAmapDate');
+  const usageTotal = $('#adminAmapTotal');
+  const poiMonth = $('#adminAmapPoiMonth');
+  const baseMonth = $('#adminAmapBaseMonth');
+  const limited = $('#adminAmapLimited');
+  const list = $('#adminAmapUsage');
+  if (date) date.textContent = usage.date ? `统计日期 ${usage.date}` : '';
+  if (usageTotal) usageTotal.textContent = Number(usage.total || 0).toLocaleString();
+  if (poiMonth) poiMonth.textContent = Number(usage.poiMonth || 0).toLocaleString();
+  if (baseMonth) baseMonth.textContent = Number(usage.baseMonth || 0).toLocaleString();
+  if (limited) limited.textContent = Number(usage.limited || 0).toLocaleString();
+  if (list) {
+    const labels = { '/v3/place/text': '地点搜索', '/v3/geocode/geo': '地理编码', '/v5/direction/walking': '步行路线', '/v5/direction/bicycling': '骑行路线', '/v5/direction/driving': '驾车路线', '/v3/direction/transit/integrated': '公交路线' };
+    const entries = Object.entries(usage.byEndpoint || {});
+    list.innerHTML = entries.length ? entries.map(([endpoint, item]) => {
+      const outcomeText = Object.entries(item.outcomes || {}).map(([outcome, count]) => `${outcome === 'success' ? '成功' : outcome === 'rate_limited' ? '限流' : outcome} ${Number(count).toLocaleString()}`).join(' · ');
+      return `<div class="amap-usage-row"><strong>${escapeHtml(labels[endpoint] || endpoint)}</strong><span>${Number(item.total || 0).toLocaleString()} 次</span><small>${escapeHtml(outcomeText)}</small></div>`;
+    }).join('') : '<div class="form-note">今日暂无高德调用</div>';
+  }
 }
 
 async function refreshAdminStats() {
