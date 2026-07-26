@@ -49,3 +49,31 @@ test('四种路线模式调用对应端点并返回真实来源标记', async ()
   }
   assert.deepEqual(paths, ['/v5/direction/walking', '/v5/direction/bicycling', '/v5/direction/driving', '/v3/direction/transit/integrated']);
 });
+
+test('map requests are coalesced and concurrency is bounded', async () => {
+  let calls = 0;
+  let active = 0;
+  let peak = 0;
+  const service = createAmapService({ key: 'synthetic-cache-key', fetchImpl: async () => {
+    calls++;
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    active--;
+    return response({ status: '1', pois: [{ id: 'same', name: 'same place', adname: 'NanShan', address: 'science road', location: '113.9,22.5' }] });
+  } });
+  const results = await Promise.all(Array.from({ length: 8 }, () => service.candidates('same place')));
+  assert.equal(calls, 1);
+  assert.equal(peak, 1);
+  assert.equal(results.every(item => item.status === 'candidates'), true);
+});
+
+test('map requests retry briefly after rate limiting', async () => {
+  let calls = 0;
+  const service = createAmapService({ key: 'synthetic-retry-key', fetchImpl: async () => {
+    calls++;
+    return calls < 3 ? response({}, 429) : response({ status: '1', pois: [] });
+  } });
+  assert.equal((await service.candidates('retry place')).status, 'not_found');
+  assert.equal(calls, 3);
+});

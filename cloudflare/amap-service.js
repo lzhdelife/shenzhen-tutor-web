@@ -1,4 +1,48 @@
 const MODES = new Set(['walking', 'cycling', 'driving', 'transit']);
+const MAX_AMAP_CONCURRENCY = 4;
+const MAX_CACHE_ENTRIES = 500;
+const CANDIDATE_CACHE_TTL_MS = 5 * 60 * 1000;
+const GEOCODE_CACHE_TTL_MS = 30 * 60 * 1000;
+const ROUTE_CACHE_TTL_MS = 2 * 60 * 1000;
+
+let activeRequests = 0;
+const requestWaiters = [];
+const responseCache = new Map();
+const inFlight = new Map();
+
+async function acquireRequestSlot() {
+  if (activeRequests < MAX_AMAP_CONCURRENCY) {
+    activeRequests++;
+    return;
+  }
+  await new Promise(resolve => requestWaiters.push(resolve));
+  activeRequests++;
+}
+
+function releaseRequestSlot() {
+  activeRequests = Math.max(0, activeRequests - 1);
+  const next = requestWaiters.shift();
+  if (next) next();
+}
+
+function cacheKey(path, params) {
+  return `${path}?${new URLSearchParams(Object.entries(params).sort(([a], [b]) => a.localeCompare(b))).toString()}`;
+}
+
+async function cached(key, ttlMs, loader) {
+  const now = Date.now();
+  const existing = responseCache.get(key);
+  if (existing && existing.expiresAt > now) return existing.value;
+  if (inFlight.has(key)) return inFlight.get(key);
+  const pending = Promise.resolve().then(loader).then(value => {
+    responseCache.delete(key);
+    responseCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+    while (responseCache.size > MAX_CACHE_ENTRIES) responseCache.delete(responseCache.keys().next().value);
+    return value;
+  }).finally(() => inFlight.delete(key));
+  inFlight.set(key, pending);
+  return pending;
+}
 const DISTRICTS = ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'];
 
 function text(value) { return String(value || '').trim(); }
@@ -14,7 +58,7 @@ function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
   function configured() {
     if (!secret) throw serviceError('AMAP_NOT_CONFIGURED', '高德服务未配置', 503);
   }
-  async function request(path, params) {
+  async function rawRequest(path, params) {
     configured();
     const url = new URL(`https://restapi.amap.com${path}`);
     url.search = new URLSearchParams({ ...params, key: secret, output: 'JSON' }).toString();
@@ -34,6 +78,24 @@ function createAmapService({ key, fetchImpl = fetch, timeoutMs = 7000 } = {}) {
       throw serviceError(limited ? 'AMAP_RATE_LIMITED' : 'AMAP_API_ERROR', limited ? '地图服务调用额度已用尽' : '地图服务调用失败', limited ? 503 : 502, { infocode: text(data.infocode) });
     }
     return data;
+  }
+  async function request(path, params) {
+    const keyValue = `${secret}:${cacheKey(path, params)}`;
+    const ttl = path === '/v3/place/text' ? CANDIDATE_CACHE_TTL_MS
+      : path === '/v3/geocode/geo' ? GEOCODE_CACHE_TTL_MS : ROUTE_CACHE_TTL_MS;
+    return cached(keyValue, ttl, async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await acquireRequestSlot();
+        try {
+          return await rawRequest(path, params);
+        } catch (caught) {
+          if (caught?.code !== 'AMAP_RATE_LIMITED' || attempt === 2) throw caught;
+          await new Promise(resolve => setTimeout(resolve, 150 * (attempt + 1)));
+        } finally {
+          releaseRequestSlot();
+        }
+      }
+    });
   }
   async function candidates(query, district = '') {
     const keywords = text(query).slice(0, 80);
