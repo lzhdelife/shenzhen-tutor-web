@@ -2131,7 +2131,6 @@ function logout() {
   if (adminToken) {
     adminToken = '';
     sessionStorage.removeItem('adminToken');
-    localStorage.removeItem(ADMIN_BROWSER_ACCESS_KEY);
     ensureGuestSession().then(load).catch(error => toast(error.message));
     return;
   }
