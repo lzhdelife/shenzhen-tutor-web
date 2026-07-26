@@ -38,6 +38,7 @@ let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
+let orderLoadStatusTimer = 0;
 let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
 let visibleOrderLimit = 20;
@@ -137,10 +138,33 @@ function toast(text) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-async function load() {
+function showOrderLoadStatus(title, detail = '', { complete = false } = {}) {
+  clearTimeout(orderLoadStatusTimer);
+  const root = $('#orderLoadStatus');
+  if (!root) return;
+  $('#orderLoadTitle').textContent = title;
+  $('#orderLoadDetail').textContent = detail;
+  root.classList.toggle('complete', complete);
+  root.classList.remove('hidden');
+}
+
+function finishOrderLoadStatus(detail = '列表已准备好') {
+  showOrderLoadStatus(`已加载 ${state.orders.length} 条家教信息`, detail, { complete: true });
+  orderLoadStatusTimer = setTimeout(() => $('#orderLoadStatus')?.classList.add('hidden'), 900);
+}
+
+function waitForNextPaint() {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()));
+}
+
+async function load({ showProgress = false } = {}) {
+  if (showProgress) showOrderLoadStatus('正在加载家教信息', '正在从平台获取最新订单…');
   orderMapLocations = null;
   orderMapDataRevision += 1;
   state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
+  if (showProgress) {
+    showOrderLoadStatus(`正在加载 ${state.orders.length} 条家教信息`, '数据已获取，正在整理列表…');
+  }
   if (adminToken && state.viewer?.role === 'admin') {
     state.adminStats = await api('/api/admin/stats', {}, adminToken);
   }
@@ -155,6 +179,7 @@ async function load() {
   renderPlatformStats();
   renderAdminStats();
   syncShell();
+  if (showProgress) await waitForNextPaint();
 }
 
 function mergeCreatedOrders(created = []) {
@@ -256,8 +281,17 @@ async function refreshOrderList() {
   button.disabled = true;
   button.classList.add('loading');
   try {
-    await load();
+    await load({ showProgress: true });
+    if (teacherOrigin) {
+      showOrderLoadStatus(`已加载 ${state.orders.length} 条家教信息`, `正在计算 ${state.orders.length} 条订单的直线距离…`);
+      await waitForNextPaint();
+      await updateTeacherDistances($('#teacherLocationForm'), { silent: true });
+    }
+    finishOrderLoadStatus(teacherOrigin ? '订单和距离均已更新' : '列表已更新');
     toast('家教单已刷新');
+  } catch (error) {
+    showOrderLoadStatus('加载失败', '请稍后点击刷新重试');
+    throw error;
   } finally {
     ordersRefreshBusy = false;
     button.disabled = false;
@@ -378,7 +412,7 @@ function queueTeacherPreferencesSave() {
   teacherPreferenceSaveTimer = setTimeout(() => saveTeacherPreferences().catch(() => {}), 450);
 }
 
-async function loadTeacherPreferences() {
+async function loadTeacherPreferences({ showProgress = false } = {}) {
   let preferences = {};
   try { preferences = JSON.parse(localStorage.getItem(BROWSER_PREFERENCES_KEY) || '{}'); } catch {}
   if (!Object.keys(preferences).length) {
@@ -388,10 +422,15 @@ async function loadTeacherPreferences() {
   teacherPreferencesLoaded = true;
   if (teacherOrigin) {
     $('#teacherLocationStatus').textContent = '正在计算直线距离…';
-    setTimeout(() => updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
+    if (showProgress) {
+      showOrderLoadStatus(`已加载 ${state.orders.length} 条家教信息`, `正在计算 ${state.orders.length} 条订单的直线距离…`);
+      await waitForNextPaint();
+    }
+    await updateTeacherDistances($('#teacherLocationForm'), { silent: true }).catch(error => {
       $('#teacherLocationStatus').textContent = `直线距离计算失败：${error.message}`;
-    }), 0);
+    });
   }
+  if (showProgress) finishOrderLoadStatus(teacherOrigin ? '订单和距离均已准备好' : '列表已准备好');
 }
 
 function fillTeacherLocation() {
@@ -2834,14 +2873,17 @@ async function initializeApp() {
     if (error.status !== 404) throw error;
     console.warn('匿名浏览器接口尚未加载，当前以只读模式展示共享订单。');
   }
-  await load();
+  await load({ showProgress: true });
   renderPreview();
   setView('teacher');
   setTeacherViewMode('list');
-  if (!teacherPreferencesLoaded) await loadTeacherPreferences();
+  if (!teacherPreferencesLoaded) await loadTeacherPreferences({ showProgress: true });
 }
 
-initializeApp().catch(err => toast(err.message));
+initializeApp().catch(err => {
+  showOrderLoadStatus('加载失败', '请检查网络后点击刷新重试');
+  toast(err.message);
+});
 setInterval(() => {
   sendPresence().catch(() => {});
   refreshAdminStats().catch(() => {});

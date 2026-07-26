@@ -98,6 +98,11 @@
           </div>
         </div>
 
+        <div id="orderLoadStatus" class="order-load-status" role="status" aria-live="polite">
+          <span class="order-load-spinner" aria-hidden="true"></span>
+          <div><strong id="orderLoadTitle">正在连接平台</strong><small id="orderLoadDetail">正在准备最新家教信息…</small></div>
+        </div>
+
         <form id="teacherLocationForm" class="location-strip">
           <div class="location-field">
             <label for="teacherOrigin">我的位置</label>
@@ -203,7 +208,6 @@
           </div>
           <div class="import-workspace">
             <div class="import-input-column">
-              <div class="import-column-title"><strong>粘贴原文</strong></div>
               <textarea name="text" class="large" placeholder="点击这里粘贴一条或多条订单文字"></textarea>
               <label id="txtDropZone" class="txt-drop-zone">
                 <strong>TXT 文档</strong><span>点击或拖入</span>
@@ -358,6 +362,6 @@
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
   <script src="./order-score.js?v=20260727-1"></script>
-  <script src="./app.js?v=20260727-56"></script>
+  <script src="./app.js?v=20260727-57"></script>
 </body>
 </html>
