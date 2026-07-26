@@ -113,6 +113,19 @@ h2 { font-size: 18px; line-height: 1.35; }
 .auth-heading { margin-bottom: 4px; }
 .auth-heading h2 { margin-top: 5px; font-size: 24px; }
 .row-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.admin-developer-intro {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-block: 1px solid var(--line);
+}
+.admin-developer-intro a { display: block; width: 112px; }
+.admin-developer-intro img { display: block; width: 100%; aspect-ratio: 904 / 1526; object-fit: contain; background: #fff; }
+.admin-developer-intro strong { display: block; color: var(--ink); font-size: 16px; line-height: 1.45; }
+.admin-developer-intro p { margin-top: 6px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.admin-developer-intro small { display: block; margin-top: 7px; color: var(--muted); font-size: 11px; }
 .section-kicker { color: var(--blue); font-size: 12px; font-weight: 800; }
 label { display: grid; gap: 7px; color: #3c4855; font-weight: 700; }
 input, select, textarea {
@@ -1069,6 +1082,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .auth-brand h1 { max-width: none; font-size: 22px; }
   .auth-platform-stats { margin-top: 14px; }
   .auth-stack { padding: 30px 20px 42px; align-self: start; }
+  .admin-developer-intro { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; }
+  .admin-developer-intro a { width: 96px; }
   .auth-method-tabs button { font-size: 12px; }
   .sms-code-row { grid-template-columns: minmax(0, 1fr) 104px; }
   .sms-code-row button { min-width: 0; padding-inline: 8px; }
