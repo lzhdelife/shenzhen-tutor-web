@@ -360,7 +360,8 @@ function createWorker(dependencies = {}) {
           const [teacherToken, agencyToken] = await Promise.all([
             issueSession(repo, request, teacher), issueSession(repo, request, agency)
           ]);
-          return json({ teacher: publicUser(teacher), agency: publicUser(agency), teacherToken, agencyToken, guest: true });
+          return json({ teacher: publicUser(teacher), agency: publicUser(agency), teacherToken, agencyToken, guest: true }, 200,
+            { 'set-cookie': sessionCookie(agencyToken) });
         }
         if (method === 'POST' && path === '/api/login') return loginOne(repo, request, await bodyJson(request), env);
         if (method === 'POST' && path === '/api/account/remember-login') {

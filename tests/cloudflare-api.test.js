@@ -278,7 +278,9 @@ test('account login creates paired roles and persists only token hashes', async 
 
 test('publisher access requires an application and admin approval before publishing', async () => {
   const { call } = harness({ parseOrders: async data => ({ parsed: [{ raw: data.text }], ignoredBlocks: [] }) });
-  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_browser_1234' } })).json();
+  const guestResponse = await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_browser_1234' } });
+  assert.match(guestResponse.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
+  const guest = await guestResponse.json();
   const agencyHeaders = { authorization: `Bearer ${guest.agencyToken}` };
 
   assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 403);

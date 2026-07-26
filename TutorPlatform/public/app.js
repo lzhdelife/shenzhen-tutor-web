@@ -48,6 +48,7 @@ let focusedListOrderId = '';
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
 const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
+const PUBLISHER_BROWSER_ACCESS_KEY = 'tutorPlatformPublisherBrowserAccess';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
@@ -1585,6 +1586,7 @@ function renderPublisherAccess() {
 
   const access = state.publisherAccess || null;
   const approved = access?.status === 'approved';
+  if (approved) localStorage.setItem(PUBLISHER_BROWSER_ACCESS_KEY, 'approved');
   gate.classList.toggle('hidden', approved);
   workspace.classList.toggle('hidden', !approved);
   if (approved) {
@@ -1961,6 +1963,18 @@ function storeMemberSession(result) {
   sessionStorage.setItem('agencyToken', agencyToken);
 }
 
+async function restorePublisherBrowserSession() {
+  if (localStorage.getItem(PUBLISHER_BROWSER_ACCESS_KEY) !== 'approved') return false;
+  if (teacherToken && agencyToken && currentTeacher && currentAgency) return true;
+  try {
+    const result = await api('/api/account/remember-login', { method: 'POST', body: {} });
+    storeMemberSession(result);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function guestDeviceId() {
   let value = localStorage.getItem(GUEST_DEVICE_KEY) || '';
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(value)) {
@@ -2203,6 +2217,7 @@ async function submitPublisherAccess(form) {
       currentAgency = result.agency;
       localStorage.setItem('agencyUser', JSON.stringify(currentAgency));
       sessionStorage.setItem('agencyToken', agencyToken);
+      localStorage.setItem(PUBLISHER_BROWSER_ACCESS_KEY, 'approved');
       toast('发单身份已恢复');
       await load();
       return;
@@ -3042,6 +3057,7 @@ async function initializeApp() {
   await api('/api/visit', { method: 'POST' }).catch(() => {});
   await sendPresence().catch(() => {});
   try {
+    await restorePublisherBrowserSession();
     await ensureGuestSession();
   } catch (error) {
     // 兼容仍在运行的旧本地后端：公共订单应始终可读，重启后再恢复匿名写入权限。
