@@ -25,6 +25,7 @@ let orderMapApi = null;
 let orderMapLocations = null;
 let orderMapRouteService = null;
 let activeMapRouteOrderId = '';
+let orderMapRouteRequest = 0;
 let orderMapViewportMode = 'all';
 let activeAgencyContact = null;
 let activeRawText = '';
@@ -202,12 +203,12 @@ function applyAppRoute(route) {
     activeView = 'agency';
     sessionStorage.setItem('activeView', activeView);
     setView('agency');
-    return;
+    return Promise.resolve();
   }
   activeView = 'teacher';
   sessionStorage.setItem('activeView', activeView);
   setView('teacher');
-  setTeacherViewMode(next === 'map' ? 'map' : 'list');
+  return setTeacherViewMode(next === 'map' ? 'map' : 'list');
 }
 
 function initializeAppHistory() {
@@ -227,14 +228,14 @@ function initializeAppHistory() {
 function navigateAppRoute(route) {
   const next = ['map', 'agency'].includes(route) ? route : 'list';
   const current = currentAppRoute();
-  if (next === current) return;
+  if (next === current) return Promise.resolve();
   if (next === 'list' && history.state?.tutorRoute && current !== 'list') {
     history.back();
-    return;
+    return Promise.resolve();
   }
   if (current === 'list') history.pushState({ tutorRoute: next }, '', appRouteUrl(next));
   else history.replaceState({ tutorRoute: next }, '', appRouteUrl(next));
-  applyAppRoute(next);
+  return applyAppRoute(next);
 }
 
 function syncShell() {
@@ -1233,7 +1234,52 @@ function renderOrderCommuteSummary(routeResult = {}, orderId = '') {
   summary.classList.remove('hidden');
 }
 
+function collectRouteCoordinates(value, result = [], seen = new WeakSet()) {
+  if (result.length >= 5000 || value == null) return result;
+  if (typeof value === 'string') {
+    for (const match of value.matchAll(/(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)/g)) {
+      const point = [Number(match[1]), Number(match[2])];
+      if (point[0] >= 70 && point[0] <= 140 && point[1] >= 0 && point[1] <= 60) result.push(point);
+    }
+    return result;
+  }
+  if (typeof value !== 'object') return result;
+  const directPoint = mapPointCoordinates(value);
+  if (directPoint.length === 2 && directPoint.every(Number.isFinite)) {
+    if (directPoint[0] >= 70 && directPoint[0] <= 140 && directPoint[1] >= 0 && directPoint[1] <= 60) result.push(directPoint);
+    return result;
+  }
+  if (seen.has(value)) return result;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach(item => collectRouteCoordinates(item, result, seen));
+    return result;
+  }
+  Object.values(value).forEach(item => collectRouteCoordinates(item, result, seen));
+  return result;
+}
+
+function routeViewportCoordinates(routeResult, start, destination) {
+  const primaryRoute = routeResult?.routes?.[0] || routeResult?.plans?.[0] || routeResult || {};
+  const points = [mapPointCoordinates(start), ...collectRouteCoordinates(primaryRoute), mapPointCoordinates(destination)]
+    .filter(point => point.length === 2 && point.every(Number.isFinite));
+  return [...new Map(points.map(point => [point.map(value => value.toFixed(6)).join(','), point])).values()];
+}
+
+function fitOrderMapRoute(points, requestId) {
+  if (!orderMap || !orderMapApi || requestId !== orderMapRouteRequest || points.length < 2) return;
+  const longitudes = points.map(point => point[0]);
+  const latitudes = points.map(point => point[1]);
+  const bounds = new orderMapApi.Bounds(
+    new orderMapApi.LngLat(Math.min(...longitudes), Math.min(...latitudes)),
+    new orderMapApi.LngLat(Math.max(...longitudes), Math.max(...latitudes))
+  );
+  orderMap.resize?.();
+  orderMap.setBounds(bounds, false, [64, 64, 64, 64], 18);
+}
+
 async function focusOrderOnMap(orderId) {
+  const routeRequest = ++orderMapRouteRequest;
   const origin = String($('#teacherOrigin')?.value || teacherOrigin || '').trim();
   if (!origin) {
     toast('请先填写“我的位置”，再查看导航路线');
@@ -1246,7 +1292,7 @@ async function focusOrderOnMap(orderId) {
   $('#activeMapRouteHint').textContent = activeOrder
     ? `正在查看：${orderDisplayMeta(activeOrder).title}`
     : '正在查看所选订单';
-  await setTeacherViewMode('map');
+  await navigateAppRoute('map');
   const locations = orderMapLocations?.get(orderId) || [];
   const coordinates = String(locations[0] || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
   if (!coordinates || !orderMap) {
@@ -1268,7 +1314,7 @@ async function focusOrderOnMap(orderId) {
   localStorage.setItem('teacherOriginCoordinates', selectedOriginCoordinates);
   const start = new orderMapApi.LngLat(Number(originMatch[1]), Number(originMatch[2]));
   orderMapRouteService?.clear?.();
-  const options = { map: orderMap, autoFitView: true, hideMarkers: false };
+  const options = { map: orderMap, autoFitView: false, hideMarkers: false };
   orderMapRouteService = routeMode === 'walking'
     ? new orderMapApi.Walking(options)
     : routeMode === 'driving'
@@ -1286,12 +1332,16 @@ async function focusOrderOnMap(orderId) {
     showOrderMapStatus(error.message);
     return null;
   });
-  if (!routeResult) return;
+  if (!routeResult || routeRequest !== orderMapRouteRequest) return;
   renderOrderCommuteSummary(routeResult, orderId);
+  const routePoints = routeViewportCoordinates(routeResult, start, destination);
+  fitOrderMapRoute(routePoints, routeRequest);
+  window.setTimeout(() => fitOrderMapRoute(routePoints, routeRequest), 260);
   showOrderMapStatus('');
 }
 
 async function showAllOrdersOnMap() {
+  orderMapRouteRequest++;
   const visibleOrders = filteredOrders();
   orderMapViewportMode = 'all';
   orderMapInfoWindow?.close();
@@ -1332,6 +1382,7 @@ async function showNearbyOrdersOnMap() {
     return;
   }
   if (!orderMap || !orderMapApi) await renderOrderMap();
+  orderMapRouteRequest++;
   orderMapInfoWindow?.close();
   orderMapRouteService?.clear?.();
   orderMapRouteService = null;

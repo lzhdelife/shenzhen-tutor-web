@@ -22,6 +22,7 @@ __pycache__/
 clipboard_bridge/runtime_config.py
 build/
 dist/
+output/
 
 # TutorPlatform runtime data (contains users, password hashes, orders and images)
 TutorPlatform/data/
