@@ -1130,6 +1130,7 @@ async function renderOrderMap(orders = filteredOrders()) {
 
 function setTeacherViewMode(mode) {
   teacherViewMode = mode === 'map' ? 'map' : 'list';
+  $('#teacherFilters').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderListMore').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');

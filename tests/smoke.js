@@ -10,6 +10,8 @@ const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public
 const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
 assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
+assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,
+  'map view should hide the list-only filter toolbar');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固
