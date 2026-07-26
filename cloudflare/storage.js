@@ -389,6 +389,20 @@ function createRepository(env = {}) {
     return (await all('SELECT * FROM order_issue_reports ORDER BY updated_at DESC')).map(mapRow);
   }
 
+  async function deleteExportedOrderIssueReports(reports) {
+    const refs = (Array.isArray(reports) ? reports : []).filter(report => report?.id && report?.updatedAt);
+    let deleted = 0;
+    for (let index = 0; index < refs.length; index += 100) {
+      const statements = refs.slice(index, index + 100)
+        .map(report => db.prepare('DELETE FROM order_issue_reports WHERE id = ? AND updated_at = ?').bind(report.id, report.updatedAt));
+      const results = typeof db.batch === 'function'
+        ? await db.batch(statements)
+        : await Promise.all(statements.map(statement => statement.run()));
+      deleted += results.reduce((total, result) => total + Number(result?.meta?.changes || result?.changes || 0), 0);
+    }
+    return deleted;
+  }
+
   async function createClipboardCapture(input) {
     const capture = {
       captureId: input.captureId,
@@ -474,7 +488,7 @@ function createRepository(env = {}) {
     updateOrder, deleteOrder, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
-    upsertOrderIssueReport, listOrderIssueReports,
+    upsertOrderIssueReport, listOrderIssueReports, deleteExportedOrderIssueReports,
     listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };

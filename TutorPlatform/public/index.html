@@ -144,7 +144,7 @@
               <button class="filter-clear" type="button" data-clear-filter="gender">清空本项</button>
             </div>
           </details>
-          <input id="filterMinPrice" type="number" aria-label="最低课酬" placeholder="最低课酬">
+          <input id="filterMinPrice" type="number" aria-label="最低每次课酬，按两小时计算" placeholder="最低课酬/次">
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
         </div>
         <div id="orders" class="order-list"></div>
@@ -280,8 +280,7 @@
             <div class="admin-section-head">
               <div><h2>异常订单</h2><span id="adminAnomalyCount" class="form-note"></span></div>
               <div class="actions">
-                <button class="secondary" type="button" onclick="downloadIssueReports('jsonl')">导出 JSONL</button>
-                <button class="secondary" type="button" onclick="downloadIssueReports('txt')">导出 TXT</button>
+                <button class="secondary" type="button" onclick="exportAndClearIssueReports(this)">导出识别问题</button>
               </div>
             </div>
             <div id="adminAnomalyOrders" class="admin-anomaly-list"></div>
@@ -363,7 +362,7 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./order-score.js?v=20260727-1"></script>
-  <script src="./app.js?v=20260727-60"></script>
+  <script src="./order-score.js?v=20260727-2"></script>
+  <script src="./app.js?v=20260727-61"></script>
 </body>
 </html>

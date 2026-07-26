@@ -16,6 +16,61 @@
     return price;
   }
 
+  function formatMoney(value) {
+    const amount = Math.round(Number(value) * 100) / 100;
+    return Number.isInteger(amount) ? String(amount) : String(amount).replace(/0+$/, '').replace(/\.$/, '');
+  }
+
+  function lessonPrice(order = {}) {
+    const unit = String(order.priceUnit || '').trim();
+    const monthly = Number(order.monthly);
+    if (unit === '月' || (Number.isFinite(monthly) && monthly > 0)) {
+      return monthly > 0 ? { min: monthly, max: monthly, unit: '月', hours: 0 } : null;
+    }
+
+    const min = Number(order.priceMin);
+    const max = Number(order.priceMax);
+    const price = Number(order.price);
+    const hasRange = Number.isFinite(min) && min > 0 && Number.isFinite(max) && max > 0 && min !== max;
+    const sessionUnit = /^(?:次|节|次课|节课)$/.test(unit);
+    const durationMatch = unit.match(/^(\d+(?:\.\d+)?)\s*(?:小时|时|h)$/i);
+
+    if (sessionUnit) {
+      const sessionMin = hasRange ? min : price;
+      const sessionMax = hasRange ? max : price;
+      return sessionMin > 0 ? { min: sessionMin, max: sessionMax, unit: '次', hours: 0 } : null;
+    }
+
+    if (unit === '天') {
+      return price > 0 ? { min: price, max: price, unit: '天', hours: 0 } : null;
+    }
+
+    if (hasRange) {
+      const duration = durationMatch ? Number(durationMatch[1]) : 1;
+      const factor = duration > 0 ? 2 / duration : 2;
+      return { min: min * factor, max: max * factor, unit: '次', hours: 2 };
+    }
+
+    const hourly = hourlyRate(order);
+    return hourly > 0 ? { min: hourly * 2, max: hourly * 2, unit: '次', hours: 2 } : null;
+  }
+
+  function lessonPriceLabel(order = {}) {
+    const normalized = lessonPrice(order);
+    if (!normalized) return '';
+    const amount = normalized.min === normalized.max
+      ? formatMoney(normalized.min)
+      : `${formatMoney(normalized.min)}-${formatMoney(normalized.max)}`;
+    return normalized.hours
+      ? `${amount}元/次（2小时）`
+      : `${amount}元/${normalized.unit}`;
+  }
+
+  function lessonPriceAmount(order = {}) {
+    const normalized = lessonPrice(order);
+    return normalized ? (normalized.min + normalized.max) / 2 : 0;
+  }
+
   function pricePoints(order = {}) {
     const hourly = hourlyRate(order);
     if (hourly >= 300) return 50;
@@ -43,5 +98,5 @@
     return pricePoints(order) + distancePoints(order.distanceKm);
   }
 
-  return { hourlyRate, pricePoints, distancePoints, scoreOrder };
+  return { hourlyRate, lessonPrice, lessonPriceLabel, lessonPriceAmount, pricePoints, distancePoints, scoreOrder };
 }));

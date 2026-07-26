@@ -79,8 +79,10 @@ class MockD1 {
     const deletion = sql.match(/^DELETE FROM (\w+) WHERE (\w+) = \?/i);
     if (deletion) {
       const [, table, key] = deletion;
-      this.tables[table] = this.tables[table].filter(row => row[key] !== values[0]);
-      return { success: true };
+      const before = this.tables[table].length;
+      const requiresUpdatedAt = /AND updated_at = \?/i.test(sql);
+      this.tables[table] = this.tables[table].filter(row => row[key] !== values[0] || (requiresUpdatedAt && row.updated_at !== values[1]));
+      return { success: true, meta: { changes: before - this.tables[table].length } };
     }
     throw new Error(`Unsupported mock SQL: ${sql}`);
   }
@@ -183,6 +185,10 @@ async function run() {
   const reports = await repo.listOrderIssueReports();
   assert.equal(reports.length, 1);
   assert.equal(reports[0].parsedSnapshot.place, '更新后的快照');
+  assert.equal(await repo.deleteExportedOrderIssueReports([{ id: reports[0].id, updatedAt: '2099-01-01T00:00:00.000Z' }]), 0);
+  assert.equal((await repo.listOrderIssueReports()).length, 1);
+  assert.equal(await repo.deleteExportedOrderIssueReports([{ id: reports[0].id, updatedAt: reports[0].updatedAt }]), 1);
+  assert.equal((await repo.listOrderIssueReports()).length, 0);
 
   const flatSnapshot = db.tables.orders[0].structured_json;
   db.tables.orders[0].structured_json = JSON.stringify({

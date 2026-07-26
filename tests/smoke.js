@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const platform = require('../TutorPlatform/server.js');
 const { summarizeScheduleText } = require('../TutorPlatform/public/schedule-format.js');
+const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public/order-score.js');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固
@@ -138,6 +139,11 @@ assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 2 }), 100);
 assert.equal(platform.score({ hourlyPrice: 100, distanceKm: 2 }), 70);
 assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 30 }), 55);
 assert.equal(platform.score({ price: 400, priceUnit: '2小时', distanceKm: 2 }), 90);
+assert.equal(lessonPriceLabel({ price: 200, hourlyPrice: 200, priceUnit: '小时' }), '400元/次（2小时）');
+assert.equal(lessonPriceLabel({ price: 900, priceMin: 800, priceMax: 1000, hourlyPrice: 450, priceUnit: '2小时' }), '800-1000元/次（2小时）');
+assert.equal(lessonPriceLabel({ price: 500, hourlyPrice: 250, priceUnit: '次' }), '500元/次');
+assert.equal(lessonPriceLabel({ price: 600, hourlyPrice: 200, priceUnit: '3小时' }), '400元/次（2小时）');
+assert.equal(lessonPriceAmount({ price: 160, hourlyPrice: 160, priceUnit: '小时' }), 320);
 
 async function runLocationChecks() {
   const originalFetch = global.fetch;

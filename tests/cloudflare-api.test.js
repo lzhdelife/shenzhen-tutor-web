@@ -48,6 +48,16 @@ function memoryRepository() {
       return report;
     },
     async listOrderIssueReports() { return [...state.orderIssueReports.values()]; },
+    async deleteExportedOrderIssueReports(reports) {
+      const refs = new Set(reports.map(report => `${report.id}\n${report.updatedAt}`));
+      let deleted = 0;
+      for (const [key, report] of state.orderIssueReports) {
+        if (!refs.has(`${report.id}\n${report.updatedAt}`)) continue;
+        state.orderIssueReports.delete(key);
+        deleted++;
+      }
+      return deleted;
+    },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
     async createClipboardCapture(input) { const existing = state.clipboard.get(input.captureId); if (existing) return existing; const capture = { ...input, status: 'pending', attempts: 0 }; state.clipboard.set(input.captureId, capture); return capture; },
@@ -560,4 +570,16 @@ test('识别有误反馈保存快照、同人去重且仅管理员可读取', as
   const adminState = await (await call('/api/state', { headers: { authorization: `Bearer ${admin.token}` } })).json();
   assert.equal(adminState.orderIssueReports.length, 2);
   assert.equal(adminState.orderIssueReports.find(item => item.source === 'preview').rawText, preview.raw);
+  const clearPath = '/api/admin/order-issues/clear-exported';
+  const exported = adminState.orderIssueReports;
+  assert.equal((await call(clearPath, { method: 'POST', headers: teacherHeaders, body: { reports: exported } })).status, 401);
+  const clearResult = await (await call(clearPath, { method: 'POST', headers: { authorization: `Bearer ${admin.token}` }, body: {
+    reports: [
+      { id: exported[0].id, updatedAt: exported[0].updatedAt },
+      { id: exported[1].id, updatedAt: '2099-01-01T00:00:00.000Z' }
+    ]
+  } })).json();
+  assert.equal(clearResult.deletedReports, 1);
+  assert.equal(repo.state.orderIssueReports.size, 1);
+  assert.equal([...repo.state.orderIssueReports.values()][0].id, exported[1].id);
 });

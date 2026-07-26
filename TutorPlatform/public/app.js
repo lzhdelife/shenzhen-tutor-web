@@ -1,4 +1,5 @@
 let state = { viewer: null, settings: {}, orders: [], orderIssueReports: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0, amapUsage: { date: '', total: 0, limited: 0, byEndpoint: {} } }, lists: { districts: [], subjects: [], grades: [] } };
+let issueExportDirectoryHandle = null;
 const WU_TEACHER_PHONE = ['187', '1937', '1936'].join('');
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
@@ -495,7 +496,7 @@ function filteredOrders() {
     .filter(o => matchesSelection(subjectBuckets(o), teacherFilterSelections.subject))
     .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
-    .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
+    .filter(o => !minPrice || (window.TutorOrderScore?.lessonPriceAmount(o) || Number(o.price)) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) > 0 && Number(o.distanceKm) <= NEARBY_DISTANCE_KM))
     .sort((a, b) => {
       const scoreDifference = orderScore(b) - orderScore(a);
@@ -599,6 +600,8 @@ function categoryLabel(value, options, fallback) {
 
 function priceLabel(o) {
   const priceUnit = displayFieldValue(o.priceUnit);
+  const lessonLabel = window.TutorOrderScore?.lessonPriceLabel(o);
+  if (lessonLabel) return lessonLabel;
   const fieldPrice = fieldFromRaw(o.raw, ['老师薪水', '老师课费', '课时价格', '课费报酬', '课费薪酬', '薪酬', '课酬', '薪资', '时薪']);
   let text = cleanDisplayText(fieldPrice || o.priceText || '', 80)
     .replace(/^(?:老师薪水|老师课费|课时价格|课费报酬|课费薪酬|薪酬|课酬|薪资|时薪)\s*[:：]?\s*/, '')
@@ -812,7 +815,7 @@ function orderCard(o) {
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
-      <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
+      <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>
       <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
       <button class="text-button issue-report-button" onclick="reportPublishedOrderIssue('${o.id}', this)">识别有误</button>
     </div>
@@ -1488,21 +1491,75 @@ function exportedIssueReports() {
   return [...grouped.values()];
 }
 
-function downloadIssueReports(format) {
-  const reports = exportedIssueReports();
-  if (!reports.length) return toast('还没有用户反馈');
-  const content = format === 'txt'
+function issueReportContent(reports, format) {
+  return format === 'txt'
     ? reports.map((report, index) => [
         `# ${index + 1} · 反馈 ${report.reportCount} 次 · 解析器 ${report.parserVersion || '未知'}`,
         '【原文】', report.raw, '', '【识别结果】', JSON.stringify(report.parsed, null, 2)
       ].join('\n')).join('\n\n========================================\n\n')
     : reports.map(report => JSON.stringify(report)).join('\n');
+}
+
+function downloadIssueReportFile(content, format) {
   const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'application/x-ndjson;charset=utf-8' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = `order-parser-issues-${new Date().toISOString().slice(0, 10)}.${format}`;
+  link.download = `order-parser-issues.${format}`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+async function saveIssueReportFiles(files) {
+  if (typeof window.showDirectoryPicker !== 'function') {
+    for (const file of files) downloadIssueReportFile(file.content, file.format);
+    return false;
+  }
+  let directory = issueExportDirectoryHandle;
+  if (directory && typeof directory.queryPermission === 'function') {
+    let permission = await directory.queryPermission({ mode: 'readwrite' });
+    if (permission === 'prompt') permission = await directory.requestPermission({ mode: 'readwrite' });
+    if (permission !== 'granted') directory = null;
+  }
+  if (!directory) {
+    directory = await window.showDirectoryPicker({ id: 'order-parser-issues', mode: 'readwrite' });
+    issueExportDirectoryHandle = directory;
+  }
+  for (const file of files) {
+    const handle = await directory.getFileHandle(file.name, { create: true });
+    const writable = await handle.createWritable();
+    try {
+      await writable.write(file.content);
+    } finally {
+      await writable.close();
+    }
+  }
+  return true;
+}
+
+async function exportAndClearIssueReports(button) {
+  const reports = exportedIssueReports();
+  if (!reports.length) return toast('还没有用户反馈');
+  const sourceReports = Array.isArray(state.orderIssueReports) ? [...state.orderIssueReports] : [];
+  const exportedRefs = sourceReports.map(report => ({ id: report.id, updatedAt: report.updatedAt })).filter(report => report.id && report.updatedAt);
+  if (!exportedRefs.length) return toast('反馈记录缺少导出标识，请刷新后重试');
+  if (button) button.disabled = true;
+  try {
+    const files = [
+      { name: 'order-parser-issues.txt', format: 'txt', content: issueReportContent(reports, 'txt') },
+      { name: 'order-parser-issues.jsonl', format: 'jsonl', content: issueReportContent(reports, 'jsonl') }
+    ];
+    const overwritten = await saveIssueReportFiles(files);
+    const result = await api('/api/admin/order-issues/clear-exported', {
+      method: 'POST', body: { reports: exportedRefs }
+    }, adminToken);
+    await load();
+    toast(`${overwritten ? 'TXT 和 JSONL 已保存并覆盖同名文件' : 'TXT 和 JSONL 已下载'}，已清理 ${Number(result.deletedReports || 0)} 条反馈`);
+  } catch (error) {
+    if (error?.name === 'AbortError') toast('已取消导出，反馈没有清理');
+    else toast(`导出未完成，反馈没有清理：${error.message}`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function openIssueSnapshot(encoded) {

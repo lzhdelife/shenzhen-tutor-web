@@ -8,7 +8,9 @@ const { buildRuleStructuredOrder } = require('../TutorPlatform/parser/pipeline')
 const { splitOrdersDetailed } = require('../TutorPlatform/parser/splitter');
 
 const fixturePath = path.join(__dirname, 'fixtures', 'parser-regressions.jsonl');
-const fixtures = fs.readFileSync(fixturePath, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
+const reportedFixturePath = path.join(__dirname, 'fixtures', 'parser-reported-regressions.jsonl');
+const fixtures = [fixturePath, reportedFixturePath]
+  .flatMap(file => fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse));
 const batchFixturePath = path.join(__dirname, 'fixtures', 'batch-nine-orders.txt');
 const batchFixture = fs.readFileSync(batchFixturePath, 'utf8').trim().replace(/\r/g, '');
 const numberedFixturePath = path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt');
@@ -34,7 +36,7 @@ for (const fixture of fixtures) {
   if (expected.locationQueryIncludes) assert.ok(expected.locationQueryIncludes.every(value => order.locationQueries.includes(value)), `${fixture.id}: ${order.locationQueries.join(' | ')}`);
   if (expected.scheduleIncludes) { counters.phases[1]++; const ok = expected.scheduleIncludes.every(value => order.schedule.includes(value)); if (ok) counters.phases[0]++; assert.equal(ok, true, `${fixture.id}: ${order.schedule}`); }
   if (!expected.teacherGender && order.gender) counters.genderConfusions++;
-  assert.equal(structured.parserVersion, '2.2.1');
+  assert.equal(structured.parserVersion, '2.2.2');
   assert.equal(structured.rawText, fixture.raw);
   assert.ok(structured.normalizedText, `${fixture.id}: normalized text available alongside lossless rawText`);
   assert.equal(structured.locations.rawEvidence.length > 0, true, `${fixture.id}: location evidence`);
@@ -76,6 +78,16 @@ for (const fixture of fixtures) {
     assert.equal(structured.locations.value[0].transitLine, '12号线');
     assert.equal(structured.schedulePhases[0].durationPerLesson, 2);
     assert.equal(structured.schedulePhases[1].durationPerLesson, 3);
+  }
+  if (fixture.id === 'guangming-inline-address-teacher-degree') {
+    assert.equal(structured.schedulePhases[0].frequency, '一周二次');
+    assert.deepEqual(structured.schedulePhases[0].weekdays, []);
+    assert.equal(structured.schedulePhases[0].durationPerLesson, 1.5);
+  }
+  if (fixture.id === 'guangming-labeled-grade-poi') {
+    assert.equal(structured.schedulePhases[0].frequency, '一周2-3次');
+    assert.equal(structured.schedulePhases[0].timeOfDay, '');
+    assert.equal(structured.schedulePhases[0].durationPerLesson, 2);
   }
 }
 

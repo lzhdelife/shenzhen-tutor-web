@@ -716,6 +716,17 @@ function createWorker(dependencies = {}) {
           });
           return json({ ok: true, report: { targetKey: report.targetKey, source: report.source, updatedAt: report.updatedAt } });
         }
+        if (method === 'POST' && path === '/api/admin/order-issues/clear-exported') {
+          if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);
+          if (typeof repo.deleteExportedOrderIssueReports !== 'function') return error('识别反馈清理服务尚未配置', 503);
+          const data = await bodyJson(request);
+          const reports = (Array.isArray(data.reports) ? data.reports : []).slice(0, 5000)
+            .map(report => ({ id: text(report?.id), updatedAt: text(report?.updatedAt) }))
+            .filter(report => report.id && report.updatedAt);
+          if (!reports.length) return error('没有可清理的导出记录');
+          const deletedReports = await repo.deleteExportedOrderIssueReports(reports);
+          return json({ ok: true, deletedReports });
+        }
         const orderContact = path.match(/^\/api\/orders\/([^/]+)\/contact$/);
         if (method === 'GET' && orderContact) {
           const teacher = await requireRole(repo, request, 'teacher');

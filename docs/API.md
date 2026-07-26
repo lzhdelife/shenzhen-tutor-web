@@ -177,6 +177,8 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 同一浏览器身份对同一目标重复反馈会更新原记录；不同身份的反馈在管理端按目标合并计数。普通 `/api/state` 不返回反馈，管理员状态额外返回 `orderIssueReports[]`，供查看和导出原文、解析结果及解析器版本。
 
+管理端通过一个操作同时保存固定文件名 `order-parser-issues.txt` 和 `order-parser-issues.jsonl`。支持 File System Access API 的桌面浏览器会选择保存目录并覆盖同名文件，其他浏览器退回普通下载。两个文件写入完成后调用 `POST /api/admin/order-issues/clear-exported`。请求体为 `{ "reports": [{ "id", "updatedAt" }] }`；服务端只删除 ID 和更新时间都与导出快照一致的记录，导出期间新增或再次更新的反馈继续保留。
+
 ### 订单管理
 
 订单发布后不再提供状态切换或单条修改，发单端和管理端均只保留删除操作。历史订单状态字段继续兼容读取。

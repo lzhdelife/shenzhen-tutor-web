@@ -985,7 +985,10 @@ function extractGrades(text) {
     if (grade !== '其他' && new RegExp(grade).test(normalized)) found.push(grade);
   }
   if (/准大一/.test(normalized) && !found.includes('大一')) found.push('大一');
-  const unique = uniq(found);
+  let unique = uniq(found);
+  if (unique.some(grade => !/^(?:大[一二三四]|大学)$/.test(grade)) && /大学生/.test(normalized)) {
+    unique = unique.filter(grade => !/^(?:大[一二三四]|大学)$/.test(grade));
+  }
   if (unique.some(g => /年级/.test(g))) {
     return unique.filter(g => g !== '小学').slice(0, 3).join('/');
   }
@@ -993,7 +996,7 @@ function extractGrades(text) {
 }
 
 function extractStudent(text) {
-  const labeled = anyField(text, ['学生', '学员情况', '学生情况', '学员', '情况', '年级性别', '孩子性别', '成绩']);
+  const labeled = anyField(text, ['学生', '学员情况', '学生情况', '学员', '性别', '情况', '年级性别', '孩子性别', '成绩']);
   if (labeled) return labeled;
   const numbered = extractNumberedSection(text, 2);
   if (numbered && /(?:\d{1,2}\s*岁|年级|男生|女生|男孩|女孩)/.test(numbered)) return numbered;
@@ -1008,8 +1011,8 @@ function extractStudentGender(text, student = '') {
   const source = textOf(text);
   if (/(?:学生|学员|孩子|初[一二三]|高[一二三]|小学|年级|毕业)[^，。；;\n]{0,18}(?:女生|女孩)/.test(source)) return '女';
   if (/(?:学生|学员|孩子|初[一二三]|高[一二三]|小学|年级|毕业)[^，。；;\n]{0,18}(?:男生|男孩)/.test(source)) return '男';
-  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}女(?:[，,。；;\s]|$)/.test(source)) return '女';
-  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}男(?:[，,。；;\s]|$)/.test(source)) return '男';
+  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}女(?=[，,。；;\s]|全科|语文|数学|英语|物理|化学|生物|$)/.test(source)) return '女';
+  if (/(?:初[一二三]|高[一二三]|小学|年级)[^，。；;\n]{0,12}男(?=[，,。；;\s]|全科|语文|数学|英语|物理|化学|生物|$)/.test(source)) return '男';
   return '';
 }
 
@@ -1077,10 +1080,16 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const cleanPart = value => {
     let item = textOf(value)
       .replace(/^(?:[1-9]\ufe0f?\u20e3|[①②③④⑤⑥⑦⑧⑨⑩])\s*/, '')
+      .replace(/^[【\[]?(?:地址|地点|上课地址|辅导地点)[】\]]?\s*[:：]?/, '')
       .replace(/^[【\[]\s*[A-Z]?\s*/i, '')
       .replace(/[】\]]\s*$/, '')
       .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
-      .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '')
+      .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '');
+    const inlineGradeIndex = item.search(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|成人)(?=(?:男|女|全科|语文|数学|英语|物理|化学|生物|学生|学员))/);
+    if (inlineGradeIndex > 0 && /(?:路|大道|街|巷|花园|小区|公馆|家园|华府|新村|大厦|公寓|苑|城|村)/.test(item.slice(0, inlineGradeIndex))) {
+      item = item.slice(0, inlineGradeIndex);
+    }
+    item = item
       .replace(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|大学|成人)/g, '')
       .replace(/(?:语数英|数理化|语文|数学|英语|物理|化学|生物|政治|历史|地理|科学|全科|编程|体育)/g, '')
       .replace(/(?:男生|女生|男孩|女孩|男学员|女学员|学生|学员|孩子|男性|女性|男|女)/g, '')
@@ -1090,7 +1099,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
       .replace(/[\s#＃|｜:：]+/g, '')
       .trim();
     item = stripLeadingDistrict(item, district);
-    return item.replace(/^[区县，,、:：]+/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
+    return item.replace(/^新区[，,、]?/, '').replace(/^[区县，,、:：]+/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
   };
   for (const candidateSource of sources) {
     const cleaned = cleanPart(candidateSource);
@@ -1285,8 +1294,11 @@ function extractPrice(text) {
   if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
   m = source.match(/(\d{2,5})\s*(?:元|块)?\s*\/\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
   if (m) return finish(Number(m[1]) / Number(m[2]), m[0]);
-  m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每(?:个)?小时)/i)
-    || source.match(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(?:个)?\s*(小时|h|时)/i);
+  m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每(?:个)?小时)/i);
+  if (!m) {
+    m = [...source.matchAll(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(?:个)?\s*(小时|h|时)/gi)]
+      .find(match => validHourly(match[1]));
+  }
   if (m) return finish(Number(m[1]), m[0]);
   m = salary ? source.match(/(\d{2,5})/) : source.match(/(?:时薪|课酬|薪酬|课费|报酬)[^0-9]{0,8}(\d{2,5})/);
   if (m) return finish(Number(m[1]), m[0]);
@@ -2794,6 +2806,21 @@ async function handleApi(req, res) {
     if (!deletedOrders) return send(res, 404, { error: '所选订单已经不存在' });
     writeDb(db);
     return send(res, 200, { ok: true, deletedOrders });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/order-issues/clear-exported') {
+    if (!requireRole(req, res, 'admin')) return;
+    const data = await bodyJson(req);
+    const reports = (Array.isArray(data.reports) ? data.reports : []).slice(0, 5000)
+      .map(report => ({ id: textOf(report?.id), updatedAt: textOf(report?.updatedAt) }))
+      .filter(report => report.id && report.updatedAt);
+    if (!reports.length) return send(res, 400, { error: '没有可清理的导出记录' });
+    const exported = new Set(reports.map(report => `${report.id}\n${report.updatedAt}`));
+    const before = db.orderIssueReports.length;
+    db.orderIssueReports = db.orderIssueReports.filter(report => !exported.has(`${report.id}\n${report.updatedAt}`));
+    const deletedReports = before - db.orderIssueReports.length;
+    if (deletedReports) writeDb(db);
+    return send(res, 200, { ok: true, deletedReports });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/admin/announcement') {
