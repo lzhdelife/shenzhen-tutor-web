@@ -242,6 +242,26 @@ function createRepository(env = {}) {
     return Math.max(0, Number(parseJson(row?.value_json, 0)) || 0);
   }
 
+  async function recordVisitorVisit(visitorId, timestamp = Date.now()) {
+    await run(`INSERT INTO visitor_activity (visitor_id, first_seen_at, last_seen_at, visit_count) VALUES (?, ?, ?, 1)
+      ON CONFLICT(visitor_id) DO UPDATE SET last_seen_at=excluded.last_seen_at,
+      visit_count=visitor_activity.visit_count + 1`, [visitorId, timestamp, timestamp]);
+  }
+
+  async function touchVisitor(visitorId, timestamp = Date.now()) {
+    await run(`INSERT INTO visitor_activity (visitor_id, first_seen_at, last_seen_at, visit_count) VALUES (?, ?, ?, 1)
+      ON CONFLICT(visitor_id) DO UPDATE SET last_seen_at=excluded.last_seen_at`, [visitorId, timestamp, timestamp]);
+  }
+
+  async function getVisitorStats(onlineSince = Date.now() - 90000) {
+    const total = await first('SELECT COUNT(*) AS count FROM visitor_activity');
+    const online = await first('SELECT COUNT(*) AS count FROM visitor_activity WHERE last_seen_at >= ?', [onlineSince]);
+    return {
+      totalVisitors: Math.max(0, Number(total?.count) || 0),
+      onlineVisitors: Math.max(0, Number(online?.count) || 0)
+    };
+  }
+
   async function createClipboardCapture(input) {
     const capture = {
       captureId: input.captureId,
@@ -340,6 +360,7 @@ function createRepository(env = {}) {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
     updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
+    recordVisitorVisit, touchVisitor, getVisitorStats,
     listFeedback, createFeedback, listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };

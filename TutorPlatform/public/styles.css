@@ -692,6 +692,12 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .card .actions { margin-top: auto; padding-top: 14px; }
 
 .columns { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; }
+.admin-metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.admin-metric { min-height: 112px; padding: 22px 26px; display: grid; align-content: center; gap: 7px; }
+.admin-metric + .admin-metric { border-left: 1px solid var(--line); }
+.admin-metric strong { color: var(--text); font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }
+.admin-metric span { color: var(--muted); font-size: 13px; font-weight: 700; }
+.online-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--soft-green); vertical-align: 1px; }
 .panel { padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 5px 18px rgba(35,64,105,.045); }
 .panel h2 { margin-bottom: 14px; }
 .panel > input, .panel > textarea { margin-bottom: 10px; }
@@ -709,13 +715,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .agency-primary-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
 .agency-primary-heading h2 { margin: 4px 0 0; }
 .agency-primary-heading p { max-width: 520px; color: var(--muted); line-height: 1.5; text-align: right; }
-.clipboard-automation-bar { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; padding: 9px 12px; border: 1px solid #b9ded2; border-radius: 9px; background: var(--soft-green); }
-.clipboard-automation-bar label { display: inline-flex; align-items: center; gap: 8px; color: #145c3f; font-weight: 800; }
-.clipboard-automation-bar input { width: 17px; height: 17px; margin: 0; accent-color: var(--green); }
-.clipboard-automation-bar span { color: #376451; font-size: 12px; text-align: right; }
-.clipboard-automation-bar.processing { border-color: #a9c2eb; background: #f1f6ff; }
-.clipboard-automation-bar.error { border-color: #e8b6b1; background: #fff5f4; }
-.clipboard-automation-bar.error span { color: #a43127; }
 .import-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .import-input-column,
 .import-preview-column { min-width: 0; display: flex; flex-direction: column; }
@@ -963,6 +962,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .location-status { grid-column: 1 / -1; }
   .toolbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .columns { grid-template-columns: 1fr; }
+  .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .import-workspace { grid-template-columns: 1fr; }
   .import-preview-column { padding-top: 16px; padding-left: 0; border-top: 1px solid var(--line); border-left: 0; }
   .order-map-panel { overflow: visible; }
@@ -1009,8 +1009,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .workspace-heading-actions { align-self: center; }
   .agency-primary-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
   .agency-primary-heading p { text-align: left; }
-  .clipboard-automation-bar { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .clipboard-automation-bar span { text-align: left; }
   .agency-import-panel .import-input-column textarea.large { min-height: 240px; }
   .agency-import-panel .import-preview-column .preview { min-height: 260px; max-height: 420px; }
   .import-preview-empty { min-height: 235px; }
@@ -1032,6 +1030,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .order-map-controls { grid-template-columns: 92px minmax(0, 1fr); }
   .order-map-route-summary { max-height: min(380px, 48vh); }
   .admin-order-list { grid-template-columns: 1fr; }
+  .admin-metric { min-height: 94px; padding: 18px; }
+  .admin-metric strong { font-size: 27px; }
   .admin-section-head { align-items: stretch; flex-direction: column; }
   .bulk-toolbar { justify-content: flex-start; }
   .card-head-side { flex-direction: column; align-items: flex-end; }

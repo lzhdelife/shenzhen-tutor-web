@@ -88,17 +88,6 @@
       <button id="logoutButton" class="admin-entry-button" type="button" aria-label="管理员入口" title="系统管理">⋯</button>
     </header>
 
-    <div id="announcementBar" class="announcement-bar hidden" role="status" aria-live="polite">
-      <div class="announcement-inner">
-        <span class="announcement-icon">公告</span>
-        <div class="announcement-copy">
-          <strong id="announcementTitle">平台公告</strong>
-          <p id="announcementContent"></p>
-          <small id="announcementTime"></small>
-        </div>
-      </div>
-    </div>
-
     <main>
       <section id="teacher" class="view active">
         <div class="workspace-heading">
@@ -188,10 +177,6 @@
           <div class="agency-primary-heading">
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
           </div>
-          <div class="clipboard-automation-bar">
-            <label><input id="clipboardAutomationEnabled" type="checkbox" checked> 自动接收并导入剪贴板订单</label>
-            <span id="clipboardAutomationStatus" role="status">等待剪贴板采集器连接…</span>
-          </div>
           <div class="import-workspace">
             <div class="import-input-column">
               <div class="import-column-title"><strong>粘贴原文</strong></div>
@@ -243,19 +228,10 @@
       <section id="admin" class="view">
         <div class="workspace-heading"><div><span class="section-kicker">管理端</span><h2>平台管理</h2></div></div>
         <div id="adminWorkspace" class="columns">
-          <form id="announcementForm" class="panel announcement-editor">
-            <h2>平台公告</h2>
-            <input name="title" maxlength="60" placeholder="公告标题">
-            <textarea name="content" maxlength="2000" placeholder="公告内容"></textarea>
-            <div class="actions"><button type="submit" class="primary">发布公告</button><button type="button" id="withdrawAnnouncement" class="danger">撤下公告</button></div>
-            <p id="announcementAdminStatus" class="form-note"></p>
-          </form>
-          <form id="settingsForm" class="panel">
-            <h2>平台设置</h2>
-            <input name="homeAddress" placeholder="默认出发地">
-            <input name="maxBikeKm" type="number" placeholder="范围公里">
-            <button type="submit" class="primary">保存设置</button>
-          </form>
+          <section class="admin-metrics" aria-label="访问统计">
+            <div class="admin-metric"><strong id="adminTotalVisitors">0</strong><span>累计访客</span></div>
+            <div class="admin-metric"><strong id="adminOnlineVisitors">0</strong><span><i class="online-dot"></i>实时在线</span></div>
+          </section>
           <section class="panel admin-orders-panel">
             <div class="admin-section-head">
               <div><h2>订单管理</h2></div>

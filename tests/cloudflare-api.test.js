@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], feedback: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], feedback: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -28,6 +28,9 @@ function memoryRepository() {
     async getSettings() { return { ...state.settings }; },
     async setSetting(key, value) { state.settings[key] = value; return value; },
     async incrementSetting(key) { state.settings[key] = Math.max(0, Number(state.settings[key]) || 0) + 1; return state.settings[key]; },
+    async recordVisitorVisit(id) { const item = state.visitors.get(id); state.visitors.set(id, item ? { ...item, lastSeenAt: Date.now(), visits: item.visits + 1 } : { lastSeenAt: Date.now(), visits: 1 }); },
+    async touchVisitor(id) { const item = state.visitors.get(id); state.visitors.set(id, { ...item, lastSeenAt: Date.now(), visits: item?.visits || 1 }); },
+    async getVisitorStats(since) { const values = [...state.visitors.values()]; return { totalVisitors: values.length, onlineVisitors: values.filter(item => item.lastSeenAt >= since).length }; },
     async listFeedback() { return state.feedback; },
     async createFeedback(input) { state.feedback.push(input); return input; },
     async listAnnouncements() { return state.announcements; },
@@ -48,6 +51,23 @@ test('访问量按页面打开持久累计并出现在公共状态中', async ()
   assert.deepEqual(await (await call('/api/stats')).json(), { totalVisits: 2 });
   const state = await (await call('/api/state')).json();
   assert.deepEqual(state.stats, { totalVisits: 2 });
+});
+
+test('管理端统计按访客去重并通过心跳计算在线人数', async () => {
+  const { call } = harness();
+  const headers = id => ({ 'x-visitor-id': id });
+  await call('/api/visit', { method: 'POST', headers: headers('visitor-one') });
+  await call('/api/visit', { method: 'POST', headers: headers('visitor-one') });
+  await call('/api/presence', { method: 'POST', headers: headers('visitor-two') });
+  assert.equal((await call('/api/admin/stats')).status, 401);
+
+  const password = 'admin-test-password';
+  const setup = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password,
+    passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  const response = await call('/api/admin/stats', { headers: { authorization: `Bearer ${setup.token}` } });
+  assert.deepEqual(await response.json(), { totalVisitors: 2, onlineVisitors: 2, totalVisits: 2 });
 });
 
 function harness(extra = {}, envOverrides = {}) {

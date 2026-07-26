@@ -9,6 +9,7 @@ const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/or
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const ONLINE_WINDOW_MS = 90 * 1000;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const LOCATION_CACHE_CONTROL = 'public, max-age=300, s-maxage=86400';
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -25,6 +26,10 @@ function json(body, status = 200, headers = {}) {
 function error(message, status = 400) { return json({ error: message }, status); }
 function text(value) { return String(value == null ? '' : value).trim(); }
 function mapConfigured(env) { return Boolean(text(env.AMAP_JS_API_KEY) && text(env.AMAP_JS_SECURITY_CODE)); }
+function visitorId(request) {
+  const value = text(request.headers.get('x-visitor-id'));
+  return /^[A-Za-z0-9_-]{8,100}$/.test(value) ? value : '';
+}
 
 async function locationSuggestionsResponse(amap, url, ctx, cache) {
   const query = text(url.searchParams.get('q')).replace(/\s+/g, ' ');
@@ -428,7 +433,23 @@ function createWorker(dependencies = {}) {
           return json({ totalVisits: Math.max(0, Number(settings.totalVisits) || 0) });
         }
         if (method === 'POST' && path === '/api/visit') {
-          return json({ totalVisits: await repo.incrementSetting('totalVisits') });
+          const id = visitorId(request);
+          const [totalVisits] = await Promise.all([
+            repo.incrementSetting('totalVisits'),
+            id ? repo.recordVisitorVisit(id) : Promise.resolve()
+          ]);
+          return json({ totalVisits });
+        }
+        if (method === 'POST' && path === '/api/presence') {
+          const id = visitorId(request);
+          if (id) await repo.touchVisitor(id);
+          return json({ ok: true });
+        }
+        if (method === 'GET' && path === '/api/admin/stats') {
+          if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);
+          const settings = await repo.getSettings();
+          const visitors = await repo.getVisitorStats(Date.now() - ONLINE_WINDOW_MS);
+          return json({ ...visitors, totalVisits: Math.max(0, Number(settings.totalVisits) || 0) });
         }
         if (method === 'POST' && path === '/api/feedback') {
           const data = await bodyJson(request), content = text(data.content);

@@ -1,4 +1,4 @@
-let state = { viewer: null, announcement: null, settings: {}, users: [], orders: [], feedback: [], stats: { totalVisits: 0 }, lists: { districts: [], subjects: [], grades: [] } };
+let state = { viewer: null, settings: {}, users: [], orders: [], feedback: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0 }, lists: { districts: [], subjects: [], grades: [] } };
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
 let teacherToken = sessionStorage.getItem('teacherToken') || '';
@@ -32,14 +32,11 @@ let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
 let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
-let clipboardBridgeBusy = false;
-let clipboardBridgeUnavailable = false;
 let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
-const CLIPBOARD_AUTOMATION_KEY = 'clipboardAutomationEnabled';
 const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const APPLICANT_PROFILE_KEY = 'tutorPlatformApplicantProfile';
@@ -138,9 +135,11 @@ function toast(text) {
 async function load() {
   orderMapLocations = null;
   state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
+  if (adminToken && state.viewer?.role === 'admin') {
+    state.adminStats = await api('/api/admin/stats', {}, adminToken);
+  }
   applyDistanceOverrides();
   fillSelects();
-  fillSettings();
   fillTeacherLocation();
   renderBadges();
   renderOrders();
@@ -148,8 +147,8 @@ async function load() {
   renderAdmin();
   renderAdminUsers();
   renderFeedbackList();
-  renderAnnouncement();
   renderPlatformStats();
+  renderAdminStats();
   syncShell();
 }
 
@@ -210,6 +209,24 @@ async function refreshPlatformStats() {
   renderPlatformStats();
 }
 
+function renderAdminStats() {
+  const total = $('#adminTotalVisitors');
+  const online = $('#adminOnlineVisitors');
+  if (total) total.textContent = Number(state.adminStats?.totalVisitors || 0).toLocaleString();
+  if (online) online.textContent = Number(state.adminStats?.onlineVisitors || 0).toLocaleString();
+}
+
+async function refreshAdminStats() {
+  if (!adminToken || state.viewer?.role !== 'admin') return;
+  state.adminStats = await api('/api/admin/stats', {}, adminToken);
+  renderAdminStats();
+}
+
+async function sendPresence() {
+  if (document.visibilityState !== 'visible') return;
+  await api('/api/presence', { method: 'POST' });
+}
+
 async function refreshOrderList() {
   if (ordersRefreshBusy) return;
   const button = $('#refreshOrdersButton');
@@ -224,29 +241,6 @@ async function refreshOrderList() {
     button.disabled = false;
     button.classList.remove('loading');
   }
-}
-
-function renderAnnouncement() {
-  const bar = $('#announcementBar');
-  if (!bar) return;
-  const announcement = state.announcement;
-  const visible = Boolean(announcement?.active && announcement.content);
-  bar.classList.toggle('hidden', !visible);
-  if (visible) {
-    $('#announcementTitle').textContent = announcement.title || '平台公告';
-    $('#announcementContent').textContent = announcement.content;
-    $('#announcementTime').textContent = announcement.updatedAt
-      ? `更新于 ${new Date(announcement.updatedAt).toLocaleString()}`
-      : '';
-  }
-
-  const form = $('#announcementForm');
-  if (!form || !adminToken) return;
-  form.elements.title.value = announcement?.title || '';
-  form.elements.content.value = announcement?.content || '';
-  $('#announcementAdminStatus').textContent = announcement?.active
-    ? '当前状态：已发布，所有用户可见'
-    : '当前状态：未发布';
 }
 
 function selectedRoute(order) {
@@ -376,13 +370,6 @@ async function loadTeacherPreferences() {
       $('#teacherLocationStatus').textContent = `直线距离计算失败：${error.message}`;
     }), 0);
   }
-}
-
-function fillSettings() {
-  const form = $('#settingsForm');
-  if (!form) return;
-  form.homeAddress.value = state.settings.homeAddress || '';
-  form.maxBikeKm.value = state.settings.maxBikeKm || 12;
 }
 
 function fillTeacherLocation() {
@@ -1826,15 +1813,6 @@ async function bulkAgencyOrders(action) {
   await load();
 }
 
-function setClipboardAutomationStatus(message, tone = '') {
-  const bar = $('.clipboard-automation-bar');
-  const status = $('#clipboardAutomationStatus');
-  if (!bar || !status) return;
-  bar.classList.toggle('processing', tone === 'processing');
-  bar.classList.toggle('error', tone === 'error');
-  status.textContent = message;
-}
-
 async function parseAndImportText(text, onStage = () => {}) {
   const rawText = String(text || '').trim();
   if (!rawText) throw new Error('请先粘贴订单文字');
@@ -1873,75 +1851,6 @@ async function parseAndImportText(text, onStage = () => {}) {
     saveImportPreviewHistory();
     renderPreview();
     throw error;
-  }
-}
-
-async function pollClipboardInbox() {
-  if (clipboardBridgeUnavailable) return;
-  const enabled = $('#clipboardAutomationEnabled')?.checked;
-  if (!enabled) {
-    setClipboardAutomationStatus('自动接收已暂停');
-    return;
-  }
-  if (!currentAgency || !agencyToken) {
-    setClipboardAutomationStatus('登录后会自动处理采集器送来的原文');
-    return;
-  }
-  if (clipboardBridgeBusy) return;
-  clipboardBridgeBusy = true;
-  let activeItem = null;
-  try {
-    const inbox = await api('/api/clipboard/inbox', {}, agencyToken);
-    if (inbox.unavailable) {
-      clipboardBridgeUnavailable = true;
-      setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
-      return;
-    }
-    if (!inbox.items?.length) {
-      if (inbox.pending) setClipboardAutomationStatus(`有 ${inbox.pending} 条正在等待重试`);
-      return;
-    }
-    for (const item of inbox.items) {
-      if (!$('#clipboardAutomationEnabled').checked) break;
-      activeItem = item;
-      const { imported, parsedCount } = await parseAndImportText(item.text, progress => {
-        if (progress.stage === 'parsing') setClipboardAutomationStatus('已收到剪贴板，正在切割并识别…', 'processing');
-        if (progress.stage === 'publishing') setClipboardAutomationStatus(`已识别 ${progress.total} 条，正在处理地点并发布…`, 'processing');
-      });
-      await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
-        created: imported.created?.length || 0,
-        duplicatesSkipped: imported.duplicatesSkipped || 0
-      } }, agencyToken);
-      const created = imported.created?.length || 0;
-      const skipped = Number(imported.duplicatesSkipped || 0) + Number(imported.incompleteSkipped || 0);
-      setClipboardAutomationStatus(created ? `自动导入完成：新增 ${created} 条订单` : `已处理：${skipped || parsedCount} 条重复或无效内容已跳过`);
-      toast(created ? `剪贴板已自动导入 ${created} 条` : '剪贴板内容已处理，没有新增订单');
-      activeItem = null;
-    }
-  } catch (error) {
-    if (error.status === 404 && !activeItem) {
-      clipboardBridgeUnavailable = true;
-      setClipboardAutomationStatus('当前公网版本未连接本机剪贴板桥接器；手动粘贴仍可正常使用');
-      return;
-    }
-    if (activeItem?.captureId && error.message === '没有识别出可以导入的订单') {
-      await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/complete`, {
-        method: 'POST',
-        body: { outcome: 'ignored' }
-      }, agencyToken).catch(() => {});
-      setClipboardAutomationStatus('已忽略非家教单或残缺内容');
-      activeItem = null;
-      return;
-    }
-    if (activeItem?.captureId) {
-      await api(`/api/clipboard/${encodeURIComponent(activeItem.captureId)}/fail`, {
-        method: 'POST',
-        body: { error: error.message }
-      }, agencyToken).catch(() => {});
-    }
-    setClipboardAutomationStatus(`自动导入失败，将重试：${error.message}`, 'error');
-  } finally {
-    clipboardBridgeBusy = false;
   }
 }
 
@@ -2641,38 +2550,6 @@ scheduleManualImportQueue();
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
 $('#deleteAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('delete').catch(err => toast(err.message)));
 
-$('#settingsForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form).entries());
-  data.maxBikeKm = Number(data.maxBikeKm || 12);
-  await api('/api/settings', { method: 'POST', body: data }, adminToken);
-  toast('设置已保存');
-  await load();
-});
-
-$('#announcementForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form).entries());
-  data.active = true;
-  await api('/api/admin/announcement', { method: 'POST', body: data }, adminToken);
-  toast('公告已发布');
-  await load();
-});
-
-$('#withdrawAnnouncement').addEventListener('click', async () => {
-  const form = $('#announcementForm');
-  const data = {
-    title: form.elements.title.value,
-    content: form.elements.content.value,
-    active: false
-  };
-  await api('/api/admin/announcement', { method: 'POST', body: data }, adminToken);
-  toast('公告已撤下');
-  await load();
-});
-
 $('#adminLogin').addEventListener('submit', async event => {
   event.preventDefault();
   const form = document.getElementById('adminLogin');
@@ -2725,17 +2602,10 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
 
-const clipboardAutomationToggle = $('#clipboardAutomationEnabled');
-clipboardAutomationToggle.checked = localStorage.getItem(CLIPBOARD_AUTOMATION_KEY) !== 'off';
-clipboardAutomationToggle.addEventListener('change', () => {
-  localStorage.setItem(CLIPBOARD_AUTOMATION_KEY, clipboardAutomationToggle.checked ? 'on' : 'off');
-  if (clipboardAutomationToggle.checked) pollClipboardInbox().catch(() => {});
-  else setClipboardAutomationStatus('自动接收已暂停');
-});
-
 async function initializeApp() {
   hydrateLoginForm();
   await api('/api/visit', { method: 'POST' }).catch(() => {});
+  await sendPresence().catch(() => {});
   try {
     await ensureGuestSession();
   } catch (error) {
@@ -2747,13 +2617,16 @@ async function initializeApp() {
   renderPreview();
   setTeacherViewMode(teacherViewMode);
   if (!teacherPreferencesLoaded) await loadTeacherPreferences();
-  await pollClipboardInbox();
 }
 
 initializeApp().catch(err => toast(err.message));
 setInterval(() => refreshPlatformStats().catch(() => {}), 30000);
-setInterval(() => pollClipboardInbox().catch(() => {}), 1800);
+setInterval(() => {
+  sendPresence().catch(() => {});
+  refreshAdminStats().catch(() => {});
+}, 30000);
 window.addEventListener('focus', () => {
+  sendPresence().catch(() => {});
   refreshPlatformStats().catch(() => {});
-  pollClipboardInbox().catch(() => {});
+  refreshAdminStats().catch(() => {});
 });

@@ -15,7 +15,7 @@ class MockStatement {
 
 class MockD1 {
   constructor() {
-    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [] };
+    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [] };
   }
   prepare(sql) { return new MockStatement(this, sql); }
   async batch(statements) { return Promise.all(statements.map(statement => statement.run())); }
@@ -25,12 +25,16 @@ class MockD1 {
       const table = insert[1];
       const columns = insert[2].split(',').map(value => value.trim());
       const row = Object.fromEntries(columns.map((column, index) => [column, values[index]]));
-      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : 'id';
+      if (table === 'visitor_activity') row.visit_count = 1;
+      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : 'id';
       const existing = this.tables[table].find(item => item[key] === row[key]);
       if (existing && /ON CONFLICT/i.test(sql)) {
         if (table === 'settings' && /CAST\(COALESCE\(CAST\(settings\.value_json AS INTEGER\)/i.test(sql)) {
           existing.value_json = String(Math.max(0, Number(existing.value_json) || 0) + 1);
           existing.updated_at = row.updated_at;
+        } else if (table === 'visitor_activity') {
+          existing.last_seen_at = row.last_seen_at;
+          if (/visit_count=visitor_activity\.visit_count \+ 1/i.test(sql)) existing.visit_count++;
         } else Object.assign(existing, row);
       }
       else if (existing) throw new Error(`mock unique constraint: ${table}.${key}`);
@@ -72,9 +76,13 @@ class MockD1 {
       if (/WHERE o.status = \?/i.test(sql)) rows = rows.filter(row => row.status === values[0]);
       return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
-    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures)/i);
+    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
     let rows = this.tables[tableMatch[1]].map(row => ({ ...row }));
+    if (/SELECT COUNT\(\*\) AS count FROM visitor_activity/i.test(sql)) {
+      if (/last_seen_at >= \?/i.test(sql)) rows = rows.filter(row => row.last_seen_at >= values[0]);
+      return [{ count: rows.length }];
+    }
     const where = sql.match(/WHERE (\w+) = \?/i);
     if (where) rows = rows.filter(row => row[where[1]] === values[0]);
     if (/sessions/i.test(tableMatch[1]) && /expires_at > \?/i.test(sql)) rows = rows.filter(row => row.expires_at > values[1]);
@@ -91,6 +99,8 @@ async function run() {
   assert.match(migration, /token_hash TEXT PRIMARY KEY/);
   const clipboardMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0002_clipboard_shared.sql'), 'utf8');
   assert.match(clipboardMigration, /CREATE TABLE IF NOT EXISTS clipboard_captures\b/);
+  const visitorMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0003_visitor_activity.sql'), 'utf8');
+  assert.match(visitorMigration, /CREATE TABLE IF NOT EXISTS visitor_activity\b/);
 
   const db = new MockD1();
   const repo = createRepository({ DB: db });
@@ -125,6 +135,11 @@ async function run() {
   await repo.setSetting('adminPasswordHash', 'must-not-leak');
   assert.equal(await repo.incrementSetting('totalVisits'), 1);
   assert.equal(await repo.incrementSetting('totalVisits'), 2);
+  await repo.recordVisitorVisit('visitor-one', 1000);
+  await repo.recordVisitorVisit('visitor-one', 2000);
+  await repo.touchVisitor('visitor-two', 2500);
+  assert.deepEqual(await repo.getVisitorStats(1500), { totalVisitors: 2, onlineVisitors: 2 });
+  assert.equal(db.tables.visitor_activity.find(row => row.visitor_id === 'visitor-one').visit_count, 2);
   await repo.createAnnouncement({ id: 'n-one', title: '测试公告', content: '仅合成内容', active: true });
   await repo.createFeedback({ id: 'f-one', name: '访客', content: '测试反馈' });
   const state = await repo.getPublicState();

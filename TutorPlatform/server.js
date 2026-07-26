@@ -33,6 +33,7 @@ const geocodeCache = new Map();
 const routeCache = new Map();
 const MAP_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const ROUTE_MODES = ['walking', 'cycling', 'driving', 'transit'];
+const ONLINE_WINDOW_MS = 90 * 1000;
 
 const LISTS = {
   districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'],
@@ -65,6 +66,7 @@ function readDb() {
   db.clipboardInbox ||= [];
   db.clipboardReceipts ||= [];
   db.rememberSessions ||= [];
+  db.visitorActivity ||= {};
   db.announcement ||= { title: '', content: '', active: false, updatedAt: '' };
   return db;
 }
@@ -380,6 +382,31 @@ function agencyContactForOrder(db, order) {
 
 function platformStats(db) {
   return { totalVisits: Math.max(0, Number(db.settings.totalVisits) || 0) };
+}
+
+function visitorIdOf(req) {
+  const value = textOf(req.headers['x-visitor-id']);
+  return /^[A-Za-z0-9_-]{8,100}$/.test(value) ? value : '';
+}
+
+function touchVisitor(db, req, incrementVisit = false) {
+  const visitorId = visitorIdOf(req);
+  if (!visitorId) return;
+  const now = Date.now();
+  const current = db.visitorActivity[visitorId];
+  db.visitorActivity[visitorId] = current
+    ? { ...current, lastSeenAt: now, visitCount: Number(current.visitCount || 0) + (incrementVisit ? 1 : 0) }
+    : { firstSeenAt: now, lastSeenAt: now, visitCount: 1 };
+}
+
+function visitorStats(db) {
+  const values = Object.values(db.visitorActivity || {});
+  const cutoff = Date.now() - ONLINE_WINDOW_MS;
+  return {
+    totalVisitors: values.length,
+    onlineVisitors: values.filter(item => Number(item.lastSeenAt || 0) >= cutoff).length,
+    totalVisits: Math.max(0, Number(db.settings.totalVisits) || 0)
+  };
 }
 
 function sessionOf(req) {
@@ -2349,8 +2376,20 @@ async function handleApi(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/api/visit') {
     db.settings.totalVisits = Math.max(0, Number(db.settings.totalVisits) || 0) + 1;
+    touchVisitor(db, req, true);
     writeDb(db);
     return send(res, 200, platformStats(db));
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/presence') {
+    touchVisitor(db, req);
+    writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/stats') {
+    if (!requireRole(req, res, 'admin')) return;
+    return send(res, 200, visitorStats(db));
   }
 
   if (req.method === 'GET' && url.pathname === '/api/location-suggestions') {
