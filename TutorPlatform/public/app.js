@@ -204,11 +204,6 @@ function renderPlatformStats() {
   $$('[data-stat="visits"]').forEach(node => { node.textContent = Number(state.stats?.totalVisits || 0).toLocaleString(); });
 }
 
-async function refreshPlatformStats() {
-  state.stats = await api('/api/stats', {}, adminToken || agencyToken || teacherToken);
-  renderPlatformStats();
-}
-
 function renderAdminStats() {
   const total = $('#adminTotalVisitors');
   const online = $('#adminOnlineVisitors');
@@ -2620,13 +2615,11 @@ async function initializeApp() {
 }
 
 initializeApp().catch(err => toast(err.message));
-setInterval(() => refreshPlatformStats().catch(() => {}), 30000);
 setInterval(() => {
   sendPresence().catch(() => {});
   refreshAdminStats().catch(() => {});
 }, 30000);
 window.addEventListener('focus', () => {
   sendPresence().catch(() => {});
-  refreshPlatformStats().catch(() => {});
   refreshAdminStats().catch(() => {});
 });
