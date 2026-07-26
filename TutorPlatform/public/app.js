@@ -2292,6 +2292,7 @@ try {
 let manualImportBusy = false;
 let manualImportRetryTimer = 0;
 let manualImportClearTimer = 0;
+let manualImportClearGeneration = 0;
 
 function saveManualImportQueue() {
   try {
@@ -2376,6 +2377,7 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
+    const clearGeneration = ++manualImportClearGeneration;
     window.clearTimeout(manualImportClearTimer);
     textarea.value = showPastedText ? rawText : '';
     textarea.classList.remove('queue-flash');
@@ -2384,7 +2386,7 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
     window.setTimeout(() => textarea.classList.remove('queue-flash'), 520);
     if (showPastedText) {
       manualImportClearTimer = window.setTimeout(() => {
-        if (textarea.value === rawText) textarea.value = '';
+        if (clearGeneration === manualImportClearGeneration) textarea.value = '';
       }, 320);
     }
   }
@@ -2397,6 +2399,8 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
 const importTextarea = $('#importForm')?.elements.text;
 function rejectManualImportTyping() {
   if (!importTextarea) return;
+  manualImportClearGeneration++;
+  window.clearTimeout(manualImportClearTimer);
   importTextarea.value = '';
   importTextarea.classList.remove('input-blocked');
   void importTextarea.offsetWidth;
