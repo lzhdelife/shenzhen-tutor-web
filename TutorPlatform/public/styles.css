@@ -724,8 +724,11 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .publisher-access-form button { grid-column: 1 / -1; justify-self: start; min-width: 120px; }
 .publisher-contact { display: grid; align-content: center; gap: 10px; padding-left: 28px; border-left: 1px solid var(--line); }
 .publisher-contact img { width: min(190px, 100%); aspect-ratio: 890 / 1382; justify-self: center; object-fit: contain; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
-.publisher-contact div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.publisher-contact a { color: var(--blue-dark); font-weight: 800; text-decoration: none; }
+.publisher-contact div { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: space-between; gap: 4px 8px; }
+.publisher-contact button { width: fit-content; padding: 2px 0; border: 0; color: var(--blue-dark); background: transparent; font-weight: 800; text-align: right; }
+.publisher-contact button:hover { text-decoration: underline; }
+.publisher-contact button:focus-visible { outline: 3px solid rgba(62, 127, 196, .2); outline-offset: 2px; }
+.publisher-contact small { grid-column: 1 / -1; color: var(--muted); }
 .publisher-request-list { display: grid; gap: 8px; }
 .publisher-request-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fbfcfd; }
 .publisher-request-info { min-width: 0; display: grid; grid-template-columns: minmax(100px, auto) minmax(120px, 1fr); align-items: baseline; gap: 4px 14px; }
@@ -1040,7 +1043,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .publisher-access-form button { width: 100%; }
   .publisher-contact { grid-template-columns: minmax(0, 150px) 1fr; align-items: center; padding: 18px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .publisher-contact img { width: 100%; }
-  .publisher-contact div { align-items: flex-start; flex-direction: column; }
+  .publisher-contact div { grid-template-columns: 1fr; justify-content: start; }
+  .publisher-contact button { text-align: left; }
+  .publisher-contact small { grid-column: auto; }
   .publisher-request-row { grid-template-columns: minmax(0, 1fr) auto; }
   .publisher-request-row .actions { grid-column: 1 / -1; justify-content: flex-end; }
   .publisher-request-info { grid-template-columns: 1fr; }

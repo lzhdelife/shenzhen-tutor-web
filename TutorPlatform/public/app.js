@@ -1354,11 +1354,8 @@ function renderPublisherAccess() {
   const title = $('#publisherGateTitle');
   const message = $('#publisherGateMessage');
   if (!gate || !workspace || !form || !title || !message) return;
-  const phoneLink = $('#wuTeacherPhone');
-  if (phoneLink) {
-    phoneLink.textContent = WU_TEACHER_PHONE;
-    phoneLink.href = `tel:${WU_TEACHER_PHONE}`;
-  }
+  const phoneButton = $('#wuTeacherPhone');
+  if (phoneButton) phoneButton.textContent = WU_TEACHER_PHONE;
 
   const access = state.publisherAccess || null;
   const approved = access?.status === 'approved';
@@ -2312,6 +2309,12 @@ $('#logoutButton').addEventListener('click', logout);
 $('#publisherAccessForm')?.addEventListener('submit', event => {
   event.preventDefault();
   submitPublisherAccess(event.currentTarget).catch(error => toast(error.message));
+});
+
+$('#wuTeacherPhone')?.addEventListener('click', () => {
+  navigator.clipboard.writeText(WU_TEACHER_PHONE)
+    .then(() => toast('吴老师手机号已复制'))
+    .catch(() => toast('复制失败，请手动复制'));
 });
 
 $('#adminPublisherRequests')?.addEventListener('click', event => {
