@@ -2333,7 +2333,7 @@ function enqueueManualImport(text, source = '粘贴内容') {
     toast('内容超过 2 MB，请拆分后再导入');
     return false;
   }
-  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, source, attempts: 0, nextAttemptAt: 0 });
+  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, source, attempts: 0, nextAttemptAt: Date.now() + 180 });
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
@@ -2341,15 +2341,25 @@ function enqueueManualImport(text, source = '粘贴内容') {
     textarea.classList.remove('queue-flash');
     void textarea.offsetWidth;
     textarea.classList.add('queue-flash');
-    window.setTimeout(() => textarea.classList.remove('queue-flash'), 700);
+    window.setTimeout(() => textarea.classList.remove('queue-flash'), 520);
   }
-  setManualImportStatus(`已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
-  toast(`${source}已加入识别队列`);
+  setManualImportStatus(`已粘贴成功，已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
+  toast(`${source}已粘贴成功`);
   scheduleManualImportQueue();
   return true;
 }
 
 const importTextarea = $('#importForm')?.elements.text;
+function rejectManualImportTyping() {
+  if (!importTextarea) return;
+  importTextarea.value = '';
+  importTextarea.classList.remove('input-blocked');
+  void importTextarea.offsetWidth;
+  importTextarea.classList.add('input-blocked');
+  window.setTimeout(() => importTextarea.classList.remove('input-blocked'), 700);
+  setManualImportStatus('请一次性粘贴完整订单', 'error');
+  toast('这里只支持粘贴完整订单');
+}
 $('#importForm')?.addEventListener('submit', event => {
   event.preventDefault();
   enqueueManualImport(importTextarea?.value);
@@ -2359,6 +2369,17 @@ importTextarea?.addEventListener('paste', event => {
   if (!text.trim()) return;
   event.preventDefault();
   enqueueManualImport(text);
+});
+importTextarea?.addEventListener('beforeinput', event => {
+  if (event.inputType === 'insertFromPaste') return;
+  event.preventDefault();
+  rejectManualImportTyping();
+});
+importTextarea?.addEventListener('input', event => {
+  const text = importTextarea.value;
+  importTextarea.value = '';
+  if (event.inputType === 'insertFromPaste' && text.trim()) enqueueManualImport(text);
+  else if (text) rejectManualImportTyping();
 });
 async function importTxtFile(file) {
   if (!file) return;

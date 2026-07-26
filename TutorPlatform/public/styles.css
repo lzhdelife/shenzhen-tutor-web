@@ -728,7 +728,13 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .txt-drop-zone:hover, .txt-drop-zone.is-dragging { border-color: #4f8ab7; background: #eef6fb; }
 .txt-drop-zone input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
 .agency-import-panel .import-input-column textarea.large { min-height: 360px; margin: 0; resize: vertical; }
-.agency-import-panel .import-input-column textarea.large.queue-flash { border-color: #66aa8b; background: #f3fbf7; box-shadow: 0 0 0 3px rgba(26, 139, 98, .13); }
+.agency-import-panel .import-input-column textarea.large.queue-flash { animation: paste-accepted .52s ease-out; }
+.agency-import-panel .import-input-column textarea.large.input-blocked { border-color: #d5948e; background: #fff7f6; box-shadow: 0 0 0 3px rgba(164, 49, 39, .1); }
+@keyframes paste-accepted {
+  0% { border-color: #279267; background: #dff5e9; box-shadow: 0 0 0 5px rgba(26, 139, 98, .24); }
+  65% { border-color: #58a981; background: #edf9f3; box-shadow: 0 0 0 3px rgba(26, 139, 98, .12); }
+  100% { border-color: var(--line); background: #fff; box-shadow: none; }
+}
 .import-input-status { min-height: 28px; margin-top: 8px; padding: 5px 8px; border-radius: 5px; transition: color .16s ease, background .16s ease; }
 .import-input-status:empty { visibility: hidden; }
 .import-input-status[data-tone="queued"],
