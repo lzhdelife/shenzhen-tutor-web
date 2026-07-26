@@ -203,6 +203,13 @@ async function requireRole(repo, request, role) {
   return actor && (!role || actor.role === role) ? actor : null;
 }
 
+async function approvedAgencyOf(repo, request) {
+  const agency = await requireRole(repo, request, 'agency');
+  if (!agency) return null;
+  const access = typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(agency.id) : null;
+  return access?.status === 'approved' ? agency : null;
+}
+
 async function deterministicUserId(role, phone) { return `u-${role}-${(await sha256(phone)).slice(0, 24)}`; }
 
 async function getRoleUser(repo, role, phone) {
@@ -379,6 +386,31 @@ function createWorker(dependencies = {}) {
         }
 
         const viewer = await actorOf(repo, request);
+        if (path === '/api/publisher-access' && method === 'GET') {
+          if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
+          return json({ access: typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(viewer.id) : null });
+        }
+        if (path === '/api/publisher-access' && method === 'POST') {
+          if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
+          const data = await bodyJson(request);
+          const displayName = text(data.displayName).slice(0, 40);
+          const contact = text(data.contact).slice(0, 80);
+          if (!displayName) return error('请填写称呼');
+          if (contact.length < 5) return error('请填写微信号或手机号');
+          if (typeof repo.submitPublisherAccess !== 'function') return error('发单审核服务尚未配置', 503);
+          return json({ access: await repo.submitPublisherAccess(viewer.id, displayName, contact) });
+        }
+        const publisherReview = path.match(/^\/api\/admin\/publisher-access\/([^/]+)$/);
+        if (publisherReview && method === 'PATCH') {
+          if (!viewer || viewer.role !== 'admin') return error('需要管理员权限', 401);
+          const data = await bodyJson(request);
+          const status = text(data.status);
+          if (!['approved', 'rejected'].includes(status)) return error('审核状态无效');
+          if (typeof repo.setPublisherAccessStatus !== 'function') return error('发单审核服务尚未配置', 503);
+          const access = await repo.setPublisherAccessStatus(publisherReview[1], status);
+          if (!access) return error('申请记录不存在', 404);
+          return json({ access });
+        }
         if (method === 'GET' && path === '/api/clipboard/inbox') {
           if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
           const items = await repo.listClipboardCaptures(10);
@@ -430,9 +462,11 @@ function createWorker(dependencies = {}) {
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const platformSettings = await repo.getSettings();
+          const publisherAccess = viewer?.role === 'agency' && typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(viewer.id) : null;
+          const publisherRequests = viewer?.role === 'admin' && typeof repo.listPublisherAccess === 'function' ? await repo.listPublisherAccess() : [];
           return json({ ...state, announcement: announcements ? (announcements[0] || null) : state.announcement,
             settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm || 12 }, viewer,
-            adminConfigured: Boolean(state.adminConfigured), orders,
+            adminConfigured: Boolean(state.adminConfigured), orders, publisherAccess, publisherRequests,
             stats: { totalVisits: Math.max(0, Number(platformSettings.totalVisits) || 0) }, lists: LISTS });
         }
         if (method === 'GET' && path === '/api/stats') {
@@ -520,14 +554,14 @@ function createWorker(dependencies = {}) {
           return json({ status: 'verified', distances });
         }
         if (method === 'POST' && path === '/api/parse') {
-          const agency = await requireRole(repo, request, 'agency');
-          if (!agency) return error('请先以中介身份登录', 401);
+          const agency = await approvedAgencyOf(repo, request);
+          if (!agency) return error('发单权限尚未审核通过', 403);
           if (typeof dependencies.parseOrders === 'function') return json(await dependencies.parseOrders(await bodyJson(request), { agency, env, ctx }));
           return error(dependencies.parseLoadError ? `订单解析适配加载失败：${dependencies.parseLoadError}` : '订单解析服务尚未部署，请稍后再试', 503);
         }
         if (method === 'POST' && path === '/api/orders') {
-          const agency = await requireRole(repo, request, 'agency');
-          if (!agency) return error('请先以中介身份登录', 401);
+          const agency = await approvedAgencyOf(repo, request);
+          if (!agency) return error('发单权限尚未审核通过', 403);
           const data = await bodyJson(request);
           const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
           const raw = text(orderData.raw);
@@ -545,8 +579,8 @@ function createWorker(dependencies = {}) {
             status: data.status || 'open', importFingerprint, structured: orderData }));
         }
         if (method === 'POST' && path === '/api/import') {
-          const agency = await requireRole(repo, request, 'agency');
-          if (!agency) return error('请先以中介身份登录', 401);
+          const agency = await approvedAgencyOf(repo, request);
+          if (!agency) return error('发单权限尚未审核通过', 403);
           const data = await bodyJson(request);
           const incoming = Array.isArray(data.orders) ? data.orders.slice(0, 200) : [];
           if (!incoming.length) return error('请先识别并确认要导入的订单');
@@ -587,8 +621,8 @@ function createWorker(dependencies = {}) {
           return json({ created, duplicatesSkipped, incompleteSkipped: 0 });
         }
         if (method === 'POST' && path === '/api/agency/orders/bulk') {
-          const agency = await requireRole(repo, request, 'agency');
-          if (!agency) return error('请先以中介身份登录', 401);
+          const agency = await approvedAgencyOf(repo, request);
+          if (!agency) return error('发单权限尚未审核通过', 403);
           const data = await bodyJson(request);
           if (data.action !== 'delete') return error('不支持的批量操作');
           const orders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
@@ -617,7 +651,8 @@ function createWorker(dependencies = {}) {
         if (method === 'POST' && locationConfirmation) {
           const order = await repo.getOrderById(locationConfirmation[1]);
           if (!order) return error('订单不存在', 404);
-          if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能确认自己发布订单的地点', 403);
+          const approvedAgency = viewer?.role === 'agency' ? await approvedAgencyOf(repo, request) : null;
+          if (!viewer || !(viewer.role === 'admin' || (approvedAgency && viewer.id === order.agencyId))) return error('你只能确认自己发布订单的地点', 403);
           const data = await bodyJson(request);
           const confirmed = amap.confirm(data.candidate, data.district || order.district);
           return json(await repo.updateOrder(order.id, { ...confirmed, locationCandidates: order.locationCandidates || [] }));
@@ -626,7 +661,8 @@ function createWorker(dependencies = {}) {
         if (orderRoute && method === 'DELETE') {
           const order = await repo.getOrderById(orderRoute[1]);
           if (!order) return error('订单不存在', 404);
-          if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能管理自己发布的订单', 403);
+          const approvedAgency = viewer?.role === 'agency' ? await approvedAgencyOf(repo, request) : null;
+          if (!viewer || !(viewer.role === 'admin' || (approvedAgency && viewer.id === order.agencyId))) return error('你只能管理自己发布的订单', 403);
           await repo.deleteOrder(order.id);
           return json({ ok: true });
         }

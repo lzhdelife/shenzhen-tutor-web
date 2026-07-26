@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260726-24">
+  <link rel="stylesheet" href="./styles.css?v=20260726-25">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -173,6 +173,25 @@
 
       <section id="agency" class="view">
         <div class="workspace-heading"><div><span class="section-kicker">发单端</span><h2>发布和管理订单</h2></div></div>
+        <section id="publisherGate" class="panel publisher-gate hidden">
+          <div class="publisher-gate-main">
+            <div>
+              <span class="section-kicker">发单权限</span>
+              <h2 id="publisherGateTitle">申请发单权限</h2>
+              <p id="publisherGateMessage">提交联系方式后，请添加吴老师沟通。审核通过即可发单。</p>
+            </div>
+            <form id="publisherAccessForm" class="publisher-access-form">
+              <label><span>称呼</span><input name="displayName" maxlength="40" autocomplete="name" placeholder="怎么称呼您" required></label>
+              <label><span>微信号或手机号</span><input name="contact" maxlength="80" autocomplete="tel" placeholder="方便吴老师联系您" required></label>
+              <button class="primary" type="submit">提交申请</button>
+            </form>
+          </div>
+          <aside class="publisher-contact">
+            <img src="./wu-teacher-wechat.png" alt="吴老师微信二维码">
+            <div><strong>联系吴老师</strong><a id="wuTeacherPhone" href="#"></a></div>
+          </aside>
+        </section>
+        <div id="publisherWorkspace" class="hidden">
         <form id="importForm" class="panel agency-import-panel">
           <div class="agency-primary-heading">
             <div><span class="section-kicker">主要入口</span><h2>粘贴并识别订单</h2></div>
@@ -222,6 +241,7 @@
             <button type="submit" class="primary">发布订单</button>
           </form>
         </details>
+        </div>
       </section>
 
       <section id="admin" class="view">
@@ -242,6 +262,12 @@
               </div>
             </div>
             <div id="adminAmapUsage" class="amap-usage-list"></div>
+          </section>
+          <section class="panel admin-publisher-panel">
+            <div class="admin-section-head">
+              <div><h2>发单审核</h2><span id="adminPublisherCount" class="form-note"></span></div>
+            </div>
+            <div id="adminPublisherRequests" class="publisher-request-list"></div>
           </section>
           <section id="adminAnomalyPanel" class="panel admin-anomaly-panel hidden">
             <div class="admin-section-head">
@@ -314,6 +340,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260726-44"></script>
+  <script src="./app.js?v=20260726-45"></script>
 </body>
 </html>

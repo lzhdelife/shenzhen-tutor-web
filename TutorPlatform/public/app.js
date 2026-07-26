@@ -1,4 +1,5 @@
 let state = { viewer: null, settings: {}, orders: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0, amapUsage: { date: '', total: 0, limited: 0, byEndpoint: {} } }, lists: { districts: [], subjects: [], grades: [] } };
+const WU_TEACHER_PHONE = ['187', '1937', '1936'].join('');
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
 let teacherToken = sessionStorage.getItem('teacherToken') || '';
@@ -145,6 +146,7 @@ async function load() {
   fillTeacherLocation();
   renderBadges();
   renderOrders();
+  renderPublisherAccess();
   renderAgencyOrders();
   renderAdmin();
   renderPlatformStats();
@@ -1345,10 +1347,73 @@ function renderAdminAnomalies() {
   }).join('');
 }
 
+function renderPublisherAccess() {
+  const gate = $('#publisherGate');
+  const workspace = $('#publisherWorkspace');
+  const form = $('#publisherAccessForm');
+  const title = $('#publisherGateTitle');
+  const message = $('#publisherGateMessage');
+  if (!gate || !workspace || !form || !title || !message) return;
+  const phoneLink = $('#wuTeacherPhone');
+  if (phoneLink) {
+    phoneLink.textContent = WU_TEACHER_PHONE;
+    phoneLink.href = `tel:${WU_TEACHER_PHONE}`;
+  }
+
+  const access = state.publisherAccess || null;
+  const approved = access?.status === 'approved';
+  gate.classList.toggle('hidden', approved);
+  workspace.classList.toggle('hidden', !approved);
+  if (approved) {
+    window.setTimeout(scheduleManualImportQueue, 0);
+    return;
+  }
+
+  const pending = access?.status === 'pending';
+  form.classList.toggle('hidden', pending);
+  if (pending) {
+    title.textContent = '申请审核中';
+    message.textContent = '请添加吴老师沟通，审核通过后即可发单。';
+    return;
+  }
+
+  title.textContent = access?.status === 'rejected' ? '重新申请发单权限' : '申请发单权限';
+  message.textContent = access?.status === 'rejected'
+    ? '本次申请暂未通过。请联系吴老师沟通后重新提交。'
+    : '提交联系方式后，请添加吴老师沟通。审核通过即可发单。';
+  form.elements.displayName.value = access?.displayName || '';
+  form.elements.contact.value = access?.contact || '';
+}
+
+function renderAdminPublisherRequests() {
+  const root = $('#adminPublisherRequests');
+  const count = $('#adminPublisherCount');
+  if (!root || !count) return;
+  const requests = adminToken && Array.isArray(state.publisherRequests) ? state.publisherRequests : [];
+  const pendingCount = requests.filter(item => item.status === 'pending').length;
+  count.textContent = pendingCount ? `${pendingCount} 条待审核` : '';
+  root.innerHTML = requests.length ? requests.map(item => {
+    const statusText = item.status === 'approved' ? '已批准' : item.status === 'rejected' ? '已拒绝' : '待审核';
+    return `<article class="publisher-request-row">
+      <div class="publisher-request-info">
+        <strong>${escapeHtml(item.displayName || '未填写称呼')}</strong>
+        <a href="tel:${escapeHtml(item.contact || '')}">${escapeHtml(item.contact || '未填写联系方式')}</a>
+        <small>${item.requestedAt ? new Date(item.requestedAt).toLocaleString() : ''}</small>
+      </div>
+      <span class="publisher-status ${escapeHtml(item.status || 'pending')}">${statusText}</span>
+      <div class="actions">
+        ${item.status !== 'approved' ? `<button class="primary" type="button" data-publisher-review="approved" data-user-id="${escapeHtml(item.userId)}">批准</button>` : ''}
+        ${item.status !== 'rejected' ? `<button class="secondary" type="button" data-publisher-review="rejected" data-user-id="${escapeHtml(item.userId)}">拒绝</button>` : ''}
+      </div>
+    </article>`;
+  }).join('') : '<div class="empty-state">目前没有发单申请。</div>';
+}
+
 function renderAdmin() {
   const root = $('#adminOrders');
   if (!adminToken) {
     root.innerHTML = '';
+    renderAdminPublisherRequests();
     renderAdminAnomalies();
     updateAdminBulkControls();
     return;
@@ -1385,6 +1450,7 @@ function renderAdmin() {
       </div>
     </article>`;
   }).join('') : '<div class="empty-state">目前没有订单。</div>';
+  renderAdminPublisherRequests();
   renderAdminAnomalies();
   updateAdminBulkControls();
 }
@@ -1833,6 +1899,30 @@ async function deleteAllAgencyOrders() {
   await load();
 }
 
+async function submitPublisherAccess(form) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const result = await api('/api/publisher-access', { method: 'POST', body: data }, agencyToken);
+    state.publisherAccess = result.access;
+    renderPublisherAccess();
+    toast('申请已提交');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function reviewPublisherAccess(userId, status) {
+  const result = await api(`/api/admin/publisher-access/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    body: { status }
+  }, adminToken);
+  state.publisherRequests = (state.publisherRequests || []).map(item => item.userId === userId ? result.access : item);
+  renderAdminPublisherRequests();
+  toast(status === 'approved' ? '已批准发单权限' : '已拒绝发单权限');
+}
+
 async function parseAndImportText(text, onStage = () => {}) {
   const rawText = String(text || '').trim();
   if (!rawText) throw new Error('请先粘贴订单文字');
@@ -2210,6 +2300,20 @@ $$('.close-auth-panel').forEach(button => button.addEventListener('click', () =>
 
 $('#logoutButton').addEventListener('click', logout);
 
+$('#publisherAccessForm')?.addEventListener('submit', event => {
+  event.preventDefault();
+  submitPublisherAccess(event.currentTarget).catch(error => toast(error.message));
+});
+
+$('#adminPublisherRequests')?.addEventListener('click', event => {
+  const button = event.target.closest('[data-publisher-review]');
+  if (!button) return;
+  button.disabled = true;
+  reviewPublisherAccess(button.dataset.userId, button.dataset.publisherReview)
+    .catch(error => toast(error.message))
+    .finally(() => { button.disabled = false; });
+});
+
 $('#adminOrders').addEventListener('change', event => {
   if (event.target.matches('.admin-order-select')) updateAdminBulkControls();
 });
@@ -2343,6 +2447,7 @@ function scheduleManualImportQueue() {
 
 async function processManualImportQueue() {
   if (manualImportBusy || !manualImportQueue.length) return;
+  if (state.publisherAccess?.status !== 'approved') return;
   if (!currentAgency || !agencyToken) {
     setManualImportStatus(`已保留 ${manualImportQueue.length} 批，等待网站连接`, 'error');
     manualImportRetryTimer = window.setTimeout(scheduleManualImportQueue, 3000);

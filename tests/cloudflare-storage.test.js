@@ -15,7 +15,7 @@ class MockStatement {
 
 class MockD1 {
   constructor() {
-    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [], amap_usage: [] };
+    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], applications: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [], amap_usage: [], publisher_access: [] };
   }
   prepare(sql) { return new MockStatement(this, sql); }
   async batch(statements) { return Promise.all(statements.map(statement => statement.run())); }
@@ -24,10 +24,12 @@ class MockD1 {
     if (insert) {
       const table = insert[1];
       const columns = insert[2].split(',').map(value => value.trim());
-      const row = Object.fromEntries(columns.map((column, index) => [column, values[index]]));
+      const row = table === 'publisher_access'
+        ? { user_id: values[0], display_name: values[1], contact: values[2], status: 'pending', requested_at: values[3], reviewed_at: null, updated_at: values[4] }
+        : Object.fromEntries(columns.map((column, index) => [column, values[index]]));
       if (table === 'visitor_activity') row.visit_count = 1;
       if (table === 'amap_usage') { row.call_count = 1; row.updated_at = values[3]; }
-      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : table === 'amap_usage' ? 'usage_date' : 'id';
+      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : table === 'amap_usage' ? 'usage_date' : table === 'publisher_access' ? 'user_id' : 'id';
       const existing = this.tables[table].find(item => item[key] === row[key]);
       if (existing && /ON CONFLICT/i.test(sql)) {
         if (table === 'settings' && /CAST\(COALESCE\(CAST\(settings\.value_json AS INTEGER\)/i.test(sql)) {
@@ -40,6 +42,13 @@ class MockD1 {
           const match = this.tables.amap_usage.find(item => item.usage_date === row.usage_date && item.endpoint === row.endpoint && item.outcome === row.outcome);
           if (match) { match.call_count = Number(match.call_count || 0) + 1; match.updated_at = row.updated_at; }
           else this.tables.amap_usage.push(row);
+        } else if (table === 'publisher_access') {
+          const approved = existing.status === 'approved';
+          Object.assign(existing, row, {
+            status: approved ? 'approved' : 'pending',
+            requested_at: approved ? existing.requested_at : row.requested_at,
+            reviewed_at: approved ? existing.reviewed_at : null
+          });
         } else Object.assign(existing, row);
       }
       else if (existing) throw new Error(`mock unique constraint: ${table}.${key}`);
@@ -53,7 +62,7 @@ class MockD1 {
         this.tables.announcements.filter(row => row.active === 1).forEach(row => { row.active = 0; });
         return { success: true };
       }
-      const idColumn = /WHERE id\s*=\s*\?/i.test(sql) ? 'id' : /WHERE capture_id\s*=\s*\?/i.test(sql) ? 'capture_id' : null;
+      const idColumn = /WHERE id\s*=\s*\?/i.test(sql) ? 'id' : /WHERE capture_id\s*=\s*\?/i.test(sql) ? 'capture_id' : /WHERE user_id\s*=\s*\?/i.test(sql) ? 'user_id' : null;
       if (!idColumn) return { success: true };
       const row = this.tables[table].find(item => item[idColumn] === values.at(-1));
       if (row) {
@@ -81,7 +90,7 @@ class MockD1 {
       if (/WHERE o.status = \?/i.test(sql)) rows = rows.filter(row => row.status === values[0]);
       return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
-    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity|amap_usage)/i);
+    const tableMatch = sql.match(/FROM (users|sessions|settings|applications|feedback|announcements|clipboard_captures|visitor_activity|amap_usage|publisher_access)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
     let rows = this.tables[tableMatch[1]].map(row => tableMatch[1] === 'amap_usage' ? { ...row, count: row.call_count } : { ...row });
     if (/SELECT COUNT\(\*\) AS count FROM visitor_activity/i.test(sql)) {
@@ -108,6 +117,8 @@ async function run() {
   assert.match(visitorMigration, /CREATE TABLE IF NOT EXISTS visitor_activity\b/);
   const amapMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0004_amap_usage.sql'), 'utf8');
   assert.match(amapMigration, /CREATE TABLE IF NOT EXISTS amap_usage\b/);
+  const publisherMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0005_publisher_access.sql'), 'utf8');
+  assert.match(publisherMigration, /CREATE TABLE IF NOT EXISTS publisher_access\b/);
 
   const db = new MockD1();
   const repo = createRepository({ DB: db });
@@ -121,6 +132,14 @@ async function run() {
   assert.equal((await repo.getUserByPhone(agency.phone)).id, agency.id);
   assert.deepEqual(teacher.preferences, { minPrice: 300 });
   assert.equal((await repo.listUsers({ role: 'teacher' }))[0].id, teacher.id);
+
+  const pendingAccess = await repo.submitPublisherAccess(agency.id, '测试称呼', 'wechat-test');
+  assert.equal(pendingAccess.status, 'pending');
+  assert.equal((await repo.listPublisherAccess())[0].userId, agency.id);
+  const approvedAccess = await repo.setPublisherAccessStatus(agency.id, 'approved');
+  assert.equal(approvedAccess.status, 'approved');
+  assert.ok(approvedAccess.reviewedAt);
+  assert.equal((await repo.submitPublisherAccess(agency.id, '新称呼', 'new-contact')).status, 'approved');
 
   await assert.rejects(() => repo.createSession({ userId: teacher.id, expiresAt: Date.now() + 1000 }), /tokenHash is required/);
   await repo.createSession({ tokenHash: 'sha256-only', userId: teacher.id, expiresAt: Date.now() + 60_000 });

@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -31,6 +31,15 @@ function memoryRepository() {
     async recordVisitorVisit(id) { const item = state.visitors.get(id); state.visitors.set(id, item ? { ...item, lastSeenAt: Date.now(), visits: item.visits + 1 } : { lastSeenAt: Date.now(), visits: 1 }); },
     async touchVisitor(id) { const item = state.visitors.get(id); state.visitors.set(id, { ...item, lastSeenAt: Date.now(), visits: item?.visits || 1 }); },
     async getVisitorStats(since) { const values = [...state.visitors.values()]; return { totalVisitors: values.length, onlineVisitors: values.filter(item => item.lastSeenAt >= since).length }; },
+    async getPublisherAccess(userId) { return state.publisherAccess.get(userId) || null; },
+    async submitPublisherAccess(userId, displayName, contact) {
+      const existing = state.publisherAccess.get(userId);
+      const item = { userId, displayName, contact, status: existing?.status === 'approved' ? 'approved' : 'pending', requestedAt: existing?.requestedAt || new Date().toISOString(), reviewedAt: existing?.reviewedAt || null, updatedAt: new Date().toISOString() };
+      state.publisherAccess.set(userId, item);
+      return item;
+    },
+    async listPublisherAccess() { return [...state.publisherAccess.values()].sort((a, b) => (a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1)); },
+    async setPublisherAccessStatus(userId, status) { const item = state.publisherAccess.get(userId); if (!item) return null; Object.assign(item, { status, reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); return item; },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
     async createClipboardCapture(input) { const existing = state.clipboard.get(input.captureId); if (existing) return existing; const capture = { ...input, status: 'pending', attempts: 0 }; state.clipboard.set(input.captureId, capture); return capture; },
@@ -40,6 +49,10 @@ function memoryRepository() {
     async failClipboardCapture(id, message) { const item = state.clipboard.get(id); if (item) { item.attempts++; item.lastError = message; } return item || null; },
     async deleteClipboardCapturesOlderThan() { return 0; },
   };
+}
+
+function approvePublisher(repo, agency) {
+  repo.state.publisherAccess.set(agency.id, { userId: agency.id, displayName: agency.name || '测试发单人', contact: 'test-contact', status: 'approved', requestedAt: new Date().toISOString(), reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
 }
 
 test('访问量按页面打开持久累计并出现在公共状态中', async () => {
@@ -172,9 +185,10 @@ test('地图配置仅公开 JS API Key 并通过同源代理保护安全密钥',
 });
 
 test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪精确地址', async () => {
-  const { call } = harness();
+  const { call, repo } = harness();
   const name = '地图测试老师', phone = ['137', '0013', '7000'].join(''), password = 'secret1';
   const login = await (await call('/api/account/login', { method: 'POST', body: { name, phone, password, passwordProof: await clientPasswordProof(password, name, phone) } })).json();
+  approvePublisher(repo, login.agency);
   const order = await (await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: {
     district: '南山', place: '测试小区', address: '深圳市南山区测试路1号', status: 'open', locationVerified: true,
     locationCoordinates: '113.9000,22.5000', locationAddress: '测试路1号'
@@ -207,6 +221,36 @@ test('account login creates paired roles and persists only token hashes', async 
   assert.equal(denied.status, 401);
 });
 
+test('publisher access requires an application and admin approval before publishing', async () => {
+  const { call } = harness({ parseOrders: async data => ({ parsed: [{ raw: data.text }], ignoredBlocks: [] }) });
+  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_browser_1234' } })).json();
+  const agencyHeaders = { authorization: `Bearer ${guest.agencyToken}` };
+
+  assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 403);
+  assert.equal((await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: { district: '南山', subject: '数学' } })).status, 403);
+  const publicState = await (await call('/api/state')).json();
+  assert.ok(Array.isArray(publicState.orders), 'public order browsing remains available');
+
+  const submitted = await (await call('/api/publisher-access', { method: 'POST', headers: agencyHeaders, body: {
+    displayName: '申请人', contact: 'wechat-publisher'
+  } })).json();
+  assert.equal(submitted.access.status, 'pending');
+  const agencyState = await (await call('/api/state', { headers: agencyHeaders })).json();
+  assert.equal(agencyState.publisherAccess.contact, 'wechat-publisher');
+
+  const password = 'publisher-admin-password';
+  const admin = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password, passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  const adminHeaders = { authorization: `Bearer ${admin.token}` };
+  const adminState = await (await call('/api/state', { headers: adminHeaders })).json();
+  assert.equal(adminState.publisherRequests[0].status, 'pending');
+  assert.equal((await call(`/api/admin/publisher-access/${guest.agency.id}`, { method: 'PATCH', headers: adminHeaders, body: { status: 'approved' } })).status, 200);
+
+  assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 200);
+  assert.equal((await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: { district: '南山', subject: '数学' } })).status, 200);
+});
+
 test('shared clipboard bridge requires its program token and exposes a common queue', async () => {
   const { call } = harness({}, { CLIPBOARD_BRIDGE_TOKEN: 'shared-test-token' });
   const deviceId = 'browser_clipboard_test_1234';
@@ -228,6 +272,7 @@ test('agency creates an order and teacher applies without duplicate application'
   const { repo, call } = harness();
   const loginName = '张老师', loginPhone = ['139', '0013', '9000'].join('');
   const login = await (await call('/api/account/login', { method: 'POST', body: { name: loginName, phone: loginPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', loginName, loginPhone) } })).json();
+  approvePublisher(repo, login.agency);
   const createdResponse = await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { district: '南山', subject: '数学', price: 200 } });
   assert.equal(createdResponse.status, 200);
   const order = await createdResponse.json();
@@ -266,6 +311,7 @@ test('guest device receives stable paired roles without a login form', async () 
   const other = await (await call('/api/account/guest', { method: 'POST', body: {
     deviceId: 'browser_fedcba0987654321'
   } })).json();
+  approvePublisher(repo, first.agency);
   const order = await (await call('/api/orders', {
     method: 'POST', headers: { authorization: `Bearer ${first.agencyToken}` },
     body: { district: '南山', subject: '物理', grade: '高二', price: 300 }
@@ -287,11 +333,13 @@ test('password login and injectable parser have explicit behavior', async () => 
   assert.equal((await disabled.call('/api/auth/sms/send', { method: 'POST', body: {} })).status, 404);
   const disabledName = '机构', disabledPhone = ['136', '0013', '6000'].join('');
   const login = await (await disabled.call('/api/login', { method: 'POST', body: { role: 'agency', name: disabledName, phone: disabledPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', disabledName, disabledPhone) } })).json();
+  approvePublisher(disabled.repo, login.user);
   assert.equal((await disabled.call('/api/parse', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { text: '测试' } })).status, 503);
 
   const injected = harness({ parseOrders: async data => ({ parserVersion: 'test', parsed: [{ raw: data.text }], splitDiagnostics: [] }) });
   const injectedName = '机构', injectedPhone = ['135', '0013', '5000'].join('');
   const injectedLogin = await (await injected.call('/api/login', { method: 'POST', body: { role: 'agency', name: injectedName, phone: injectedPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', injectedName, injectedPhone) } })).json();
+  approvePublisher(injected.repo, injectedLogin.user);
   const parsed = await (await injected.call('/api/parse', { method: 'POST', headers: { authorization: `Bearer ${injectedLogin.token}` }, body: { text: '合成订单' } })).json();
   assert.equal(parsed.parserVersion, 'test');
   assert.equal(parsed.parsed[0].raw, '合成订单');
@@ -299,7 +347,7 @@ test('password login and injectable parser have explicit behavior', async () => 
 
 test('import reuses verified preview locations and resolves only unverified orders without routing', async () => {
   let amapCalls = 0;
-  const { call } = harness({ fetchImpl: async url => {
+  const { call, repo } = harness({ fetchImpl: async url => {
     amapCalls++;
     const keywords = new URL(String(url)).searchParams.get('keywords');
     assert.equal(keywords, '深圳市宝安区待核实花园');
@@ -312,6 +360,7 @@ test('import reuses verified preview locations and resolves only unverified orde
   const login = await (await call('/api/login', { method: 'POST', body: {
     role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
   } })).json();
+  approvePublisher(repo, login.user);
   const verifiedQuery = '深圳市宝安区已确认花园';
   const response = await call('/api/import', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { orders: [{
     raw: '宝安区已确认花园，高二数学', district: '宝安', place: '已确认花园', locationQuery: verifiedQuery,
@@ -335,7 +384,7 @@ test('import reuses verified preview locations and resolves only unverified orde
 
 test('import enriches every location option after fast parsing', async () => {
   const requested = [];
-  const { call } = harness({ fetchImpl: async url => {
+  const { call, repo } = harness({ fetchImpl: async url => {
     const keywords = new URL(String(url)).searchParams.get('keywords');
     requested.push(keywords);
     const second = keywords.includes('会展');
@@ -352,6 +401,7 @@ test('import enriches every location option after fast parsing', async () => {
   const login = await (await call('/api/login', { method: 'POST', body: {
     role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
   } })).json();
+  approvePublisher(repo, login.user);
   const response = await call('/api/import', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { orders: [{
     raw: '南山区科技园或宝安区国际会展中心附近，高一数学，200元/小时',
     district: '南山', place: '科技园', locationQuery: '深圳市南山区科技园', locationVerified: false,
@@ -370,11 +420,12 @@ test('import enriches every location option after fast parsing', async () => {
 });
 
 test('import skips the same order despite whitespace punctuation and emoji differences', async () => {
-  const { call } = harness();
+  const { call, repo } = harness();
   const name = '去重测试机构', phone = ['136', '0013', '6000'].join(''), password = 'secret1';
   const login = await (await call('/api/login', { method: 'POST', body: {
     role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
   } })).json();
+  approvePublisher(repo, login.user);
   const headers = { authorization: `Bearer ${login.token}` };
   const base = {
     district: '宝安', place: '西乡测试花园', grade: '高二', subject: '物理', price: 300,
