@@ -1358,16 +1358,13 @@ function renderFeedbackList() {
 
 function renderAgencyOrders() {
   const root = $('#agencyOrders');
-  const closeAllButton = $('#closeAllAgencyOrders');
   const deleteAllButton = $('#deleteAllAgencyOrders');
   if (!currentAgency || !agencyToken) {
     root.innerHTML = '<div class="raw">正在恢复这个浏览器的发单记录…</div>';
-    closeAllButton.disabled = true;
     deleteAllButton.disabled = true;
     return;
   }
   const orders = state.orders.filter(o => o.agencyId === currentAgency.id);
-  closeAllButton.disabled = !orders.some(order => order.status !== 'closed');
   deleteAllButton.disabled = !orders.length;
   root.innerHTML = orders.length ? orders.map(o => {
     const meta = orderDisplayMeta(o);
@@ -1383,8 +1380,6 @@ function renderAgencyOrders() {
           : '<div class="raw">暂时还没有老师申请。</div>'}
       </div>
       <div class="actions">
-        <button class="secondary" onclick="setAgencyStatus('${o.id}','open')">重新开放</button>
-        <button class="secondary" onclick="setAgencyStatus('${o.id}','closed')">下架</button>
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
       </div>
     </div>`;
@@ -1780,12 +1775,6 @@ async function setStatus(id, status) {
   await load();
 }
 
-async function setAgencyStatus(id, status) {
-  await api(`/api/orders/${id}`, { method: 'PATCH', body: { status } }, agencyToken);
-  toast(status === 'closed' ? '订单已下架' : '订单已重新开放');
-  await load();
-}
-
 async function deleteOrder(id, actor) {
   if (!confirm('确定永久删除这条订单吗？删除后无法恢复。')) return;
   await api(`/api/orders/${id}`, { method: 'DELETE' }, actor === 'admin' ? adminToken : agencyToken);
@@ -1793,18 +1782,12 @@ async function deleteOrder(id, actor) {
   await load();
 }
 
-async function bulkAgencyOrders(action) {
+async function deleteAllAgencyOrders() {
   const orders = state.orders.filter(order => order.agencyId === currentAgency?.id);
   if (!orders.length) return toast('当前没有可处理的订单');
-  const deleting = action === 'delete';
-  const affected = deleting ? orders.length : orders.filter(order => order.status !== 'closed').length;
-  if (!affected) return toast('所有订单都已经下架');
-  const message = deleting
-    ? `确定永久删除全部 ${affected} 条订单吗？删除后无法恢复。`
-    : `确定一键下架 ${affected} 条订单吗？之后仍可逐条重新开放。`;
-  if (!confirm(message)) return;
-  const result = await api('/api/agency/orders/bulk', { method: 'POST', body: { action } }, agencyToken);
-  toast(deleting ? `已删除 ${result.affected} 条订单` : `已下架 ${result.affected} 条订单`);
+  if (!confirm(`确定永久删除全部 ${orders.length} 条订单吗？删除后无法恢复。`)) return;
+  const result = await api('/api/agency/orders/bulk', { method: 'POST', body: { action: 'delete' } }, agencyToken);
+  toast(`已删除 ${result.affected} 条订单`);
   await load();
 }
 
@@ -2542,8 +2525,7 @@ $('#clearImportHistory')?.addEventListener('click', () => {
 });
 scheduleManualImportQueue();
 
-$('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
-$('#deleteAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('delete').catch(err => toast(err.message)));
+$('#deleteAllAgencyOrders').addEventListener('click', () => deleteAllAgencyOrders().catch(err => toast(err.message)));
 
 $('#adminLogin').addEventListener('submit', async event => {
   event.preventDefault();
