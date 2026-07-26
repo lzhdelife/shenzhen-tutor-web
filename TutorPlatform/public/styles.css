@@ -930,22 +930,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .source-image-loading { padding: 32px 16px; color: var(--muted); text-align: center; }
 .source-image-nav { display: grid; grid-template-columns: 36px minmax(120px, auto) 36px; align-items: center; justify-content: center; gap: 12px; }
 .source-image-nav span { color: #4b5b6d; font-size: 13px; text-align: center; }
-.feedback-button {
-  position: fixed;
-  right: 18px;
-  bottom: 22px;
-  z-index: 20;
-  opacity: 0;
-  transform: translateX(calc(100% + 28px));
-  pointer-events: none;
-  box-shadow: 0 10px 24px rgba(23, 33, 43, .18);
-  transition: opacity .2s ease, transform .2s ease;
-}
-.feedback-button.scrolling, .feedback-button.panel-open { opacity: 1; transform: translateX(0); pointer-events: auto; }
-.feedback-panel { position: fixed; inset: 0; z-index: 30; display: grid; place-items: end; padding: 20px; background: rgba(23, 33, 43, .22); }
-.feedback-card { width: min(420px, 100%); display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; box-shadow: var(--shadow); }
-.feedback-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-
 #toast {
   position: fixed;
   right: 18px;
@@ -1046,7 +1030,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .admin-user-row { grid-template-columns: 20px minmax(0, 1fr); }
   .admin-user-row > button { grid-column: 2; justify-self: start; }
   .grid { grid-template-columns: 1fr; }
-  .feedback-panel { padding: 10px; }
   .contact-panel { padding: 10px; }
   .contact-card { padding: 16px; }
   .contact-details { grid-template-columns: 1fr; }

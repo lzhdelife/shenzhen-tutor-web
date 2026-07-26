@@ -23,7 +23,6 @@ let orderMapApi = null;
 let orderMapLocations = null;
 let orderMapRouteService = null;
 let activeMapRouteOrderId = '';
-let feedbackHideTimer = 0;
 let activeAgencyContact = null;
 let activeRawText = '';
 let rememberedCredentialActive = false;
@@ -2036,16 +2035,6 @@ async function copyAgencyContact() {
   toast('联系方式已复制');
 }
 
-function openFeedback() {
-  $('#feedbackPanel').classList.remove('hidden');
-  $('#feedbackButton').classList.add('panel-open');
-}
-
-function closeFeedback() {
-  $('#feedbackPanel').classList.add('hidden');
-  $('#feedbackButton').classList.remove('panel-open', 'scrolling');
-}
-
 function escapeHtml(text) {
   return String(text ?? '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
 }
@@ -2509,31 +2498,6 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#applicationPanel').classList.contains('hidden')) $('#applicationPanel').classList.add('hidden');
   if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
-
-$('#feedbackButton').addEventListener('click', openFeedback);
-$('#feedbackButton').addEventListener('mouseenter', () => clearTimeout(feedbackHideTimer));
-$('#feedbackButton').addEventListener('mouseleave', () => {
-  if (!$('#feedbackPanel').classList.contains('hidden')) return;
-  clearTimeout(feedbackHideTimer);
-  feedbackHideTimer = setTimeout(() => $('#feedbackButton').classList.remove('scrolling'), 700);
-});
-$('#feedbackClose').addEventListener('click', closeFeedback);
-$('#feedbackForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form).entries());
-  await api('/api/feedback', { method: 'POST', body: data });
-  form.reset();
-  closeFeedback();
-  toast('感谢反馈，开发者会查看');
-});
-window.addEventListener('scroll', () => {
-  const button = $('#feedbackButton');
-  if (!button || !$('#feedbackPanel').classList.contains('hidden')) return;
-  button.classList.add('scrolling');
-  clearTimeout(feedbackHideTimer);
-  feedbackHideTimer = setTimeout(() => button.classList.remove('scrolling'), 1600);
-}, { passive: true });
 
 const clipboardAutomationToggle = $('#clipboardAutomationEnabled');
 clipboardAutomationToggle.checked = localStorage.getItem(CLIPBOARD_AUTOMATION_KEY) !== 'off';
