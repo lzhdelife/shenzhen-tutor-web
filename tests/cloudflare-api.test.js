@@ -249,7 +249,18 @@ test('publisher access requires an application and admin approval before publish
   assert.equal((await call(`/api/admin/publisher-access/${guest.agency.id}`, { method: 'PATCH', headers: adminHeaders, body: { status: 'approved' } })).status, 200);
 
   assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 200);
-  assert.equal((await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: { district: '南山', subject: '数学' } })).status, 200);
+  const published = await (await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: {
+    district: '南山', subject: '数学', raw: '南山区初二数学家教，200元每小时'
+  } })).json();
+  assert.equal((await call(`/api/orders/${published.id}/contact`)).status, 401);
+  const contact = await (await call(`/api/orders/${published.id}/contact`, {
+    headers: { authorization: `Bearer ${guest.teacherToken}` }
+  })).json();
+  assert.deepEqual(contact.publisher, { name: '申请人', contact: 'wechat-publisher' });
+  assert.equal(contact.raw, '南山区初二数学家教，200元每小时');
+  assert.deepEqual(contact.admin, { name: '吴老师', contact: ['187', '1937', '1936'].join('') });
+  const teacherState = await (await call('/api/state', { headers: { authorization: `Bearer ${guest.teacherToken}` } })).json();
+  assert.equal(JSON.stringify(teacherState).includes('wechat-publisher'), false, 'publisher contact is revealed only after an explicit contact request');
 
   const otherBrowser = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_other_browser' } })).json();
   const restored = await (await call('/api/publisher-access', { method: 'POST', headers: { authorization: `Bearer ${otherBrowser.agencyToken}` }, body: {

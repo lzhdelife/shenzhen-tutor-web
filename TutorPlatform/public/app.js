@@ -28,6 +28,7 @@ let activeMapRouteOrderId = '';
 let orderMapViewportMode = 'all';
 let activeAgencyContact = null;
 let activeRawText = '';
+let activeApplicationContact = null;
 let rememberedCredentialActive = false;
 let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
@@ -40,7 +41,6 @@ const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
 const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
-const APPLICANT_PROFILE_KEY = 'tutorPlatformApplicantProfile';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 try {
@@ -1868,16 +1868,28 @@ function legacyLogout() {
   toast('已退出登录');
 }
 
-async function applyOrder(id) {
-  const form = $('#applicationForm');
-  let profile = {};
-  try { profile = JSON.parse(localStorage.getItem(APPLICANT_PROFILE_KEY) || '{}'); } catch {}
-  form.elements.orderId.value = id;
-  form.elements.name.value = profile.name || '';
-  form.elements.contact.value = profile.contact || '';
-  form.elements.note.value = '';
+function openApplicationContact(result) {
+  activeApplicationContact = result;
+  const publisherName = String(result.publisher?.name || '发单人').trim();
+  const publisherContact = String(result.publisher?.contact || '').trim();
+  const adminContact = String(result.admin?.contact || WU_TEACHER_PHONE).trim();
+  $('#applicationPublisherName').textContent = publisherName;
+  $('#applicationPublisherContact').textContent = publisherContact || '暂无联系方式';
+  $('#applicationPublisherContact').disabled = !publisherContact;
+  $('#applicationAdminContact').textContent = adminContact;
+  $('#applicationAdminContact').disabled = !adminContact;
+  $('#applicationViewRaw').disabled = !result.raw;
+  $('#applicationCopyRaw').disabled = !result.raw;
   $('#applicationPanel').classList.remove('hidden');
-  (form.elements.name.value ? form.elements.note : form.elements.name).focus();
+  $('#applicationViewRaw').focus();
+}
+
+async function applyOrder(id) {
+  try {
+    openApplicationContact(await api(`/api/orders/${id}/contact`, {}, teacherToken));
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 async function deleteOrder(id, actor) {
@@ -2125,11 +2137,15 @@ function queueLocationSuggestions() {
   }, 120);
 }
 
-function openRawText(encoded) {
-  activeRawText = decodeURIComponent(encoded || '');
+function showRawText(rawText) {
+  activeRawText = String(rawText || '');
   $('#rawTextContent').textContent = activeRawText || '这条订单没有保留原文。';
   $('#copyRawText').disabled = !activeRawText;
   $('#rawTextPanel').classList.remove('hidden');
+}
+
+function openRawText(encoded) {
+  showRawText(decodeURIComponent(encoded || ''));
 }
 
 function closeRawText() {
@@ -2687,17 +2703,28 @@ $('#applicationClose').addEventListener('click', () => $('#applicationPanel').cl
 $('#applicationPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) $('#applicationPanel').classList.add('hidden');
 });
-$('#applicationForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form).entries());
-  const orderId = data.orderId;
-  delete data.orderId;
-  localStorage.setItem(APPLICANT_PROFILE_KEY, JSON.stringify({ name: data.name, contact: data.contact }));
-  const result = await api(`/api/orders/${orderId}/apply`, { method: 'POST', body: data }, teacherToken);
-  $('#applicationPanel').classList.add('hidden');
-  toast(result.alreadyApplied ? '你已经申请过这张订单' : '申请已发送，等待上传者协助联系');
-  await load();
+$('#applicationViewRaw').addEventListener('click', () => {
+  if (activeApplicationContact?.raw) showRawText(activeApplicationContact.raw);
+});
+$('#applicationCopyRaw').addEventListener('click', () => {
+  const raw = activeApplicationContact?.raw || '';
+  if (!raw) return;
+  navigator.clipboard.writeText(raw)
+    .then(() => toast('原文已复制'))
+    .catch(() => toast('复制失败，请手动复制'));
+});
+$('#applicationPublisherContact').addEventListener('click', () => {
+  const contact = activeApplicationContact?.publisher?.contact || '';
+  if (!contact) return;
+  navigator.clipboard.writeText(contact)
+    .then(() => toast('发单人联系方式已复制'))
+    .catch(() => toast('复制失败，请手动复制'));
+});
+$('#applicationAdminContact').addEventListener('click', () => {
+  const contact = activeApplicationContact?.admin?.contact || WU_TEACHER_PHONE;
+  navigator.clipboard.writeText(contact)
+    .then(() => toast('吴老师手机号已复制'))
+    .catch(() => toast('复制失败，请手动复制'));
 });
 $('#rawTextClose').addEventListener('click', closeRawText);
 $('#copyRawText').addEventListener('click', () => copyRawText().catch(err => toast(err.message)));

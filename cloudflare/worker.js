@@ -640,6 +640,23 @@ function createWorker(dependencies = {}) {
           await Promise.all(orders.map(order => repo.deleteOrder(order.id)));
           return json({ action: 'delete', affected: orders.length });
         }
+        const orderContact = path.match(/^\/api\/orders\/([^/]+)\/contact$/);
+        if (method === 'GET' && orderContact) {
+          const teacher = await requireRole(repo, request, 'teacher');
+          if (!teacher) return error('需要老师身份', 401);
+          const order = await repo.getOrderById(orderContact[1]);
+          if (!order) return error('订单不存在', 404);
+          if (order.status === 'closed') return error('这个订单已经下架');
+          const access = typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(order.agencyId) : null;
+          return json({
+            raw: recoverOrderRawText(order),
+            publisher: {
+              name: text(access?.displayName || order.source || '发单人'),
+              contact: text(access?.contact)
+            },
+            admin: { name: '吴老师', contact: ['187', '1937', '1936'].join('') }
+          });
+        }
         const apply = path.match(/^\/api\/orders\/([^/]+)\/apply$/);
         if (method === 'POST' && apply) {
           const teacher = await requireRole(repo, request, 'teacher');
