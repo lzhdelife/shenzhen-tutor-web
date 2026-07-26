@@ -214,10 +214,16 @@ test('老师信息列表不逐单查询接单申请', async () => {
   await repo.createOrder({ id: 'list-order-one', agencyId: login.agency.id, status: 'open', district: '南山', subject: '数学' });
   await repo.createOrder({ id: 'list-order-two', agencyId: 'another-agency', status: 'open', district: '福田', subject: '英语' });
   let applicationReads = 0;
+  let privateOrderReads = 0;
   const listApplications = repo.listApplications.bind(repo);
+  const listOrders = repo.listOrders.bind(repo);
   repo.listApplications = async filters => {
     applicationReads++;
     return listApplications(filters);
+  };
+  repo.listOrders = async filters => {
+    privateOrderReads++;
+    return listOrders(filters);
   };
 
   const teacherState = await (await call('/api/state', {
@@ -225,9 +231,11 @@ test('老师信息列表不逐单查询接单申请', async () => {
   })).json();
   assert.equal(teacherState.orders.length, 2);
   assert.equal(applicationReads, 0);
+  assert.equal(privateOrderReads, 0, '老师复用公共订单读取结果');
 
   await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } });
   assert.equal(applicationReads, 1, '发单者只查询自己订单的申请记录');
+  assert.equal(privateOrderReads, 1, '发单者仍读取包含私有字段的订单');
 });
 
 test('account login creates paired roles and persists only token hashes', async () => {

@@ -456,7 +456,8 @@ function createWorker(dependencies = {}) {
         }
         if (method === 'GET' && path === '/api/state') {
           const state = await repo.getPublicState();
-          const visibleOrders = viewer ? await repo.listOrders({ limit: 500 }) : (state.orders || []);
+          const needsPrivateOrders = viewer?.role === 'admin' || viewer?.role === 'agency';
+          const visibleOrders = needsPrivateOrders ? await repo.listOrders({ limit: 500 }) : (state.orders || []);
           const teacherVisibleIds = new Set(dedupeOrdersByCanonicalRaw(
             visibleOrders.filter(order => order.status !== 'closed')
           ).map(order => order.id));
