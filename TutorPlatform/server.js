@@ -44,7 +44,7 @@ const LISTS = {
 const LANDMARK_DISTRICTS = {
   桃源村: '南山', 农林: '福田', 华侨城: '南山', 白石洲: '南山', 西丽: '南山',
   后海: '南山', 南油: '南山', 蛇口: '南山', 车公庙: '福田', 香蜜湖: '福田',
-  景田: '福田', 岗厦: '福田', 侨香: '福田', 笔架山: '福田', 孖岭: '福田', 布吉: '龙岗', 坂田: '龙岗', 大运: '龙岗',
+  景田: '福田', 岗厦: '福田', 侨香: '福田', 笔架山: '福田', 孖岭: '福田', 布吉: '龙岗', 坂田: '龙岗', 大运: '龙岗', 平湖: '龙岗',
   民治: '龙华', 红山: '龙华', 公明: '光明', 西乡: '宝安', 固戍: '宝安', 福永: '宝安', 怀德: '宝安', 流塘: '宝安', 盐田墟: '盐田'
 };
 
@@ -574,9 +574,10 @@ function sanitizeImportedText(value) {
 
 function looksLikeFieldHeader(line) {
   const value = String(line || '').trim()
+    .replace(/^\d{1,2}\s*[、.．)]\s*/, '')
     .replace(/^[【\[]\s*/, '')
     .replace(/\s*[】\]]\s*[:：]?\s*/, '：');
-  return /^(?:编号|家教编号|家教内容|家教地点|家教时间|家教薪酬|家教要求|学员地址|辅导地址|辅导地点|上课地址|联系地址|地址|地点|辅导科目|科目内容|科目|学员情况|学生情况|情况|学员|学生|年级性别|孩子性别|年级科目|年级学科|年级|时间安排|时间次数|时间次數|课时次数|时间|次数|次數|课时价格|课时报酬|课费报酬|课费薪酬|课酬薪资|课酬报酬|老师薪水|薪水|老师课费|老师报酬|教师报酬|课酬|薪酬|薪资|时薪|报酬|老师要求|教师要求|教员要求|教员|老师|要求|BR)\s*[:：]?/i.test(value);
+  return /^(?:编号|家教编号|家教内容|家教地点|家教时间|家教薪酬|家教要求|学员地址|辅导地址|辅导地点|上课地址|联系地址|地址|地点|辅导科目|科目内容|科目|学员情况|学生情况|学生人数|情况|学员|学生|年级性别|孩子性别|年级科目|年级学科|年级|辅导时间|时间安排|时间次数|时间次數|课时次数|时间|次数|次數|课时价格|课时报酬|课费报酬|课费薪酬|课费次薪|课酬薪资|课酬报酬|老师薪水|薪水|老师课费|老师报酬|教师报酬|课酬|薪酬|薪资|时薪|报酬|对师要求|老师要求|教师要求|教员要求|教员|老师|要求|BR)\s*[:：]?/i.test(value);
 }
 
 function lineField(text, names) {
@@ -585,11 +586,12 @@ function lineField(text, names) {
   const hardStop = /^(?:WY深圳\d|SZ\d|lw\d|(?:急|妃)\s*\d{8,}|深圳[A-Za-z]{0,5}\d|订单\s*[:：]?\s*\d|家教编号\s*[:：]?\s*\d|编号\s*[:：]?\s*[A-Z0-9]|[【(（〖]?通勤时间|#\s*暑假)/i;
   for (let i = 0; i < lines.length; i++) {
     let match = null;
+    const candidateLine = lines[i].replace(/^\d{1,2}\s*[、.．)]\s*/, '');
     for (const name of labels) {
       const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      match = lines[i].match(new RegExp(`^[【\\[]\\s*${escaped}\\s*[:：]?[】\\]]\\s*[:：]?\\s*(.*)$`, 'i'))
-        || lines[i].match(new RegExp(`^${escaped}(?:\\s*[:：\\-]\\s*|\\s+)(.*)$`, 'i'))
-        || lines[i].match(new RegExp(`^${escaped}$`, 'i'));
+      match = candidateLine.match(new RegExp(`^[【\\[]\\s*${escaped}\\s*[:：]?[】\\]]\\s*[:：]?\\s*(.*)$`, 'i'))
+        || candidateLine.match(new RegExp(`^${escaped}(?:\\s*[:：\\-]\\s*|\\s+)(.*)$`, 'i'))
+        || candidateLine.match(new RegExp(`^${escaped}$`, 'i'));
       if (match) break;
     }
     if (!match) continue;
@@ -735,6 +737,12 @@ function extractLooseOrderLine(text) {
 
 function extractLooseLocationLine(text) {
   const lines = textOf(text).split(/\n/).map(line => line.trim()).filter(Boolean);
+  const districtPoi = /(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?[\u4e00-\u9fffA-Za-z0-9·]{2,30}?(?:街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/;
+  const districtRoad = /(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?[\u4e00-\u9fffA-Za-z0-9·]{2,20}?(?:大道|路|街|巷)/;
+  for (const line of lines) {
+    const match = line.match(districtPoi) || line.match(districtRoad);
+    if (match) return match[0];
+  }
   return lines.find(line => (
     line.length <= 80
     && /(\d{1,2}号线|地铁站|小区|花园|村|附近|街道|(?:路|大道|街|巷)(?:口|段)?|中心|公馆|家园|华府|学校|医院|酒店)/.test(line)
@@ -1081,7 +1089,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
       .replace(/[\s#＃|｜:：]+/g, '')
       .trim();
     item = stripLeadingDistrict(item, district);
-    return item.replace(/^[区县]/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
+    return item.replace(/^[区县，,、:：]+/, '').replace(/[（(].*$/, '').replace(/[\/、,，]+$/, '').trim();
   };
   for (const candidateSource of sources) {
     const cleaned = cleanPart(candidateSource);
@@ -1274,7 +1282,7 @@ function extractPrice(text) {
   m = source.match(/(\d{2,5})\s*[-—~～]+\s*(\d{2,5})\s*(?:元)?\s*(?:\/?\s*(?:1)?\s*(小时|时|h)|每小时|元每小时|元1小时|元\/小时)/i);
   if (!m && salary) m = source.match(/(\d{2,5})\s*[-—~～]+\s*(\d{2,5})/);
   if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
-  m = source.match(/(\d{2,5})\s*\/\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
+  m = source.match(/(\d{2,5})\s*(?:元|块)?\s*\/\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
   if (m) return finish(Number(m[1]) / Number(m[2]), m[0]);
   m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每(?:个)?小时)/i)
     || source.match(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(?:个)?\s*(小时|h|时)/i);
