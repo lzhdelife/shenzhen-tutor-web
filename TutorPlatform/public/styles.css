@@ -1142,24 +1142,31 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #151a1f;
-    --panel: #20272d;
-    --ink: #e8edf2;
-    --muted: #a4afb9;
-    --line: #37424b;
-    --line-strong: #4a5660;
-    --blue: #67a6e3;
-    --blue-dark: #91bde6;
-    --green: #60b18f;
-    --yellow: #d6b45b;
-    --red: #d66c79;
-    --soft-blue: #263746;
-    --soft-green: #24392f;
-    --shadow: 0 16px 38px rgba(0, 0, 0, .28);
+    --bg: #17191a;
+    --panel: #202223;
+    --surface: #191b1c;
+    --surface-raised: #292b2c;
+    --surface-hover: #313334;
+    --ink: #dfddd8;
+    --muted: #9f9c97;
+    --line: #353738;
+    --line-strong: #47494a;
+    --blue: #5f91b5;
+    --blue-dark: #78a6c8;
+    --green: #5f9f81;
+    --yellow: #c2a553;
+    --red: #c96b75;
+    --soft-blue: #202a31;
+    --soft-green: #1f2b25;
+    --shadow: 0 16px 38px rgba(0, 0, 0, .32);
   }
 
   html { color-scheme: dark; }
   body, .auth-screen { background: var(--bg); color: var(--ink); }
+  button,
+  .primary,
+  .brand-mark { background: #477da6; }
+  button:hover { background: #39698d; }
   .auth-layout,
   .topbar,
   .panel,
@@ -1170,7 +1177,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .multi-filter-menu,
   .contact-card,
   .source-image-card { background: var(--panel); color: var(--ink); }
-  .auth-brand { background: #202f38; color: var(--ink); }
+  .auth-brand { background: #1d2326; color: var(--ink); }
   .auth-brand::after { background: var(--green); }
   .auth-platform-stats small,
   .compact-platform-stats,
@@ -1203,74 +1210,75 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .agency-orders-section .admin-row,
   .applicant-item,
   .raw-text-content,
-  .source-image-stage { background: #1a2127; color: var(--ink); }
+  .source-image-stage { background: var(--surface); color: var(--ink); }
 
   button.secondary,
-  .refresh-button { color: #b9d5ef; background: #293947; }
+  .refresh-button { color: #c8c6c1; background: var(--surface-raised); }
   button.secondary:hover,
-  .refresh-button:hover { color: #d6e9f8; background: #33495c; }
+  .refresh-button:hover { color: var(--ink); background: var(--surface-hover); }
   button.danger,
-  .admin-entry-button.admin-session { color: #f0a5ad; background: #43282e; }
-  button.danger:hover { background: #563038; }
+  .admin-entry-button.admin-session { color: #e6a0a7; background: #3a282b; }
+  button.danger:hover { background: #493034; }
   .icon-button,
-  .filter-clear { color: var(--muted); background: #293139; }
+  .filter-clear { color: var(--muted); background: var(--surface-raised); }
   .icon-button:hover,
   .filter-clear:hover,
   .tabs button:hover,
-  .auth-method-tabs button:hover { color: var(--ink); background: #303a43; }
-  .auth-method-tabs { background: #1a2127; }
+  .auth-method-tabs button:hover { color: var(--ink); background: var(--surface-hover); }
+  .auth-method-tabs { background: var(--surface); }
   .auth-method-tabs button { color: var(--muted); }
-  .auth-method-tabs button.active { color: #fff; background: var(--blue-dark); }
-  .wechat-login-box { background: #1b2822; }
+  .auth-method-tabs button.active { color: #f4f3f0; background: #4f7897; }
+  .wechat-login-box { background: #1b2420; }
 
-  .tabs { background: #283139; }
-  .tabs button.active { color: #fff; background: #397bb8; box-shadow: 0 5px 14px rgba(0, 0, 0, .2); }
-  .announcement-bar { border-color: #66582f; color: #eadba7; background: #332f20; }
-  .announcement-copy small { color: #c8b875; }
+  .tabs { background: var(--surface-raised); }
+  .tabs button.active { color: #f6f5f2; background: #3f739b; box-shadow: 0 5px 14px rgba(0, 0, 0, .24); }
+  .announcement-bar { border-color: #5d5130; color: #d8c992; background: #2c291f; }
+  .announcement-copy small { color: #b6aa7b; }
   .suggestion-item { border-color: var(--line); background: var(--panel); }
   .suggestion-item:hover,
   .suggestion-item.active,
-  .multi-option:has(input:checked) { color: #c7e1f6; background: var(--soft-blue); }
-  .suggestion-status { color: #ef9e9e; background: #3a2426; }
+  .multi-option:has(input:checked) { color: #bed0dc; background: var(--soft-blue); }
+  .suggestion-status { color: #e2a0a0; background: #332426; }
 
-  .order-map-panel { background: #1a2228; }
-  .order-map-status { color: var(--ink); background: rgba(31, 39, 45, .96); }
-  .order-map-route-summary { background: #20272d; }
-  .commute-primary > strong { color: #86b9e8; }
+  .order-map-panel { background: var(--surface); }
+  .order-map-status { color: var(--ink); background: rgba(32, 34, 35, .96); }
+  .order-map-route-summary { background: var(--panel); }
+  .commute-primary > strong { color: #8fb4cf; }
   .commute-metrics strong,
   .commute-step > span { color: var(--ink); }
   .commute-route-chain { border-color: var(--line); }
-  .commute-step:not(:last-child)::after { background: #46535e; }
-  .commute-step.walk i { color: var(--ink); background: #3a4650; }
-  .order-map-origin-marker b { border-color: #48665a; color: #a6dfc6; background: rgba(28, 42, 36, .96); }
+  .commute-step:not(:last-child)::after { background: #464849; }
+  .commute-step.walk i { color: var(--ink); background: #3a3c3d; }
+  .order-map-origin-marker b { border-color: #465d52; color: #acd2bf; background: rgba(29, 38, 34, .96); }
   .map-cluster-order-list button:hover { background: var(--soft-blue); }
 
-  .card:hover { border-color: #536a7c; box-shadow: 0 10px 28px rgba(0, 0, 0, .22); }
-  .info-chip { border-color: #3c4c59; }
-  .admin-anomaly-panel { border-color: #66582f; background: #2b291f; }
-  .admin-anomaly-row { border-color: #66582f; }
+  .card:hover { border-color: #555859; box-shadow: 0 10px 28px rgba(0, 0, 0, .25); }
+  .score { background: linear-gradient(135deg, #356f59, #477e68); }
+  .info-chip { border-color: #3e4142; }
+  .admin-anomaly-panel { border-color: #5d5130; background: #29271f; }
+  .admin-anomaly-row { border-color: #5d5130; }
   .anomaly-tags span,
-  .publisher-status.pending { color: #ead18a; background: #423820; }
-  .publisher-status { color: var(--muted); background: #303941; }
-  .publisher-status.approved { color: #9ed8be; background: var(--soft-green); }
-  .publisher-status.rejected { color: #efa3ac; background: #43282e; }
+  .publisher-status.pending { color: #d8c281; background: #38321f; }
+  .publisher-status { color: var(--muted); background: var(--surface-raised); }
+  .publisher-status.approved { color: #a4ccb8; background: var(--soft-green); }
+  .publisher-status.rejected { color: #e3a2a9; background: #3a282b; }
   .publisher-contact img { background: #f4f6f7; }
 
-  .parse-warning { color: #efb47c; background: #3a2b20; }
-  .pill { background: #303941; }
+  .parse-warning { color: #dca873; background: #32281f; }
+  .pill { background: var(--surface-raised); }
   .txt-drop-zone:hover,
   .txt-drop-zone.is-dragging { border-color: var(--blue); background: var(--soft-blue); }
-  .preview-batch-heading { background: #1a2127; }
-  .preview-batch-heading strong { color: #c6dcec; }
-  .import-input-status[data-tone="success"] { border-color: #376b56; border-left-color: var(--green); color: #a7ddc5; background: #20372d; }
-  .import-input-status[data-tone="processing"] { border-color: #3b5872; border-left-color: var(--blue); color: #b6d5ef; background: #223345; }
-  .import-input-status[data-tone="muted"] { border-color: #66582f; border-left-color: #c39b45; color: #e6cf92; background: #352f20; }
-  .import-input-status[data-tone="error"] { border-color: #704047; border-left-color: var(--red); color: #efadb4; background: #3b252a; }
-  .wechat-search-hint { color: #addbc7; background: var(--soft-green); }
+  .preview-batch-heading { background: var(--surface); }
+  .preview-batch-heading strong { color: #c8c6c1; }
+  .import-input-status[data-tone="success"] { border-color: #3d6552; border-left-color: var(--green); color: #a9cfbc; background: #1e2d26; }
+  .import-input-status[data-tone="processing"] { border-color: #3e586a; border-left-color: var(--blue); color: #b3cad9; background: #202a31; }
+  .import-input-status[data-tone="muted"] { border-color: #5d5130; border-left-color: #b09147; color: #d7c58e; background: #2d291f; }
+  .import-input-status[data-tone="error"] { border-color: #674047; border-left-color: var(--red); color: #e3a6ac; background: #332427; }
+  .wechat-search-hint { color: #abcbb9; background: var(--soft-green); }
 
-  .contact-panel { background: rgba(4, 8, 11, .7); }
-  .application-contact-list button { color: #a9d1f1; }
-  .source-image-panel { background: rgba(4, 8, 11, .82); }
+  .contact-panel { background: rgba(5, 6, 6, .74); }
+  .application-contact-list button { color: #a8c5d9; }
+  .source-image-panel { background: rgba(5, 6, 6, .86); }
   .source-image-stage { border-color: var(--line); }
 
   @media (max-width: 700px) {
