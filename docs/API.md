@@ -138,6 +138,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 | POST | `/api/orders` | agency | 手工创建一条订单 |
 | POST | `/api/parse` | agency | 拆分并预览粘贴文字，不写数据库 |
 | POST | `/api/import` | agency | 批量解析/导入文本或已解析订单 |
+| POST | `/api/order-issues` | teacher/agency | 一键反馈已发布订单或识别预览的解析错误 |
 | PATCH | `/api/orders/:id` | owner agency/admin | 中介编辑自己的订单；管理员只能改状态 |
 | DELETE | `/api/orders/:id` | owner agency/admin | 删除订单 |
 | POST | `/api/orders/:id/location/confirm` | owner agency/admin | 确认高德候选并保存标准地址、POI 和经纬度 |
@@ -169,6 +170,12 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
   "incompleteSkipped": 0
 }
 ```
+
+### 识别错误反馈
+
+已发布订单提交 `{ "orderId": "o-..." }`；服务端自行读取原文和解析快照，不接受客户端覆盖。识别预览提交 `{ "raw", "parsedSnapshot", "parserVersion" }`，仅发单身份可用。反馈不会下架、删除或修改订单。
+
+同一浏览器身份对同一目标重复反馈会更新原记录；不同身份的反馈在管理端按目标合并计数。普通 `/api/state` 不返回反馈，管理员状态额外返回 `orderIssueReports[]`，供查看和导出原文、解析结果及解析器版本。
 
 ### 订单管理
 
@@ -209,6 +216,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 - 老师：只收到公开订单字段。
 - 中介：自己的订单包含私有地点和解析字段，其他订单仍按公开规则裁剪。
 - 管理员：可查看全部订单和质量异常信息。
+- 只有管理员可收到识别错误反馈快照；普通用户和发单者的状态响应均不包含该数据。
 - `passwordHash`、`adminPasswordHash`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。高德 Key 仅存在于服务端环境/Secret，任何 API 都不返回。
 
 ## CORS 和浏览器说明

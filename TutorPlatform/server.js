@@ -66,6 +66,7 @@ function readDb() {
   db.clipboardReceipts ||= [];
   db.rememberSessions ||= [];
   db.visitorActivity ||= {};
+  db.orderIssueReports ||= [];
   db.announcement ||= { title: '', content: '', active: false, updatedAt: '' };
   return db;
 }
@@ -2239,8 +2240,22 @@ function publicDb(db, viewer = null) {
     adminConfigured: Boolean(db.settings.adminPasswordHash),
     stats: platformStats(db),
     orders,
+    ...(viewer?.role === 'admin' ? { orderIssueReports: db.orderIssueReports } : {}),
     lists: LISTS
   };
+}
+
+function parsedOrderSnapshot(order) {
+  const fields = ['district', 'place', 'address', 'subject', 'grade', 'gradeDescription', 'price', 'priceMin',
+    'priceMax', 'priceUnit', 'hourlyPrice', 'priceApproximate', 'priceText', 'monthly', 'schedule', 'gender',
+    'student', 'studentGender', 'requirements', 'locationStatus', 'locationQuery', 'locationVerified'];
+  return Object.fromEntries(fields.filter(key => order[key] !== undefined).map(key => [key, order[key]]).concat(
+    order.structured ? [['structured', order.structured]] : []
+  ));
+}
+
+function parserVersionOf(order, fallback = '') {
+  return textOf(order?.structured?.parserVersion || order?.parserVersion || fallback).slice(0, 40);
 }
 
 function serveStatic(req, res) {
@@ -2284,6 +2299,45 @@ async function handleApi(req, res) {
         : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
     })).filter(order => order.locations.length);
     return send(res, 200, { orders });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/order-issues') {
+    const viewer = sessionOf(req);
+    if (!viewer || !['teacher', 'agency'].includes(viewer.role)) return send(res, 401, { error: '需要有效的浏览器身份' });
+    const data = await bodyJson(req);
+    const orderId = textOf(data.orderId);
+    let source, rawText, parsedSnapshot, parserVersion, targetKey;
+    if (orderId) {
+      const order = db.orders.find(item => item.id === orderId);
+      if (!order) return send(res, 404, { error: '订单不存在' });
+      source = 'published';
+      rawText = textOf(order.raw || order.structured?.rawText || order.structured?.raw);
+      parsedSnapshot = parsedOrderSnapshot(order);
+      parserVersion = parserVersionOf(order);
+      targetKey = `order:${order.id}`;
+    } else {
+      if (viewer.role !== 'agency') return send(res, 403, { error: '识别预览反馈需要发单身份' });
+      source = 'preview';
+      rawText = textOf(data.raw);
+      parsedSnapshot = data.parsedSnapshot && typeof data.parsedSnapshot === 'object' && !Array.isArray(data.parsedSnapshot)
+        ? data.parsedSnapshot
+        : {};
+      parserVersion = parserVersionOf(parsedSnapshot, data.parserVersion);
+      if (!rawText) return send(res, 400, { error: '缺少订单原文' });
+      targetKey = `preview:${crypto.createHash('sha256').update(canonicalOrderText(rawText)).digest('hex')}`;
+    }
+    if (Buffer.byteLength(rawText, 'utf8') > 256 * 1024) return send(res, 413, { error: '订单原文过大' });
+    if (Buffer.byteLength(JSON.stringify(parsedSnapshot), 'utf8') > 512 * 1024) return send(res, 413, { error: '识别结果过大' });
+    const timestamp = new Date().toISOString();
+    let report = db.orderIssueReports.find(item => item.targetKey === targetKey && item.reporterKey === viewer.id);
+    if (report) Object.assign(report, { orderId: orderId || null, source, rawText, parsedSnapshot, parserVersion, updatedAt: timestamp });
+    else {
+      report = { id: `oir-${crypto.randomUUID()}`, targetKey, orderId: orderId || null, source, reporterKey: viewer.id,
+        rawText, parsedSnapshot, parserVersion, createdAt: timestamp, updatedAt: timestamp };
+      db.orderIssueReports.push(report);
+    }
+    writeDb(db);
+    return send(res, 200, { ok: true, report: { targetKey, source, updatedAt: report.updatedAt } });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/clipboard/capture') {

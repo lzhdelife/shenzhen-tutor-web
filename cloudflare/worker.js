@@ -12,6 +12,8 @@ const { recoverOrderRawText, detectOrderIssues } = require('../shared/order-qual
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const ONLINE_WINDOW_MS = 90 * 1000;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
+const MAX_ISSUE_RAW_BYTES = 256 * 1024;
+const MAX_ISSUE_SNAPSHOT_BYTES = 512 * 1024;
 const LOCATION_CACHE_CONTROL = 'public, max-age=300, s-maxage=86400';
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const LISTS = {
@@ -295,6 +297,23 @@ function cleanOrder(order, viewer) {
   return copy;
 }
 
+function parsedOrderSnapshot(order) {
+  const fields = ['district', 'place', 'address', 'subject', 'grade', 'gradeDescription', 'price', 'priceMin',
+    'priceMax', 'priceUnit', 'hourlyPrice', 'priceApproximate', 'priceText', 'monthly', 'schedule', 'gender',
+    'student', 'studentGender', 'requirements', 'locationStatus', 'locationQuery', 'locationVerified'];
+  return Object.fromEntries(fields.filter(key => order[key] !== undefined).map(key => [key, order[key]]).concat(
+    order.structured ? [['structured', order.structured]] : []
+  ));
+}
+
+function parserVersionOf(order, fallback = '') {
+  return text(order?.structured?.parserVersion || order?.parserVersion || fallback).slice(0, 40);
+}
+
+function jsonByteLength(value) {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
 function createWorker(dependencies = {}) {
   return {
     async scheduled(controller, env, ctx) {
@@ -495,9 +514,13 @@ function createWorker(dependencies = {}) {
           const platformSettings = await repo.getSettings();
           const publisherAccess = viewer?.role === 'agency' && typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(viewer.id) : null;
           const publisherRequests = viewer?.role === 'admin' && typeof repo.listPublisherAccess === 'function' ? await repo.listPublisherAccess() : [];
+          const orderIssueReports = viewer?.role === 'admin' && typeof repo.listOrderIssueReports === 'function'
+            ? await repo.listOrderIssueReports()
+            : undefined;
           return json({ ...state, announcement: announcements ? (announcements[0] || null) : state.announcement,
             settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm || 12 }, viewer,
             adminConfigured: Boolean(state.adminConfigured), orders, publisherAccess, publisherRequests,
+            ...(orderIssueReports ? { orderIssueReports } : {}),
             stats: { totalVisits: Math.max(0, Number(platformSettings.totalVisits) || 0) }, lists: LISTS });
         }
         if (method === 'GET' && path === '/api/stats') {
@@ -659,6 +682,39 @@ function createWorker(dependencies = {}) {
           const orders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
           await Promise.all(orders.map(order => repo.deleteOrder(order.id)));
           return json({ action: 'delete', affected: orders.length });
+        }
+        if (method === 'POST' && path === '/api/order-issues') {
+          if (!viewer || !['teacher', 'agency'].includes(viewer.role)) return error('需要有效的浏览器身份', 401);
+          if (typeof repo.upsertOrderIssueReport !== 'function') return error('识别反馈服务尚未配置', 503);
+          const data = await bodyJson(request);
+          const orderId = text(data.orderId);
+          let source, rawText, parsedSnapshot, parserVersion, targetKey;
+          if (orderId) {
+            const order = await repo.getOrderById(orderId);
+            if (!order) return error('订单不存在', 404);
+            source = 'published';
+            rawText = recoverOrderRawText(order);
+            parsedSnapshot = parsedOrderSnapshot(order);
+            parserVersion = parserVersionOf(order);
+            targetKey = `order:${order.id}`;
+          } else {
+            if (viewer.role !== 'agency') return error('识别预览反馈需要发单身份', 403);
+            source = 'preview';
+            rawText = text(data.raw);
+            parsedSnapshot = data.parsedSnapshot && typeof data.parsedSnapshot === 'object' && !Array.isArray(data.parsedSnapshot)
+              ? data.parsedSnapshot
+              : {};
+            parserVersion = parserVersionOf(parsedSnapshot, data.parserVersion);
+            if (!rawText) return error('缺少订单原文');
+            targetKey = `preview:${await sha256(canonicalOrderText(rawText))}`;
+          }
+          if (new TextEncoder().encode(rawText).byteLength > MAX_ISSUE_RAW_BYTES) return error('订单原文过大', 413);
+          if (jsonByteLength(parsedSnapshot) > MAX_ISSUE_SNAPSHOT_BYTES) return error('识别结果过大', 413);
+          const report = await repo.upsertOrderIssueReport({
+            targetKey, orderId: orderId || null, source, reporterKey: viewer.id,
+            rawText, parsedSnapshot, parserVersion
+          });
+          return json({ ok: true, report: { targetKey: report.targetKey, source: report.source, updatedAt: report.updatedAt } });
         }
         const orderContact = path.match(/^\/api\/orders\/([^/]+)\/contact$/);
         if (method === 'GET' && orderContact) {

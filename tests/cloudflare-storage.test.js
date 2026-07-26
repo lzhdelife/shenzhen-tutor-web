@@ -15,7 +15,7 @@ class MockStatement {
 
 class MockD1 {
   constructor() {
-    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [], amap_usage: [], publisher_access: [] };
+    this.tables = { users: [], sessions: [], orders: [], order_locations: [], settings: [], feedback: [], announcements: [], clipboard_captures: [], visitor_activity: [], amap_usage: [], publisher_access: [], order_issue_reports: [] };
   }
   prepare(sql) { return new MockStatement(this, sql); }
   async batch(statements) { return Promise.all(statements.map(statement => statement.run())); }
@@ -29,8 +29,13 @@ class MockD1 {
         : Object.fromEntries(columns.map((column, index) => [column, values[index]]));
       if (table === 'visitor_activity') row.visit_count = 1;
       if (table === 'amap_usage') { row.call_count = 1; row.updated_at = values[3]; }
-      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : table === 'amap_usage' ? 'usage_date' : table === 'publisher_access' ? 'user_id' : 'id';
-      const existing = this.tables[table].find(item => item[key] === row[key]);
+      const key = table === 'settings' ? 'key' : table === 'sessions' ? 'token_hash' : table === 'order_locations' ? 'order_id' : table === 'clipboard_captures' ? 'capture_id' : table === 'visitor_activity' ? 'visitor_id' : table === 'amap_usage' ? 'usage_date' : table === 'publisher_access' ? 'user_id' : table === 'order_issue_reports' ? 'target_key' : 'id';
+      const existingReport = table === 'order_issue_reports'
+        ? this.tables[table].find(item => item.target_key === row.target_key && item.reporter_key === row.reporter_key)
+        : null;
+      const existing = table === 'order_issue_reports'
+        ? existingReport
+        : this.tables[table].find(item => item[key] === row[key]);
       if (existing && /ON CONFLICT/i.test(sql)) {
         if (table === 'settings' && /CAST\(COALESCE\(CAST\(settings\.value_json AS INTEGER\)/i.test(sql)) {
           existing.value_json = String(Math.max(0, Number(existing.value_json) || 0) + 1);
@@ -90,7 +95,7 @@ class MockD1 {
       if (/WHERE o.status = \?/i.test(sql)) rows = rows.filter(row => row.status === values[0]);
       return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
     }
-    const tableMatch = sql.match(/FROM (users|sessions|settings|feedback|announcements|clipboard_captures|visitor_activity|amap_usage|publisher_access)/i);
+    const tableMatch = sql.match(/FROM (users|sessions|settings|feedback|announcements|clipboard_captures|visitor_activity|amap_usage|publisher_access|order_issue_reports)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
     let rows = this.tables[tableMatch[1]].map(row => tableMatch[1] === 'amap_usage' ? { ...row, count: row.call_count } : { ...row });
     if (tableMatch[1] === 'publisher_access' && /display_name = \?.*contact = \?.*status = 'approved'/i.test(sql)) {
@@ -102,6 +107,9 @@ class MockD1 {
     }
     const where = sql.match(/WHERE (\w+) = \?/i);
     if (where) rows = rows.filter(row => row[where[1]] === values[0]);
+    if (tableMatch[1] === 'order_issue_reports' && /target_key = \? AND reporter_key = \?/i.test(sql)) {
+      rows = rows.filter(row => row.target_key === values[0] && row.reporter_key === values[1]);
+    }
     if (/sessions/i.test(tableMatch[1]) && /expires_at > \?/i.test(sql)) rows = rows.filter(row => row.expires_at > values[1]);
     return rows;
   }
@@ -124,6 +132,9 @@ async function run() {
   assert.match(publisherMigration, /CREATE TABLE IF NOT EXISTS publisher_access\b/);
   const dropApplicationsMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0006_drop_applications.sql'), 'utf8');
   assert.match(dropApplicationsMigration, /DROP TABLE IF EXISTS applications\b/);
+  const issueMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0007_order_issue_reports.sql'), 'utf8');
+  assert.match(issueMigration, /CREATE TABLE IF NOT EXISTS order_issue_reports\b/);
+  assert.match(issueMigration, /UNIQUE\(target_key, reporter_key\)/);
 
   const db = new MockD1();
   const repo = createRepository({ DB: db });
@@ -165,6 +176,13 @@ async function run() {
   assert.deepEqual(order.locationCandidates, [{ name: '科技园' }]);
   assert.equal(db.tables.orders[0].status, 'open');
   assert.equal((await repo.listOrders({ status: 'open' })).length, 1);
+  await repo.upsertOrderIssueReport({ targetKey: `order:${order.id}`, orderId: order.id, source: 'published', reporterKey: teacher.id,
+    rawText: order.raw, parsedSnapshot: { place: order.place }, parserVersion: '2.2.1' });
+  await repo.upsertOrderIssueReport({ targetKey: `order:${order.id}`, orderId: order.id, source: 'published', reporterKey: teacher.id,
+    rawText: order.raw, parsedSnapshot: { place: '更新后的快照' }, parserVersion: '2.2.1' });
+  const reports = await repo.listOrderIssueReports();
+  assert.equal(reports.length, 1);
+  assert.equal(reports[0].parsedSnapshot.place, '更新后的快照');
 
   const flatSnapshot = db.tables.orders[0].structured_json;
   db.tables.orders[0].structured_json = JSON.stringify({

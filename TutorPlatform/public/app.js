@@ -1,4 +1,4 @@
-let state = { viewer: null, settings: {}, orders: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0, amapUsage: { date: '', total: 0, limited: 0, byEndpoint: {} } }, lists: { districts: [], subjects: [], grades: [] } };
+let state = { viewer: null, settings: {}, orders: [], orderIssueReports: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0, amapUsage: { date: '', total: 0, limited: 0, byEndpoint: {} } }, lists: { districts: [], subjects: [], grades: [] } };
 const WU_TEACHER_PHONE = ['187', '1937', '1936'].join('');
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
@@ -814,6 +814,7 @@ function orderCard(o) {
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
       <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
+      <button class="text-button issue-report-button" onclick="reportPublishedOrderIssue('${o.id}', this)">识别有误</button>
     </div>
   </article>`;
 }
@@ -1428,9 +1429,30 @@ function renderAdminAnomalies() {
   const count = $('#adminAnomalyCount');
   if (!panel || !root || !count) return;
   const anomalies = adminToken ? state.orders.filter(order => Array.isArray(order.qualityIssues) && order.qualityIssues.length) : [];
-  panel.classList.toggle('hidden', !anomalies.length);
-  count.textContent = anomalies.length ? `${anomalies.length} 条需要检查` : '';
-  root.innerHTML = anomalies.map(order => {
+  const groupedReports = new Map();
+  for (const report of adminToken && Array.isArray(state.orderIssueReports) ? state.orderIssueReports : []) {
+    const current = groupedReports.get(report.targetKey);
+    if (current) {
+      current.reportCount += 1;
+      if (String(report.updatedAt || '') > String(current.updatedAt || '')) Object.assign(current, report, { reportCount: current.reportCount });
+    } else groupedReports.set(report.targetKey, { ...report, reportCount: 1 });
+  }
+  const reports = [...groupedReports.values()];
+  panel.classList.toggle('hidden', !anomalies.length && !reports.length);
+  count.textContent = anomalies.length || reports.length ? `${anomalies.length + reports.length} 项需要检查` : '';
+  const reportMarkup = reports.map(report => {
+    const snapshot = report.parsedSnapshot || {};
+    const linkedOrder = report.orderId ? state.orders.find(order => order.id === report.orderId) : null;
+    const meta = orderDisplayMeta(linkedOrder || snapshot);
+    return `<article class="admin-anomaly-row user-reported-issue">
+      <div><strong>${escapeHtml(meta.title || '识别预览')}</strong><div class="anomaly-tags"><span>用户反馈</span>${report.reportCount > 1 ? `<span>${report.reportCount} 人反馈</span>` : ''}${report.parserVersion ? `<span>解析器 ${escapeHtml(report.parserVersion)}</span>` : ''}</div></div>
+      <div class="actions">
+        <button class="secondary" onclick="openRawText('${encodeURIComponent(report.rawText || '').replace(/'/g, '%27')}')">查看原文</button>
+        <button class="secondary" onclick="openIssueSnapshot('${encodeURIComponent(JSON.stringify(snapshot, null, 2)).replace(/'/g, '%27')}')">查看识别结果</button>
+      </div>
+    </article>`;
+  }).join('');
+  const anomalyMarkup = anomalies.map(order => {
     const meta = orderDisplayMeta(order);
     const canRetryLocation = order.qualityIssues.some(issue => issue.code === 'location_unverified');
     return `<article class="admin-anomaly-row">
@@ -1442,6 +1464,49 @@ function renderAdminAnomalies() {
       </div>
     </article>`;
   }).join('');
+  root.innerHTML = reportMarkup + anomalyMarkup;
+}
+
+function exportedIssueReports() {
+  const grouped = new Map();
+  for (const report of Array.isArray(state.orderIssueReports) ? state.orderIssueReports : []) {
+    const current = grouped.get(report.targetKey);
+    if (current) {
+      current.reportCount += 1;
+      current.firstReportedAt = [current.firstReportedAt, report.createdAt].filter(Boolean).sort()[0] || '';
+      current.lastReportedAt = [current.lastReportedAt, report.updatedAt].filter(Boolean).sort().at(-1) || '';
+    } else grouped.set(report.targetKey, {
+      raw: report.rawText || '',
+      parsed: report.parsedSnapshot || {},
+      parserVersion: report.parserVersion || '',
+      source: report.source || '',
+      reportCount: 1,
+      firstReportedAt: report.createdAt || '',
+      lastReportedAt: report.updatedAt || ''
+    });
+  }
+  return [...grouped.values()];
+}
+
+function downloadIssueReports(format) {
+  const reports = exportedIssueReports();
+  if (!reports.length) return toast('还没有用户反馈');
+  const content = format === 'txt'
+    ? reports.map((report, index) => [
+        `# ${index + 1} · 反馈 ${report.reportCount} 次 · 解析器 ${report.parserVersion || '未知'}`,
+        '【原文】', report.raw, '', '【识别结果】', JSON.stringify(report.parsed, null, 2)
+      ].join('\n')).join('\n\n========================================\n\n')
+    : reports.map(report => JSON.stringify(report)).join('\n');
+  const blob = new Blob([content], { type: format === 'txt' ? 'text/plain;charset=utf-8' : 'application/x-ndjson;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `order-parser-issues-${new Date().toISOString().slice(0, 10)}.${format}`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function openIssueSnapshot(encoded) {
+  showRawText(decodeURIComponent(encoded || ''));
 }
 
 function renderPublisherAccess() {
@@ -1623,7 +1688,33 @@ function previewCard(o, index, batchId = '') {
     ${uncertainFields.length ? `<div class="parse-warning">导入前请确认：${escapeHtml(uncertainFields.join('、'))}</div>` : ''}
     <details class="parse-evidence"><summary>订单原文（导入时保留）</summary><div>${escapeHtml(o.raw || structured.rawText || '')}</div></details>
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
+    <div class="actions"><button class="text-button issue-report-button" onclick="reportPreviewIssue('${batchId}',${index},this)">识别有误</button></div>
   </div>`;
+}
+
+async function submitIssueReport(body, button) {
+  if (button?.disabled) return;
+  if (button) { button.disabled = true; button.textContent = '提交中…'; }
+  try {
+    const token = body.orderId ? teacherToken : agencyToken;
+    await api('/api/order-issues', { method: 'POST', body }, token);
+    if (button) button.textContent = '已反馈';
+    toast('已反馈，订单继续保留');
+  } catch (error) {
+    if (button) { button.disabled = false; button.textContent = '识别有误'; }
+    toast(error.message);
+  }
+}
+
+function reportPublishedOrderIssue(orderId, button) {
+  return submitIssueReport({ orderId }, button);
+}
+
+function reportPreviewIssue(batchId, orderIndex, button) {
+  const order = previewBatchById(batchId)?.orders?.[orderIndex];
+  if (!order) return toast('这条识别结果已不存在');
+  return submitIssueReport({ raw: order.raw || order.structured?.rawText || '', parsedSnapshot: order,
+    parserVersion: order.structured?.parserVersion || order.parserVersion || '' }, button);
 }
 
 function previewBatchById(batchId) {

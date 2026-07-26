@@ -1,6 +1,6 @@
 'use strict';
 
-const JSON_FIELDS = new Set(['preferences_json', 'structured_json', 'queries_json', 'candidates_json', 'options_json', 'value_json']);
+const JSON_FIELDS = new Set(['preferences_json', 'structured_json', 'queries_json', 'candidates_json', 'options_json', 'value_json', 'parsed_snapshot_json']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -31,7 +31,9 @@ function mapRow(row) {
   if (!row) return null;
   const result = {};
   for (const [key, value] of Object.entries(row)) {
-    const outputKey = key === 'preferences_json' ? 'preferences' : camel(key);
+    const outputKey = key === 'preferences_json' ? 'preferences'
+      : key === 'parsed_snapshot_json' ? 'parsedSnapshot'
+        : camel(key);
     const fallback = ['queries_json', 'candidates_json', 'options_json'].includes(key) ? [] : key === 'value_json' ? null : {};
     result[outputKey] = JSON_FIELDS.has(key) ? parseJson(value, fallback) : value;
   }
@@ -357,6 +359,36 @@ function createRepository(env = {}) {
     return getPublisherAccess(userId);
   }
 
+  async function upsertOrderIssueReport(input) {
+    const timestamp = nowIso();
+    const report = {
+      id: input.id || makeId('oir'),
+      targetKey: input.targetKey,
+      orderId: input.orderId || null,
+      source: input.source,
+      reporterKey: input.reporterKey,
+      rawText: input.rawText || '',
+      parsedSnapshot: input.parsedSnapshot || {},
+      parserVersion: input.parserVersion || '',
+      createdAt: input.createdAt || timestamp,
+      updatedAt: timestamp
+    };
+    await run(`INSERT INTO order_issue_reports (id, target_key, order_id, source, reporter_key, raw_text,
+      parsed_snapshot_json, parser_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(target_key, reporter_key) DO UPDATE SET order_id=excluded.order_id, source=excluded.source,
+      raw_text=excluded.raw_text, parsed_snapshot_json=excluded.parsed_snapshot_json,
+      parser_version=excluded.parser_version, updated_at=excluded.updated_at`, [
+      report.id, report.targetKey, report.orderId, report.source, report.reporterKey, report.rawText,
+      JSON.stringify(report.parsedSnapshot), report.parserVersion, report.createdAt, report.updatedAt
+    ]);
+    return mapRow(await first('SELECT * FROM order_issue_reports WHERE target_key = ? AND reporter_key = ?',
+      [report.targetKey, report.reporterKey]));
+  }
+
+  async function listOrderIssueReports() {
+    return (await all('SELECT * FROM order_issue_reports ORDER BY updated_at DESC')).map(mapRow);
+  }
+
   async function createClipboardCapture(input) {
     const capture = {
       captureId: input.captureId,
@@ -442,6 +474,7 @@ function createRepository(env = {}) {
     updateOrder, deleteOrder, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
+    upsertOrderIssueReport, listOrderIssueReports,
     listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };

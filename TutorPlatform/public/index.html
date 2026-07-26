@@ -279,6 +279,10 @@
           <section id="adminAnomalyPanel" class="panel admin-anomaly-panel hidden">
             <div class="admin-section-head">
               <div><h2>异常订单</h2><span id="adminAnomalyCount" class="form-note"></span></div>
+              <div class="actions">
+                <button class="secondary" type="button" onclick="downloadIssueReports('jsonl')">导出 JSONL</button>
+                <button class="secondary" type="button" onclick="downloadIssueReports('txt')">导出 TXT</button>
+              </div>
             </div>
             <div id="adminAnomalyOrders" class="admin-anomaly-list"></div>
           </section>

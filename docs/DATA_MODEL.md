@@ -34,6 +34,24 @@
 
 发单人的称呼和联系方式不复制进订单正文。订单只保存 `agency_id`，用户主动点击“申请接单”时再通过 `publisher_access` 读取对应资料。老师自己的出发位置、直线距离和路线结果不写入订单数据库。
 
+### `order_issue_reports`
+
+一键“识别有误”反馈与订单展示状态相互独立。每条记录保存反馈发生时的原文、识别结果快照和解析器版本；不保存错误分类或用户说明。
+
+| 列 | 说明 |
+| --- | --- |
+| `id` | 反馈记录主键 |
+| `target_key` | 已发布订单为 `order:<id>`；预览为规范原文 SHA-256 |
+| `order_id` | 可空订单外键；订单删除后置空，反馈快照继续保留 |
+| `source` | `published` 或 `preview` |
+| `reporter_key` | 匿名浏览器身份对应的用户 ID，仅用于同人去重和多人计数 |
+| `raw_text` | 反馈时的订单原文 |
+| `parsed_snapshot_json` | 反馈时的完整识别结果快照 |
+| `parser_version` | 产生该结果的解析器版本 |
+| `created_at` / `updated_at` | 首次和最近反馈时间 |
+
+`target_key + reporter_key` 唯一：同一人重复点击不会增加人数，不同人可共同标记同一目标。该表只通过管理员状态返回；导出文件不包含 `reporter_key`、发单人联系方式或其他身份资料。
+
 ## 本地 JSON 兼容模型
 
 ## 根对象
@@ -43,11 +61,14 @@
   "settings": {},
   "users": [],
   "orders": [],
+  "orderIssueReports": [],
   "feedback": [],
   "announcement": {},
   "rememberSessions": []
 }
 ```
+
+本地 `orderIssueReports[]` 与正式表使用同名驼峰字段，用于保持本地和 Worker API 契约一致；它不是正式生产数据源。
 
 匿名空库见 `examples/TutorPlatform-db.example.json`。
 

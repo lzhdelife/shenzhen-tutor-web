@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map(), orderIssueReports: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -38,6 +38,16 @@ function memoryRepository() {
     },
     async listPublisherAccess() { return [...state.publisherAccess.values()].sort((a, b) => (a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1)); },
     async setPublisherAccessStatus(userId, status) { const item = state.publisherAccess.get(userId); if (!item) return null; Object.assign(item, { status, reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); return item; },
+    async upsertOrderIssueReport(input) {
+      const key = `${input.targetKey}|${input.reporterKey}`;
+      const existing = state.orderIssueReports.get(key);
+      const timestamp = new Date().toISOString();
+      const report = existing ? Object.assign(existing, input, { updatedAt: timestamp })
+        : { id: `oir-${state.orderIssueReports.size + 1}`, ...input, createdAt: timestamp, updatedAt: timestamp };
+      state.orderIssueReports.set(key, report);
+      return report;
+    },
+    async listOrderIssueReports() { return [...state.orderIssueReports.values()]; },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
     async createClipboardCapture(input) { const existing = state.clipboard.get(input.captureId); if (existing) return existing; const capture = { ...input, status: 'pending', attempts: 0 }; state.clipboard.set(input.captureId, capture); return capture; },
@@ -512,4 +522,42 @@ test('scheduled cleanup deletes orders older than three days', async () => {
   await worker.scheduled({ scheduledTime: now }, { AUTH_PEPPER: 'unit-test-pepper' }, {});
   assert.equal(repo.state.orders.has('old'), false);
   assert.equal(repo.state.orders.has('fresh'), true);
+});
+
+test('识别有误反馈保存快照、同人去重且仅管理员可读取', async () => {
+  const { call, repo } = harness();
+  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'issue_report_browser_123456' } })).json();
+  approvePublisher(repo, guest.agency);
+  await repo.createOrder({
+    id: 'issue-order', agencyId: guest.agency.id, raw: '南山区测试花园，初二数学，200元/小时',
+    district: '南山', place: '错误地点', subject: '数学', grade: '初二', price: 200,
+    structured: { parserVersion: '2.2.1', rawText: '南山区测试花园，初二数学，200元/小时' }
+  });
+  assert.equal((await call('/api/order-issues', { method: 'POST', body: { orderId: 'issue-order' } })).status, 401);
+  const teacherHeaders = { authorization: `Bearer ${guest.teacherToken}` };
+  assert.equal((await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: {
+    orderId: 'issue-order', parsedSnapshot: { place: '伪造地点' }
+  } })).status, 200);
+  await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: { orderId: 'issue-order' } });
+  assert.equal(repo.state.orderIssueReports.size, 1);
+  const published = [...repo.state.orderIssueReports.values()][0];
+  assert.equal(published.parsedSnapshot.place, '错误地点');
+  assert.equal(published.parserVersion, '2.2.1');
+
+  const agencyHeaders = { authorization: `Bearer ${guest.agencyToken}` };
+  const preview = { raw: '宝安区合成小区，高一物理', place: '识别地点', structured: { parserVersion: '2.2.1' } };
+  assert.equal((await call('/api/order-issues', { method: 'POST', headers: agencyHeaders, body: {
+    raw: preview.raw, parsedSnapshot: preview, parserVersion: '2.2.1'
+  } })).status, 200);
+  assert.equal(repo.state.orderIssueReports.size, 2);
+
+  const publicState = await (await call('/api/state', { headers: teacherHeaders })).json();
+  assert.equal('orderIssueReports' in publicState, false);
+  const password = 'admin-issue-password';
+  const admin = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password, passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  const adminState = await (await call('/api/state', { headers: { authorization: `Bearer ${admin.token}` } })).json();
+  assert.equal(adminState.orderIssueReports.length, 2);
+  assert.equal(adminState.orderIssueReports.find(item => item.source === 'preview').rawText, preview.raw);
 });
