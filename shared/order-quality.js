@@ -25,7 +25,7 @@ function detectOrderIssues(order = {}) {
   const hasLocation = Boolean(String(order.district || '').trim() && String(order.place || order.address || order.locationQuery || '').trim());
   if (!hasLocation) issues.push({ code: 'location_missing', label: '地点缺失' });
   else if (!order.locationCoordinates && ['missing', 'not_found', 'ambiguous', 'unverified'].includes(String(order.locationStatus || ''))) {
-    issues.push({ code: 'location_unverified', label: '地点未确认' });
+    issues.push({ code: 'location_unverified', label: '地点坐标未确认' });
   }
   if (!String(order.subject || '').trim()) issues.push({ code: 'subject_missing', label: '科目缺失' });
   if (!String(order.grade || order.gradeDescription || '').trim()) issues.push({ code: 'grade_missing', label: '年级缺失' });

@@ -1523,12 +1523,6 @@ function renderAdmin() {
         </div>
       </div>
       ${orderDetailMarkup(o, meta)}
-      <div class="admin-order-summary">申请 ${o.applicantCount || 0} 人</div>
-      <div class="applicant-list">
-        ${(o.applicants || []).length
-          ? o.applicants.map(a => `<div class="applicant-item"><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <a href="tel:${escapeHtml(a.phone || '')}">${escapeHtml(a.phone || '未填写')}</a>，已接单</div>`).join('')
-          : '<div class="raw">暂无接单老师</div>'}
-      </div>
       <div class="actions">
         <button class="danger" onclick="deleteOrder('${o.id}','admin')">删除</button>
       </div>

@@ -24,3 +24,14 @@ test('normal orders do not receive quality labels', () => {
   assert.equal(recoverOrderRawText(order), order.raw);
   assert.deepEqual(detectOrderIssues(order), []);
 });
+
+test('recognized location text without confirmed coordinates receives a precise label', () => {
+  const order = {
+    raw: '罗湖区松泉公寓旁，初一英语。',
+    district: '罗湖', place: '松泉公寓旁', subject: '英语', grade: '初一',
+    locationStatus: 'ambiguous', locationCoordinates: ''
+  };
+  assert.deepEqual(detectOrderIssues(order), [
+    { code: 'location_unverified', label: '地点坐标未确认' }
+  ]);
+});
