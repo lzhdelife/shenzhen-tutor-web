@@ -45,6 +45,7 @@ const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
+const NEARBY_DISTANCE_KM = 10;
 try {
   const savedPreviewHistory = JSON.parse(sessionStorage.getItem(IMPORT_PREVIEW_HISTORY_KEY) || '[]');
   if (Array.isArray(savedPreviewHistory)) {
@@ -499,7 +500,6 @@ function matchesSelection(values, selected) {
 function filteredOrders() {
   const minPrice = Number($('#filterMinPrice').value || 0);
   const onlyRange = $('#filterBike').checked;
-  const maxKm = Number(state.settings.maxBikeKm || 12);
   return state.orders
     .filter(o => o.status !== 'closed')
     .filter(o => o.teacherVisible !== false)
@@ -508,7 +508,7 @@ function filteredOrders() {
     .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
     .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
-    .filter(o => !onlyRange || (Number(o.distanceKm) && Number(o.distanceKm) <= maxKm))
+    .filter(o => !onlyRange || (Number(o.distanceKm) > 0 && Number(o.distanceKm) <= NEARBY_DISTANCE_KM))
     .sort((a, b) => {
       const distanceDifference = Number(a.distanceKm || Number.MAX_SAFE_INTEGER)
         - Number(b.distanceKm || Number.MAX_SAFE_INTEGER);
@@ -2094,6 +2094,7 @@ function clearTeacherDistances() {
   localStorage.removeItem('teacherOrigin');
   selectedOriginCoordinates = '';
   localStorage.removeItem('teacherOriginCoordinates');
+  $('#filterBike').checked = false;
   $('#teacherLocationStatus').textContent = '';
   queueTeacherPreferencesSave();
   load().catch(err => toast(err.message));
@@ -2218,9 +2219,19 @@ window.addEventListener('popstate', event => {
   if (event.state?.tutorRoute) applyAppRoute(event.state.tutorRoute);
 });
 
-['filterMinPrice', 'filterBike'].forEach(id => {
+['filterMinPrice'].forEach(id => {
   $('#' + id).addEventListener('input', () => { renderOrders({ resetLimit: true }); queueTeacherPreferencesSave(); });
   $('#' + id).addEventListener('change', () => { renderOrders({ resetLimit: true }); queueTeacherPreferencesSave(); });
+});
+
+$('#filterBike').addEventListener('change', event => {
+  if (event.currentTarget.checked && !selectedOriginCoordinates) {
+    event.currentTarget.checked = false;
+    toast('请先选择“我的位置”');
+    $('#teacherOrigin').focus();
+  }
+  renderOrders({ resetLimit: true });
+  queueTeacherPreferencesSave();
 });
 
 $('#teacherFilters').addEventListener('change', event => {
