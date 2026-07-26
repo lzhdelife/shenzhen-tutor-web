@@ -30,6 +30,7 @@ let orderMapViewportMode = 'all';
 let activeAgencyContact = null;
 let activeRawText = '';
 let activeApplicationContact = null;
+let applicationContactRequest = 0;
 let rememberedCredentialActive = false;
 let loginBusy = false;
 let teacherPreferenceSaveTimer = 0;
@@ -1903,10 +1904,35 @@ function openApplicationContact(result) {
   $('#applicationViewRaw').focus();
 }
 
+function openApplicationContactLoading() {
+  activeApplicationContact = null;
+  $('#applicationPublisherName').textContent = '正在获取';
+  $('#applicationPublisherContact').textContent = '请稍候';
+  $('#applicationPublisherContact').disabled = true;
+  $('#applicationAdminContact').textContent = WU_TEACHER_PHONE;
+  $('#applicationAdminContact').disabled = false;
+  $('#applicationViewRaw').disabled = true;
+  $('#applicationCopyRaw').disabled = true;
+  $('#applicationPanel').classList.remove('hidden');
+  $('#applicationClose').focus();
+}
+
+function closeApplicationContact() {
+  applicationContactRequest += 1;
+  $('#applicationPanel').classList.add('hidden');
+}
+
 async function applyOrder(id) {
+  const request = ++applicationContactRequest;
+  openApplicationContactLoading();
   try {
-    openApplicationContact(await api(`/api/orders/${id}/contact`, {}, teacherToken));
+    const result = await api(`/api/orders/${id}/contact`, {}, teacherToken);
+    if (request !== applicationContactRequest) return;
+    openApplicationContact(result);
   } catch (error) {
+    if (request !== applicationContactRequest) return;
+    $('#applicationPublisherName').textContent = '获取失败';
+    $('#applicationPublisherContact').textContent = '请稍后重试';
     toast(error.message);
   }
 }
@@ -2731,9 +2757,9 @@ $('#copyAgencyContact').addEventListener('click', () => copyAgencyContact().catc
 $('#contactPanel').addEventListener('click', event => {
   if (event.target === event.currentTarget) closeAgencyContact();
 });
-$('#applicationClose').addEventListener('click', () => $('#applicationPanel').classList.add('hidden'));
+$('#applicationClose').addEventListener('click', closeApplicationContact);
 $('#applicationPanel').addEventListener('click', event => {
-  if (event.target === event.currentTarget) $('#applicationPanel').classList.add('hidden');
+  if (event.target === event.currentTarget) closeApplicationContact();
 });
 $('#applicationViewRaw').addEventListener('click', () => {
   if (activeApplicationContact?.raw) showRawText(activeApplicationContact.raw);
@@ -2765,7 +2791,7 @@ $('#rawTextPanel').addEventListener('click', event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && !$('#contactPanel').classList.contains('hidden')) closeAgencyContact();
-  if (event.key === 'Escape' && !$('#applicationPanel').classList.contains('hidden')) $('#applicationPanel').classList.add('hidden');
+  if (event.key === 'Escape' && !$('#applicationPanel').classList.contains('hidden')) closeApplicationContact();
   if (event.key === 'Escape' && !$('#rawTextPanel').classList.contains('hidden')) closeRawText();
 });
 

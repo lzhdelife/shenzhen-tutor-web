@@ -148,6 +148,22 @@ function createRepository(env = {}) {
     return mapOrder(await first(`${locationSelect} WHERE o.id = ?`, [id]));
   }
 
+  async function getOrderContact(id) {
+    const row = await first(`SELECT o.*, pa.display_name AS publisher_display_name,
+      pa.contact AS publisher_contact
+      FROM orders o LEFT JOIN publisher_access pa ON pa.user_id = o.agency_id
+      WHERE o.id = ?`, [id]);
+    if (!row) return null;
+    const order = mapOrder(row);
+    const publisher = {
+      displayName: order.publisherDisplayName || '',
+      contact: order.publisherContact || ''
+    };
+    delete order.publisherDisplayName;
+    delete order.publisherContact;
+    return { order, publisher };
+  }
+
   async function createOrder(input) {
     const timestamp = input.createdAt || nowIso();
     const id = input.id || makeId('o');
@@ -416,7 +432,7 @@ function createRepository(env = {}) {
 
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
-    createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
+    createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact, listOrders,
     updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,

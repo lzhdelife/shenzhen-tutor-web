@@ -650,10 +650,14 @@ function createWorker(dependencies = {}) {
         if (method === 'GET' && orderContact) {
           const teacher = await requireRole(repo, request, 'teacher');
           if (!teacher) return error('需要老师身份', 401);
-          const order = await repo.getOrderById(orderContact[1]);
+          const contactDetails = typeof repo.getOrderContact === 'function'
+            ? await repo.getOrderContact(orderContact[1])
+            : null;
+          const order = contactDetails?.order || await repo.getOrderById(orderContact[1]);
           if (!order) return error('订单不存在', 404);
           if (order.status === 'closed') return error('这个订单已经下架');
-          const access = typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(order.agencyId) : null;
+          const access = contactDetails?.publisher
+            || (typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(order.agencyId) : null);
           return json({
             raw: recoverOrderRawText(order),
             publisher: {
