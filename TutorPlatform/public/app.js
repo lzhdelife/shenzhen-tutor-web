@@ -1745,8 +1745,6 @@ async function parseAndImportText(text) {
   const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
   mergeCreatedOrders(imported.created || []);
   scheduleBackgroundStateRefresh();
-  const textarea = $('#importForm')?.elements.text;
-  if (textarea) textarea.value = '';
   return { imported, parsedCount: parsedImport.length };
 }
 
@@ -2246,42 +2244,108 @@ $('#orderForm').addEventListener('submit', async event => {
   await load();
 });
 
-let manualImportTimer = 0;
+const MANUAL_IMPORT_QUEUE_KEY = 'manualImportQueueV1';
+let manualImportQueue = [];
+try {
+  const savedQueue = JSON.parse(sessionStorage.getItem(MANUAL_IMPORT_QUEUE_KEY) || '[]');
+  if (Array.isArray(savedQueue)) manualImportQueue = savedQueue.filter(item => item?.text);
+} catch {}
 let manualImportBusy = false;
-async function autoImportPastedText() {
-  const form = $('#importForm');
-  const textarea = form?.elements.text;
+let manualImportRetryTimer = 0;
+
+function saveManualImportQueue() {
+  if (manualImportQueue.length) sessionStorage.setItem(MANUAL_IMPORT_QUEUE_KEY, JSON.stringify(manualImportQueue));
+  else sessionStorage.removeItem(MANUAL_IMPORT_QUEUE_KEY);
+}
+
+function setManualImportStatus(message, tone = '') {
   const status = $('#importInputStatus');
-  if (!form || !textarea || manualImportBusy || !textarea.value.trim()) return;
-  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
+  if (!status) return;
+  status.textContent = message;
+  status.dataset.tone = tone;
+}
+
+function scheduleManualImportQueue() {
+  if (manualImportBusy || !manualImportQueue.length) return;
+  window.clearTimeout(manualImportRetryTimer);
+  const now = Date.now();
+  const nextAttemptAt = Math.min(...manualImportQueue.map(item => Number(item.nextAttemptAt || 0)));
+  if (nextAttemptAt > now) {
+    manualImportRetryTimer = window.setTimeout(processManualImportQueue, Math.min(nextAttemptAt - now, 30000));
+    return;
+  }
+  processManualImportQueue().catch(error => {
+    manualImportBusy = false;
+    setManualImportStatus(`队列处理异常：${error.message}`, 'error');
+  });
+}
+
+async function processManualImportQueue() {
+  if (manualImportBusy || !manualImportQueue.length) return;
+  if (!currentAgency || !agencyToken) {
+    setManualImportStatus(`已保留 ${manualImportQueue.length} 批，等待网站连接`, 'error');
+    manualImportRetryTimer = window.setTimeout(scheduleManualImportQueue, 3000);
+    return;
+  }
+  const now = Date.now();
+  const readyIndex = manualImportQueue.findIndex(item => Number(item.nextAttemptAt || 0) <= now);
+  if (readyIndex < 0) return scheduleManualImportQueue();
+  const [item] = manualImportQueue.splice(readyIndex, 1);
+  saveManualImportQueue();
   manualImportBusy = true;
-  if (status) status.textContent = '正在识别…';
+  setManualImportStatus(`正在识别，队列中还有 ${manualImportQueue.length} 批`, 'processing');
   try {
-    const { imported, parsedCount } = await parseAndImportText(form.text.value);
+    const { imported, parsedCount } = await parseAndImportText(item.text);
     const created = imported.created?.length || 0;
-    if (status) status.textContent = created ? `已导入 ${created} 条` : `已识别 ${parsedCount} 条，没有新增订单`;
+    setManualImportStatus(created ? `已导入 ${created} 条${manualImportQueue.length ? `，还有 ${manualImportQueue.length} 批` : ''}` : `已识别 ${parsedCount} 条，没有新增订单`, 'success');
     toast(created ? `已自动导入 ${created} 条` : '内容已处理，没有新增订单');
   } catch (error) {
-    if (status) status.textContent = error.message;
-    toast(error.message);
+    if (error.message === '没有识别出可以导入的订单') {
+      setManualImportStatus(`已过滤非家教单或残缺内容${manualImportQueue.length ? `，还有 ${manualImportQueue.length} 批` : ''}`, 'muted');
+      toast('内容已检查，没有可导入的家教单');
+    } else {
+      item.attempts = Number(item.attempts || 0) + 1;
+      item.nextAttemptAt = Date.now() + Math.min(30000, 1500 * (2 ** Math.min(item.attempts, 4)));
+      manualImportQueue.push(item);
+      saveManualImportQueue();
+      setManualImportStatus(`识别暂时失败，已保留 ${manualImportQueue.length} 批等待重试`, 'error');
+    }
   } finally {
     manualImportBusy = false;
+    scheduleManualImportQueue();
   }
+}
+
+function enqueueManualImport(text) {
+  const rawText = String(text || '').trim();
+  if (!rawText) return;
+  manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, attempts: 0, nextAttemptAt: 0 });
+  saveManualImportQueue();
+  const textarea = $('#importForm')?.elements.text;
+  if (textarea) {
+    textarea.value = '';
+    textarea.classList.remove('queue-flash');
+    void textarea.offsetWidth;
+    textarea.classList.add('queue-flash');
+    window.setTimeout(() => textarea.classList.remove('queue-flash'), 700);
+  }
+  setManualImportStatus(`已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
+  toast('已加入识别队列');
+  scheduleManualImportQueue();
 }
 
 const importTextarea = $('#importForm')?.elements.text;
 $('#importForm')?.addEventListener('submit', event => {
   event.preventDefault();
-  autoImportPastedText().catch(error => toast(error.message));
+  enqueueManualImport(importTextarea?.value);
 });
-importTextarea?.addEventListener('paste', () => {
-  window.setTimeout(() => autoImportPastedText().catch(error => toast(error.message)), 0);
+importTextarea?.addEventListener('paste', event => {
+  const text = event.clipboardData?.getData('text/plain') || '';
+  if (!text.trim()) return;
+  event.preventDefault();
+  enqueueManualImport(text);
 });
-importTextarea?.addEventListener('input', () => {
-  window.clearTimeout(manualImportTimer);
-  if (!importTextarea.value.trim()) return;
-  manualImportTimer = window.setTimeout(() => autoImportPastedText().catch(error => toast(error.message)), 650);
-});
+scheduleManualImportQueue();
 
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
 $('#deleteAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('delete').catch(err => toast(err.message)));
