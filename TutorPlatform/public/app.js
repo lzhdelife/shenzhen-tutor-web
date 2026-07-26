@@ -6,6 +6,7 @@ let agencyToken = sessionStorage.getItem('agencyToken') || '';
 let adminToken = sessionStorage.getItem('adminToken') || '';
 let parsedImport = [];
 let ignoredImportBlocks = [];
+let importPreviewHistory = [];
 let teacherOrigin = localStorage.getItem('teacherOrigin') || '';
 let routeMode = localStorage.getItem('routeMode') || 'cycling';
 let distanceOverrides = {};
@@ -42,6 +43,20 @@ const CLIPBOARD_AUTOMATION_KEY = 'clipboardAutomationEnabled';
 const GUEST_DEVICE_KEY = 'tutorPlatformGuestDeviceId';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const APPLICANT_PROFILE_KEY = 'tutorPlatformApplicantProfile';
+const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
+const MAX_IMPORT_PREVIEW_ORDERS = 50;
+try {
+  const savedPreviewHistory = JSON.parse(sessionStorage.getItem(IMPORT_PREVIEW_HISTORY_KEY) || '[]');
+  if (Array.isArray(savedPreviewHistory)) {
+    importPreviewHistory = savedPreviewHistory
+      .filter(batch => /^[a-zA-Z0-9-]{1,80}$/.test(String(batch?.id || '')) && Array.isArray(batch.orders) && batch.orders.length)
+      .map(batch => batch.stage === 'publishing' ? { ...batch, stage: 'interrupted' } : batch);
+    parsedImport = importPreviewHistory[0]?.orders || [];
+    ignoredImportBlocks = importPreviewHistory[0]?.ignoredBlocks || [];
+  }
+} catch {
+  sessionStorage.removeItem(IMPORT_PREVIEW_HISTORY_KEY);
+}
 const requestedView = new URLSearchParams(location.search).get('view');
 if (['teacher', 'agency'].includes(requestedView)) activeView = requestedView;
 
@@ -1398,7 +1413,7 @@ function statusLabel(status) {
   return ({ open: '开放中', matched: '已成交', closed: '已下架' })[status] || status || '开放中';
 }
 
-function previewCard(o, index) {
+function previewCard(o, index, batchId = '') {
   const meta = orderDisplayMeta(o);
   const schedule = splitSchedule(o);
   const notes = miscNotes(o);
@@ -1429,8 +1444,8 @@ function previewCard(o, index) {
       <span class="pill">${escapeHtml(genderBucket(o))}</span>
       <span class="pill">${escapeHtml(studentSummary(o))}</span>
     </div>
-    ${candidates.length ? `<div class="raw">${o.locationStatus === 'defaulted' ? '已默认选择第一项，可改：' : '地点待确认：'}${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate(${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
-    ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate(${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
+    ${candidates.length ? `<div class="raw">${o.locationStatus === 'defaulted' ? '已默认选择第一项，可改：' : '地点待确认：'}${candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationCandidate('${batchId}',${index},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>` : ''}
+    ${optionCandidates.map(item => `<div class="raw">${escapeHtml(item.label)}待确认：${item.candidates.map((candidate, candidateIndex) => `<button type="button" class="secondary" onclick="selectPreviewLocationOptionCandidate('${batchId}',${index},${item.optionIndex},${candidateIndex})">${escapeHtml([candidate.district, candidate.name].filter(Boolean).join('·'))}</button>`).join(' ')}</div>`).join('')}
     ${evidenceRows.length ? `<details class="parse-evidence"><summary>解析证据与置信度</summary>${evidenceRows.map(([label, field]) => `<div><strong>${escapeHtml(label)}</strong> ${(Number(field.confidence || 0) * 100).toFixed(0)}%：${escapeHtml(field.rawEvidence)}</div>`).join('')}</details>` : ''}
     ${uncertainFields.length ? `<div class="parse-warning">导入前请确认：${escapeHtml(uncertainFields.join('、'))}</div>` : ''}
     <details class="parse-evidence"><summary>订单原文（导入时保留）</summary><div>${escapeHtml(o.raw || structured.rawText || '')}</div></details>
@@ -1438,8 +1453,12 @@ function previewCard(o, index) {
   </div>`;
 }
 
-function selectPreviewLocationCandidate(orderIndex, candidateIndex) {
-  const order = parsedImport[orderIndex];
+function previewBatchById(batchId) {
+  return importPreviewHistory.find(batch => batch.id === batchId);
+}
+
+function selectPreviewLocationCandidate(batchId, orderIndex, candidateIndex) {
+  const order = previewBatchById(batchId)?.orders?.[orderIndex];
   const candidate = order?.locationCandidates?.[candidateIndex];
   if (!order || !candidate) return;
   order.district = String(candidate.district || order.district || '').replace(/区$/, '');
@@ -1451,11 +1470,12 @@ function selectPreviewLocationCandidate(orderIndex, candidateIndex) {
   order.locationConfidence = candidate.confidence || 100;
   order.locationVerified = Boolean(candidate.location);
   order.locationStatus = candidate.location ? 'confirmed' : 'selected_unverified';
+  saveImportPreviewHistory();
   renderPreview();
 }
 
-function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidateIndex) {
-  const order = parsedImport[orderIndex];
+function selectPreviewLocationOptionCandidate(batchId, orderIndex, optionIndex, candidateIndex) {
+  const order = previewBatchById(batchId)?.orders?.[orderIndex];
   const option = order?.locationOptions?.[optionIndex];
   const candidate = option?.candidates?.[candidateIndex];
   if (!order || !option || !candidate?.location) return;
@@ -1469,16 +1489,53 @@ function selectPreviewLocationOptionCandidate(orderIndex, optionIndex, candidate
   option.status = 'confirmed';
   order.locationVerified = order.locationOptions.some(item => item.verified);
   order.locationStatus = order.locationOptions.every(item => item.verified) ? 'confirmed' : 'options_unverified';
+  saveImportPreviewHistory();
   renderPreview();
 }
 
+function trimImportPreviewHistory() {
+  let remaining = MAX_IMPORT_PREVIEW_ORDERS;
+  importPreviewHistory = importPreviewHistory.flatMap(batch => {
+    if (remaining <= 0) return [];
+    batch.orders = batch.orders.slice(0, remaining);
+    remaining -= batch.orders.length;
+    return batch.orders.length ? [batch] : [];
+  });
+}
+
+function saveImportPreviewHistory() {
+  trimImportPreviewHistory();
+  try {
+    sessionStorage.setItem(IMPORT_PREVIEW_HISTORY_KEY, JSON.stringify(importPreviewHistory));
+  } catch {
+    // Very large source text can exceed browser storage; keep the current in-memory history.
+  }
+}
+
+function previewBatchSummary(batch) {
+  const total = batch.orders.length;
+  if (batch.stage === 'publishing') return `识别 ${total} 条 · 正在发布`;
+  if (batch.stage === 'interrupted') return `识别 ${total} 条 · 结果已保留`;
+  if (batch.stage === 'failed') return `识别 ${total} 条 · 发布暂时失败`;
+  const created = Number(batch.outcome?.created || 0);
+  const duplicates = Number(batch.outcome?.duplicates || 0);
+  return [`识别 ${total} 条`, created ? `发布 ${created} 条` : '', duplicates ? `重复 ${duplicates} 条` : ''].filter(Boolean).join(' · ');
+}
+
 function renderPreview() {
-  const ignoredNotice = ignoredImportBlocks.length
-    ? `<div class="parse-warning">已忽略 ${ignoredImportBlocks.length} 段非订单文本。原文仍保留在解析响应中，可修改后重新识别。</div>`
-    : '';
-  $('#parsePreview').innerHTML = ignoredNotice + (parsedImport.length
-    ? parsedImport.map(previewCard).join('')
-    : '<div class="raw">没有识别到有效订单。</div>');
+  const clearButton = $('#clearImportHistory');
+  if (clearButton) clearButton.classList.toggle('hidden', !importPreviewHistory.length);
+  $('#parsePreview').innerHTML = importPreviewHistory.length
+    ? importPreviewHistory.map(batch => {
+        const ignoredCount = batch.ignoredBlocks?.length || 0;
+        const time = new Date(batch.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `<section class="preview-batch">
+          <div class="preview-batch-heading"><strong>${escapeHtml(previewBatchSummary(batch))}</strong><span>${escapeHtml(time)}</span></div>
+          ${ignoredCount ? `<div class="parse-warning">过滤 ${ignoredCount} 段无效内容</div>` : ''}
+          ${batch.orders.map((order, index) => previewCard(order, index, batch.id)).join('')}
+        </section>`;
+      }).join('')
+    : '<div class="import-preview-empty"></div>';
 }
 
 function readLoginPreference() {
@@ -1785,13 +1842,38 @@ async function parseAndImportText(text, onStage = () => {}) {
   const parsed = await api('/api/parse', { method: 'POST', body: { text: rawText } }, agencyToken);
   parsedImport = parsed.parsed || [];
   ignoredImportBlocks = parsed.ignoredBlocks || [];
-  renderPreview();
   if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
+  const previewBatch = {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    stage: 'publishing',
+    orders: parsedImport,
+    ignoredBlocks: ignoredImportBlocks,
+    outcome: null
+  };
+  importPreviewHistory.unshift(previewBatch);
+  saveImportPreviewHistory();
+  renderPreview();
   onStage({ stage: 'publishing', total: parsedImport.length, ignored: ignoredImportBlocks.length });
-  const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
-  mergeCreatedOrders(imported.created || []);
-  scheduleBackgroundStateRefresh();
-  return { imported, parsedCount: parsedImport.length, ignoredCount: ignoredImportBlocks.length };
+  try {
+    const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
+    previewBatch.stage = 'complete';
+    previewBatch.outcome = {
+      created: imported.created?.length || 0,
+      duplicates: Number(imported.duplicatesSkipped || 0),
+      incomplete: Number(imported.incompleteSkipped || 0)
+    };
+    saveImportPreviewHistory();
+    renderPreview();
+    mergeCreatedOrders(imported.created || []);
+    scheduleBackgroundStateRefresh();
+    return { imported, parsedCount: parsedImport.length, ignoredCount: ignoredImportBlocks.length };
+  } catch (error) {
+    previewBatch.stage = 'failed';
+    saveImportPreviewHistory();
+    renderPreview();
+    throw error;
+  }
 }
 
 async function pollClipboardInbox() {
@@ -2548,6 +2630,13 @@ txtDropZone?.addEventListener('drop', event => {
   txtDropZone.classList.remove('is-dragging');
   importTxtFile(event.dataTransfer?.files?.[0]).catch(error => toast(error.message));
 });
+$('#clearImportHistory')?.addEventListener('click', () => {
+  importPreviewHistory = [];
+  parsedImport = [];
+  ignoredImportBlocks = [];
+  sessionStorage.removeItem(IMPORT_PREVIEW_HISTORY_KEY);
+  renderPreview();
+});
 scheduleManualImportQueue();
 
 $('#closeAllAgencyOrders').addEventListener('click', () => bulkAgencyOrders('close').catch(err => toast(err.message)));
@@ -2656,6 +2745,7 @@ async function initializeApp() {
     console.warn('匿名浏览器接口尚未加载，当前以只读模式展示共享订单。');
   }
   await load();
+  renderPreview();
   setTeacherViewMode(teacherViewMode);
   if (!teacherPreferencesLoaded) await loadTeacherPreferences();
   await pollClipboardInbox();

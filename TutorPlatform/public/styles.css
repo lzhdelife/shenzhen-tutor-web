@@ -723,6 +723,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .import-column-title { min-height: 28px; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
 .import-column-title strong { font-size: 15px; }
 .import-column-title span { color: var(--muted); font-size: 12px; text-align: right; }
+.import-history-clear { min-height: 24px; color: var(--muted); font-size: 12px; }
 .txt-drop-zone { position: relative; display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 52px; margin-top: 9px; padding: 9px 12px; border: 1px dashed #a8b9c6; border-radius: 5px; background: #f8fafb; color: #314354; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
 .txt-drop-zone strong { font-size: 13px; }
 .txt-drop-zone span { color: var(--muted); font-size: 12px; }
@@ -745,6 +746,11 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .import-input-status[data-tone="error"] { background: #fff5f4; color: #a43127; }
 .agency-import-panel .import-input-column .actions { margin-top: 12px; }
 .agency-import-panel .import-preview-column .preview { min-height: 415px; max-height: 515px; align-content: start; margin-top: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9fb; }
+.preview-batch { display: grid; gap: 9px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.preview-batch:last-child { padding-bottom: 0; border-bottom: 0; }
+.preview-batch-heading { position: sticky; top: -10px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 2px; background: #f7f9fb; }
+.preview-batch-heading strong { color: #24455f; font-size: 13px; }
+.preview-batch-heading span { color: var(--muted); font-size: 12px; }
 .import-preview-empty { min-height: 390px; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
 .agency-orders-section { margin-top: 24px; }
 .agency-orders-section #agencyOrders { display: grid; grid-template-columns: 1fr; gap: 12px; }
