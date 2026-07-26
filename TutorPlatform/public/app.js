@@ -11,11 +11,11 @@ let importPreviewHistory = [];
 let teacherOrigin = localStorage.getItem('teacherOrigin') || '';
 let routeMode = localStorage.getItem('routeMode') || 'cycling';
 let distanceOverrides = {};
-let activeView = sessionStorage.getItem('activeView') || 'teacher';
+let activeView = 'teacher';
 let locationSuggestionTimer = 0;
 let locationSuggestionRequest = 0;
 let selectedOriginCoordinates = localStorage.getItem('teacherOriginCoordinates') || '';
-let teacherViewMode = localStorage.getItem('teacherViewMode') === 'map' ? 'map' : 'list';
+let teacherViewMode = 'list';
 let orderMap = null;
 let orderMapCluster = null;
 let orderMapInfoWindow = null;
@@ -59,11 +59,6 @@ try {
 } catch {
   sessionStorage.removeItem(IMPORT_PREVIEW_HISTORY_KEY);
 }
-const requestedView = new URLSearchParams(location.search).get('view');
-if (requestedView === 'map') { activeView = 'teacher'; teacherViewMode = 'map'; }
-else if (requestedView === 'agency') activeView = 'agency';
-else if (requestedView === 'teacher' || requestedView === 'list') { activeView = 'teacher'; teacherViewMode = 'list'; }
-
 const visitorId = localStorage.getItem('tutorPlatformVisitorId')
   || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 localStorage.setItem('tutorPlatformVisitorId', visitorId);
@@ -183,59 +178,6 @@ function setView(name) {
     button.classList.toggle('active', button.dataset.view === name && teacherModeMatches);
   });
   $$('.view').forEach(view => view.classList.toggle('active', view.id === name));
-}
-
-function currentAppRoute() {
-  if (activeView === 'agency') return 'agency';
-  return teacherViewMode === 'map' ? 'map' : 'list';
-}
-
-function appRouteUrl(route) {
-  const url = new URL(location.href);
-  if (route === 'list') url.searchParams.delete('view');
-  else url.searchParams.set('view', route);
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function applyAppRoute(route) {
-  const next = ['map', 'agency'].includes(route) ? route : 'list';
-  if (next === 'agency') {
-    activeView = 'agency';
-    sessionStorage.setItem('activeView', activeView);
-    setView('agency');
-    return Promise.resolve();
-  }
-  activeView = 'teacher';
-  sessionStorage.setItem('activeView', activeView);
-  setView('teacher');
-  return setTeacherViewMode(next === 'map' ? 'map' : 'list');
-}
-
-function initializeAppHistory() {
-  const route = currentAppRoute();
-  if (history.state?.tutorRoute) {
-    history.replaceState({ ...history.state, tutorRoute: route }, '', appRouteUrl(route));
-    return;
-  }
-  if (route === 'list') {
-    history.replaceState({ tutorRoute: 'list' }, '', appRouteUrl('list'));
-    return;
-  }
-  history.replaceState({ tutorRoute: 'list' }, '', appRouteUrl('list'));
-  history.pushState({ tutorRoute: route }, '', appRouteUrl(route));
-}
-
-function navigateAppRoute(route) {
-  const next = ['map', 'agency'].includes(route) ? route : 'list';
-  const current = currentAppRoute();
-  if (next === current) return Promise.resolve();
-  if (next === 'list' && history.state?.tutorRoute && current !== 'list') {
-    history.back();
-    return Promise.resolve();
-  }
-  if (current === 'list') history.pushState({ tutorRoute: next }, '', appRouteUrl(next));
-  else history.replaceState({ tutorRoute: next }, '', appRouteUrl(next));
-  return applyAppRoute(next);
 }
 
 function syncShell() {
@@ -1102,7 +1044,6 @@ async function renderOrderMap(orders = filteredOrders()) {
 
 function setTeacherViewMode(mode) {
   teacherViewMode = mode === 'map' ? 'map' : 'list';
-  localStorage.setItem('teacherViewMode', teacherViewMode);
   $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderListMore').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
@@ -1292,7 +1233,8 @@ async function focusOrderOnMap(orderId) {
   $('#activeMapRouteHint').textContent = activeOrder
     ? `正在查看：${orderDisplayMeta(activeOrder).title}`
     : '正在查看所选订单';
-  await navigateAppRoute('map');
+  setView('teacher');
+  await setTeacherViewMode('map');
   const locations = orderMapLocations?.get(orderId) || [];
   const coordinates = String(locations[0] || '').match(/^(\d{2,3}(?:\.\d+)?),(\d{1,2}(?:\.\d+)?)$/);
   if (!coordinates || !orderMap) {
@@ -2265,13 +2207,10 @@ function escapeHtml(text) {
 $$('.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.view === 'admin') return setView('admin');
-    const route = btn.dataset.view === 'agency' ? 'agency' : btn.dataset.teacherMode === 'map' ? 'map' : 'list';
-    navigateAppRoute(route);
+    if (btn.dataset.view === 'agency') return setView('agency');
+    setView('teacher');
+    setTeacherViewMode(btn.dataset.teacherMode === 'map' ? 'map' : 'list');
   });
-});
-
-window.addEventListener('popstate', event => {
-  if (event.state?.tutorRoute) applyAppRoute(event.state.tutorRoute);
 });
 
 ['filterMinPrice'].forEach(id => {
@@ -2843,8 +2782,8 @@ async function initializeApp() {
   }
   await load();
   renderPreview();
-  setTeacherViewMode(teacherViewMode);
-  initializeAppHistory();
+  setView('teacher');
+  setTeacherViewMode('list');
   if (!teacherPreferencesLoaded) await loadTeacherPreferences();
 }
 
