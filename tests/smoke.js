@@ -8,12 +8,15 @@ const { summarizeScheduleText } = require('../TutorPlatform/public/schedule-form
 const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public/order-score.js');
 
 const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
+const browserStylesSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'styles.css'), 'utf8');
 assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
 assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,
   'map view should hide the list-only filter toolbar');
 assert.match(browserAppSource, /restorePublisherBrowserSession\(\)/,
   'approved publisher access should be restored when the browser is reopened');
+assert.match(browserStylesSource, /@media \(max-width: 700px\)[\s\S]*grid-template-areas: "controls" "map" "summary";/,
+  'phone map controls should appear between the location form and map');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固

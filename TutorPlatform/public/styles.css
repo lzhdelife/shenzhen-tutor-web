@@ -1127,11 +1127,14 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .multi-filter-menu,
   .multi-filter[data-filter-group="gender"] .multi-filter-menu { position: static; right: auto; left: auto; width: auto; margin-top: 6px; box-shadow: none; }
   .order-list { grid-template-columns: 1fr; }
-  .order-map-layout { grid-template-rows: minmax(430px, 62vh) auto; }
-  .order-map-canvas { min-height: 430px; }
-  .order-map-sidebar { padding: 10px; }
-  .order-map-controls { grid-template-columns: 92px minmax(0, 1fr); }
-  .order-map-route-summary { max-height: min(380px, 48vh); }
+  .order-map-layout {
+    grid-template-areas: "controls" "map" "summary";
+    grid-template-rows: auto minmax(430px, 62vh) auto;
+  }
+  .order-map-canvas { min-height: 430px; border-top: 1px solid var(--line-strong); }
+  .order-map-sidebar { display: contents; }
+  .order-map-controls { grid-area: controls; grid-template-columns: 92px minmax(0, 1fr); margin: 10px; }
+  .order-map-route-summary { grid-area: summary; width: auto; max-height: min(380px, 48vh); margin: 10px; }
   .admin-order-list { grid-template-columns: 1fr; }
   .admin-metric { min-height: 94px; padding: 18px; }
   .admin-metric strong { font-size: 27px; }
