@@ -509,7 +509,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 }
 .order-map-controls label { color: #33445a; font-size: 13px; font-weight: 800; white-space: nowrap; }
 .order-map-controls select { min-width: 0; min-height: 38px; padding: 6px 30px 6px 10px; }
-.order-map-controls .map-overview-button { grid-column: 1 / -1; min-height: 38px; }
+.map-scope-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.map-scope-actions button { min-width: 0; min-height: 38px; padding-inline: 8px; }
 .order-map-controls span { grid-column: 1 / -1; overflow: hidden; color: var(--muted); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .order-map-status { position: absolute; top: 12px; left: 50%; z-index: 5; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 9px 14px; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.96); box-shadow: 0 5px 18px rgba(23,33,43,.14); }
 .order-map-status.hidden { display: none; }

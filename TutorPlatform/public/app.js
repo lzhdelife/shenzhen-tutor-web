@@ -23,6 +23,7 @@ let orderMapApi = null;
 let orderMapLocations = null;
 let orderMapRouteService = null;
 let activeMapRouteOrderId = '';
+let orderMapViewportMode = 'all';
 let activeAgencyContact = null;
 let activeRawText = '';
 let rememberedCredentialActive = false;
@@ -943,10 +944,15 @@ function fitOrderMapPoints(points = []) {
   orderMap.setBounds(bounds, true, [56, 56, 56, 56]);
 }
 
+function applyOrderMapViewport(points = []) {
+  if (orderMapViewportMode === 'nearby' && centerOrderMapNearOrigin(0)) return;
+  fitOrderMapPoints(points);
+}
+
 function scheduleOrderMapFit() {
   window.setTimeout(() => {
     if (teacherViewMode !== 'map' || activeMapRouteOrderId || orderMapRouteService) return;
-    fitOrderMapPoints(orderMapPoints(filteredOrders()));
+    applyOrderMapViewport(orderMapPoints(filteredOrders()));
   }, 1400);
 }
 
@@ -966,7 +972,7 @@ async function renderOrderMap(orders = filteredOrders()) {
   const points = orderMapPoints(orders);
   if (!points.length) {
     if (renderRequest !== orderMapRenderRequest) return;
-    fitOrderMapPoints(points);
+    applyOrderMapViewport(points);
     showOrderMapStatus('当前筛选结果中没有已确认坐标的订单');
     return;
   }
@@ -993,10 +999,10 @@ async function renderOrderMap(orders = filteredOrders()) {
   orderMapCluster.on('click', handleMapClusterClick);
   await new Promise(resolve => window.setTimeout(resolve, 120));
   if (renderRequest !== orderMapRenderRequest) return;
-  fitOrderMapPoints(points);
+  applyOrderMapViewport(points);
   await new Promise(resolve => window.setTimeout(resolve, 420));
   if (renderRequest !== orderMapRenderRequest) return;
-  fitOrderMapPoints(points);
+  applyOrderMapViewport(points);
   scheduleOrderMapFit();
   showOrderMapStatus('');
 }
@@ -1189,6 +1195,7 @@ async function focusOrderOnMap(orderId) {
 
 async function showAllOrdersOnMap() {
   const visibleOrders = filteredOrders();
+  orderMapViewportMode = 'all';
   orderMapInfoWindow?.close();
   orderMapRouteService?.clear?.();
   orderMapRouteService = null;
@@ -1199,6 +1206,44 @@ async function showAllOrdersOnMap() {
   await new Promise(resolve => window.setTimeout(resolve, 420));
   fitOrderMapPoints(orderMapPoints(visibleOrders));
   toast('已显示全部订单位置');
+}
+
+function nearbyOrderMapZoom(origin, targetWidthKm = 14) {
+  const mapWidth = Math.max(320, Number($('#orderMap')?.clientWidth || 0));
+  const latitude = Number(origin.lnglat[1]);
+  const metersPerPixelAtZoomZero = 156543.03392 * Math.cos(latitude * Math.PI / 180);
+  const zoom = Math.log2((metersPerPixelAtZoomZero * mapWidth) / (targetWidthKm * 1000));
+  return Math.max(10, Math.min(18, Math.round(zoom * 10) / 10));
+}
+
+function centerOrderMapNearOrigin(animationDuration = 260) {
+  const origin = mapOriginPoint();
+  if (!origin || !orderMap || !orderMapApi) return false;
+  syncOrderMapOriginMarker();
+  const center = new orderMapApi.LngLat(origin.lnglat[0], origin.lnglat[1]);
+  orderMap.setZoomAndCenter(nearbyOrderMapZoom(origin), center, false, animationDuration);
+  return true;
+}
+
+async function showNearbyOrdersOnMap() {
+  if (!mapOriginPoint()) {
+    showOrderMapStatus('请先在“我的位置”中选择地点');
+    toast('请先选择“我的位置”');
+    $('#teacherOrigin')?.focus();
+    $('#teacherLocationForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  if (!orderMap || !orderMapApi) await renderOrderMap();
+  orderMapInfoWindow?.close();
+  orderMapRouteService?.clear?.();
+  orderMapRouteService = null;
+  activeMapRouteOrderId = '';
+  orderMapViewportMode = 'nearby';
+  $('#orderMapRouteSummary').classList.add('hidden');
+  $('#activeMapRouteHint').textContent = '正在查看我的位置附近';
+  centerOrderMapNearOrigin();
+  showOrderMapStatus('');
+  toast('已显示我附近的订单');
 }
 
 function renderAdmin() {
@@ -2105,6 +2150,10 @@ $('#routeModeSelect').addEventListener('change', () => {
 
 $('#showAllMapOrders').addEventListener('click', () => {
   showAllOrdersOnMap().catch(error => showOrderMapStatus(error.message));
+});
+
+$('#showNearbyMapOrders').addEventListener('click', () => {
+  showNearbyOrdersOnMap().catch(error => showOrderMapStatus(error.message));
 });
 
 $('#refreshOrdersButton').addEventListener('click', () => {
