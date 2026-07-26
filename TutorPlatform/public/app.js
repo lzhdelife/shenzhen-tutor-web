@@ -510,11 +510,15 @@ function filteredOrders() {
     .filter(o => !minPrice || Number(o.hourlyPrice || o.price) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) > 0 && Number(o.distanceKm) <= NEARBY_DISTANCE_KM))
     .sort((a, b) => {
-      const distanceDifference = Number(a.distanceKm || Number.MAX_SAFE_INTEGER)
+      const scoreDifference = orderScore(b) - orderScore(a);
+      if (scoreDifference) return scoreDifference;
+      return Number(a.distanceKm || Number.MAX_SAFE_INTEGER)
         - Number(b.distanceKm || Number.MAX_SAFE_INTEGER);
-      if (teacherOrigin && distanceDifference) return distanceDifference;
-      return Number(b.score || 0) - Number(a.score || 0);
     });
+}
+
+function orderScore(order) {
+  return window.TutorOrderScore?.scoreOrder(order) ?? Number(order.score || 0);
 }
 
 function compactText(value) {
@@ -807,7 +811,7 @@ function orderCard(o) {
         <div class="title">${escapeHtml(meta.title)}</div>
         <div class="source-line">平台订单 · ${new Date(o.createdAt).toLocaleString()}</div>
       </div>
-      <div class="score">${o.score || 0}分</div>
+      <div class="score">${orderScore(o)}分</div>
     </div>
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
@@ -1454,7 +1458,7 @@ function renderAdmin() {
         </div>
         <div class="card-head-side">
           <span class="status-badge ${status}">${escapeHtml(statusLabel(status))}</span>
-          <div class="score">${o.score || 0}分</div>
+          <div class="score">${orderScore(o)}分</div>
         </div>
       </div>
       ${orderDetailMarkup(o, meta)}

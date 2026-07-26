@@ -131,10 +131,13 @@ assert.equal(platform.validMainlandPhone(syntheticPhone + syntheticPhone), false
 assert.equal(platform.sanitizeRouteMode('walking'), 'walking');
 assert.equal(platform.sanitizeRouteMode('unsupported'), 'cycling');
 
-const scoreExample = { district: '福田', subject: '物理', grade: '高三', price: 200 };
-const distanceWeightedScores = [2, 8, 12, 18, 30].map(distanceKm => platform.score({ ...scoreExample, distanceKm }, { maxBikeKm: 12 }));
-assert.deepEqual(distanceWeightedScores, [95, 83, 75, 55, 30]);
-assert.ok(distanceWeightedScores[0] - distanceWeightedScores.at(-1) >= 60, 'distance should be a dominant scoring factor');
+const scoreExample = { district: '福田', subject: '物理', grade: '高三', hourlyPrice: 200 };
+const distanceWeightedScores = [2, 8, 12, 18, 30].map(distanceKm => platform.score({ ...scoreExample, distanceKm }));
+assert.deepEqual(distanceWeightedScores, [90, 75, 65, 55, 45]);
+assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 2 }), 100);
+assert.equal(platform.score({ hourlyPrice: 100, distanceKm: 2 }), 70);
+assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 30 }), 55);
+assert.equal(platform.score({ price: 400, priceUnit: '2小时', distanceKm: 2 }), 90);
 
 async function runLocationChecks() {
   const originalFetch = global.fetch;
