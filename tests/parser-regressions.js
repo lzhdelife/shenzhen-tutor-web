@@ -13,6 +13,8 @@ const batchFixturePath = path.join(__dirname, 'fixtures', 'batch-nine-orders.txt
 const batchFixture = fs.readFileSync(batchFixturePath, 'utf8').trim().replace(/\r/g, '');
 const numberedFixturePath = path.join(__dirname, 'fixtures', 'numbered-compact-orders.txt');
 const numberedFixture = fs.readFileSync(numberedFixturePath, 'utf8').trim().replace(/\r/g, '');
+const bracketedFixturePath = path.join(__dirname, 'fixtures', 'batch-eleven-bracketed-orders.txt');
+const bracketedFixture = fs.readFileSync(bracketedFixturePath, 'utf8').trim().replace(/\r/g, '');
 const counters = { district: [0, 0], place: [0, 0], grade: [0, 0], subject: [0, 0], studentGender: [0, 0], teacherGender: [0, 0], price: [0, 0], priceUnit: [0, 0], phases: [0, 0], evidence: [0, 0], genderConfusions: 0 };
 
 for (const fixture of fixtures) {
@@ -114,6 +116,13 @@ assert.equal(split.diagnostics.length, 9);
 assert.ok(split.diagnostics.every(item => item.boundaryReason === 'blank-line' && item.confidence === 1));
 assert.equal(split.blocks.join('\n\n'), expectedBatchBlocks.join('\n\n'), 'batch normalized coverage must be 100%');
 console.log('PASS batch split regression expectedCount=9 coverage=100%');
+
+const expectedBracketedBlocks = bracketedFixture.split(/\n[ \t]*\n+/).map(block => block.trim());
+const bracketedSplit = platform.splitImportBlocksDetailed(bracketedFixture);
+assert.equal(bracketedSplit.blocks.length, 11, 'bracketed batch expectedCount=11');
+assert.deepEqual(bracketedSplit.blocks, expectedBracketedBlocks, 'bracketed batch must preserve every raw order');
+assert.equal(bracketedSplit.blocks.join('\n\n'), expectedBracketedBlocks.join('\n\n'), 'bracketed batch normalized coverage must be 100%');
+console.log('PASS bracketed batch split expectedCount=11 coverage=100%');
 
 const numberedExpected = numberedFixture.split('\n');
 const numberedSplit = platform.splitImportBlocksDetailed(numberedFixture);

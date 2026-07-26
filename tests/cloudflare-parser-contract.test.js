@@ -43,3 +43,20 @@ test('Cloudflare adapter keeps keycap-numbered compact orders separate', async (
   assert.deepEqual(result.parsed.map(order => order.raw), text.split('\n'));
   assert.deepEqual(result.splitDiagnostics.map(item => item.boundaryReason), ['numbered-order', 'numbered-order']);
 });
+
+test('Cloudflare adapter recognizes the complete bracketed eleven-order batch', async () => {
+  const text = fs.readFileSync(path.join(__dirname, 'fixtures', 'batch-eleven-bracketed-orders.txt'), 'utf8').trim().replace(/\r/g, '');
+  const result = await adapter.parseOrders({ text }, {
+    agency: { id: 'synthetic-agency', name: '匿名合成机构' },
+    env: {}
+  });
+  assert.equal(result.parsed.length, 11);
+  assert.equal(result.ignoredBlocks.length, 0);
+  assert.deepEqual(result.parsed.map(order => order.raw.match(/SZ\d+/)?.[0]), [
+    'SZ06072601', 'SZ06072401', 'SZ06072101', 'SZ06071707', 'SZ06071706', 'SZ06071601',
+    'SZ06071401', 'SZ06070404', 'SZ06062901', 'SZ06062501', 'SZ06060406'
+  ]);
+  const calculus = result.parsed.find(order => order.raw.includes('SZ06070404'));
+  assert.equal(calculus.subject, '微积分');
+  assert.equal(calculus.place, '宣嘉华庭');
+});

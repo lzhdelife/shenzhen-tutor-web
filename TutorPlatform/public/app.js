@@ -2559,13 +2559,13 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
 }
 
 const importTextarea = $('#importForm')?.elements.text;
-function scheduleTypedManualImport() {
+function scheduleTextareaImport(delay, source, showPastedText = false) {
   window.clearTimeout(manualImportTypingTimer);
   manualImportTypingTimer = window.setTimeout(() => {
     manualImportTypingTimer = 0;
     const text = importTextarea?.value || '';
-    if (text.trim()) enqueueManualImport(text, '输入内容');
-  }, 800);
+    if (text.trim()) enqueueManualImport(text, source, showPastedText);
+  }, delay);
 }
 $('#importForm')?.addEventListener('submit', event => {
   event.preventDefault();
@@ -2581,14 +2581,13 @@ importTextarea?.addEventListener('paste', event => {
 });
 importTextarea?.addEventListener('input', event => {
   const text = importTextarea.value;
-  const recentPasteText = Date.now() - lastManualPasteEvent.at < 1000 ? lastManualPasteEvent.text : '';
-  const insertedText = recentPasteText || (typeof event.data === 'string' && event.data.length > 1 ? event.data : text);
-  const insertedAtOnce = ['insertFromPaste', 'insertReplacementText'].includes(event.inputType)
-    || recentPasteText
+  const recentPaste = Date.now() - lastManualPasteEvent.at < 1000;
+  const insertedAtOnce = ['insertFromPaste', 'insertFromYank', 'insertReplacementText'].includes(event.inputType)
+    || recentPaste
     || String(event.data || '').trim().length > 4
     || (event.data == null && text.trim().length > 4);
-  if (insertedAtOnce && insertedText.trim()) enqueueManualImport(insertedText, '粘贴内容', true);
-  else if (text) scheduleTypedManualImport();
+  if (insertedAtOnce && text.trim()) scheduleTextareaImport(120, '粘贴内容', true);
+  else if (text) scheduleTextareaImport(800, '输入内容');
 });
 async function importTxtFile(file) {
   if (!file) return;
