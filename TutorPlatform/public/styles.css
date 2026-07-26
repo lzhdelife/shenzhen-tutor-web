@@ -789,9 +789,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0; }
 .pill { padding: 4px 8px; border-radius: 999px; background: #edf1f5; font-size: 12px; }
 .agency-import-panel { padding: 20px; }
-.agency-primary-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 14px; }
-.agency-primary-heading h2 { margin: 4px 0 0; }
-.agency-primary-heading p { max-width: 520px; color: var(--muted); line-height: 1.5; text-align: right; }
 .import-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
 .import-input-column,
 .import-preview-column { min-width: 0; display: flex; flex-direction: column; }
