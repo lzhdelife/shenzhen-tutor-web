@@ -541,7 +541,7 @@ function repairCommonOcr(value) {
 
 function cleanDisplayText(value, maxLength = 120) {
   const allowedLatin = new Set(['SAT', 'IELTS', 'TOEFL', 'DSE', 'RMB', 'AP', 'IB', 'AMC', 'A-LEVEL', 'P5.JS', 'JS', 'RE3', 'M2', 'H', 'KM', 'K', 'W']);
-  let text = compactText(repairCommonOcr(value))
+  let text = compactText(repairCommonOcr(displayFieldValue(value)))
     .replace(/https?:\/\/\S+/gi, ' ')
     .replace(/微信家教订单搬运助手|家教订单自动采集助手|自动定位读取|识别并上传一次|开始自动搬运|停止自动搬运/gi, ' ')
     .replace(/(?:深圳)?(?:优质)?家教群(?:\[[^\]]*\]|【[^】]*】|\([^)]*\)|\s*\d+\s*)*/gi, ' ')
@@ -573,6 +573,12 @@ function structuredFieldCount(value) {
   return (String(value || '').match(/(?:【|《)?(?:学生|学员|时间|次数|薪酬|课酬|薪资|地址|地点|科目|要求|老师要求|教员要求)(?:】|》)?\s*[:：]?/g) || []).length;
 }
 
+function displayFieldValue(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) value = value.value;
+  if (Array.isArray(value)) return value.filter(item => typeof item === 'string' && item.trim()).join('、');
+  return ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : '';
+}
+
 function usefulChineseText(value, minimum = 2) {
   const text = String(value || '');
   const chineseCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
@@ -592,15 +598,16 @@ function categoryLabel(value, options, fallback) {
 }
 
 function priceLabel(o) {
+  const priceUnit = displayFieldValue(o.priceUnit);
   const fieldPrice = fieldFromRaw(o.raw, ['老师薪水', '老师课费', '课时价格', '课费报酬', '课费薪酬', '薪酬', '课酬', '薪资', '时薪']);
   let text = cleanDisplayText(fieldPrice || o.priceText || '', 80)
     .replace(/^(?:老师薪水|老师课费|课时价格|课费报酬|课费薪酬|薪酬|课酬|薪资|时薪)\s*[:：]?\s*/, '')
     .split(/(?:学生|学员|老师要求|教员要求|要求|地址|地点|科目|时间)\s*[:：]/)[0]
     .trim();
-  if (Number(o.priceMin) && Number(o.priceMax) && Number(o.priceMin) !== Number(o.priceMax) && o.priceUnit) {
-    return `${o.priceMin}-${o.priceMax}元/${o.priceUnit}`;
+  if (Number(o.priceMin) && Number(o.priceMax) && Number(o.priceMin) !== Number(o.priceMax) && priceUnit) {
+    return `${o.priceMin}-${o.priceMax}元/${priceUnit}`;
   }
-  if (Number(o.price) >= 50 && o.priceUnit) return `${o.price}元/${o.priceUnit}`;
+  if (Number(o.price) >= 50 && priceUnit) return `${o.price}元/${priceUnit}`;
   const direct = text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*(?:元|万|[kKwW])?\s*(?:\/|每|一)\s*(?:小时|时|h|次|节|天|月|2h)/i)
     || text.match(/(?:￥|¥)?\s*\d{2,6}(?:\.\d+)?\s*(?:[-~～—至到一]\s*\d{2,6}(?:\.\d+)?)?\s*元\s*(?:左右)?/i)
     || text.match(/\d+(?:\.\d+)?\s*[-~～—至到]\s*\d+(?:\.\d+)?\s*[万wWkK]\s*\/?\s*月/i);
@@ -702,7 +709,8 @@ function studentSummary(order) {
   const grade = cleanDisplayText(order.gradeDescription || '', 40) || categoryLabel(order.grade, state.lists.grades, '年级待定');
   const subject = categoryLabel(order.subject, state.lists.subjects, '科目待定');
   if (student.replace(/^(?:准|新)/, '') === grade) student = '';
-  const gender = order.studentGender ? `；学生：${order.studentGender}` : '';
+  const studentGender = displayFieldValue(order.studentGender);
+  const gender = studentGender ? `；学生：${studentGender}` : '';
   const gradeSubject = `${grade} / ${subject}${gender}`;
   return student && !/学生信息待定/.test(student) ? `${gradeSubject}；${student}` : gradeSubject;
 }

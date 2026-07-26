@@ -166,6 +166,24 @@ async function run() {
   assert.equal(db.tables.orders[0].status, 'open');
   assert.equal((await repo.listOrders({ status: 'open' })).length, 1);
 
+  const flatSnapshot = db.tables.orders[0].structured_json;
+  db.tables.orders[0].structured_json = JSON.stringify({
+    rawText: '宝安区科技园，高三数学，300元每2小时。', normalizedText: '宝安区科技园，高三数学，300元每2小时。',
+    parserVersion: '2.2.0', gradeContext: { value: '高三', confidence: 0.9 },
+    studentSituation: { value: '女生，基础一般', confidence: 0.75 }, studentGender: { value: '女', confidence: 0.95 },
+    teacherGender: { value: '女老师', confidence: 0.95 }, priceMin: { value: 300, rawEvidence: '300元每2小时' },
+    priceMax: { value: 300 }, priceApproximate: { value: false }, priceUnit: { value: '2小时', rawEvidence: '300元每2小时' },
+    schedulePhases: [{ rawEvidence: '每周两次' }], requirements: { value: ['有经验', '认真负责'] }
+  });
+  const evidenceOrder = await repo.getOrderById(order.id);
+  assert.equal(evidenceOrder.raw, '宝安区科技园，高三数学，300元每2小时。');
+  assert.equal(evidenceOrder.priceUnit, '2小时');
+  assert.equal(evidenceOrder.studentGender, '女');
+  assert.equal(evidenceOrder.student, '女生，基础一般');
+  assert.equal(evidenceOrder.requirements, '有经验、认真负责');
+  assert.equal(evidenceOrder.structured.parserVersion, '2.2.0');
+  db.tables.orders[0].structured_json = flatSnapshot;
+
   await repo.setSetting('maxBikeKm', 12);
   await repo.setSetting('adminPasswordHash', 'must-not-leak');
   assert.equal(await repo.incrementSetting('totalVisits'), 1);

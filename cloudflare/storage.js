@@ -38,11 +38,41 @@ function mapRow(row) {
   return result;
 }
 
+function evidenceValue(field, fallback = '') {
+  const value = field && typeof field === 'object' && !Array.isArray(field) ? field.value : field;
+  if (Array.isArray(value)) return value.filter(item => typeof item === 'string' && item.trim()).join('、');
+  return ['string', 'number', 'boolean'].includes(typeof value) ? value : fallback;
+}
+
+function flatOrderFromEvidence(structured) {
+  const schedule = Array.isArray(structured.schedulePhases)
+    ? structured.schedulePhases.map(phase => phase?.rawEvidence).filter(Boolean).join('；')
+    : '';
+  const requirements = evidenceValue(structured.requirements);
+  return {
+    raw: structured.rawText || structured.normalizedText || '',
+    gradeDescription: evidenceValue(structured.gradeContext),
+    student: evidenceValue(structured.studentSituation),
+    studentGender: evidenceValue(structured.studentGender),
+    gender: evidenceValue(structured.teacherGender),
+    priceMin: evidenceValue(structured.priceMin, 0),
+    priceMax: evidenceValue(structured.priceMax, 0),
+    priceApproximate: Boolean(evidenceValue(structured.priceApproximate, false)),
+    priceUnit: evidenceValue(structured.priceUnit),
+    priceText: structured.priceMin?.rawEvidence || structured.priceUnit?.rawEvidence || '',
+    schedule,
+    requirements,
+    teacherRequirement: requirements,
+    structured
+  };
+}
+
 function mapOrder(row) {
   if (!row) return null;
   const mapped = mapRow(row);
   const structured = mapped.structuredJson || {};
-  const order = { ...structured, ...mapped };
+  const evidenceOnly = Boolean(structured.rawText && structured.parserVersion && !structured.structured);
+  const order = { ...(evidenceOnly ? flatOrderFromEvidence(structured) : structured), ...mapped };
   delete order.structuredJson;
   if ('verified' in order) order.locationVerified = Boolean(order.verified);
   if ('place' in order) {
