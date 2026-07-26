@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260727-28">
+  <link rel="stylesheet" href="./styles.css?v=20260727-29">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -144,6 +144,9 @@
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
         </div>
         <div id="orders" class="order-list"></div>
+        <div id="orderListMore" class="order-list-more hidden">
+          <button id="loadMoreOrders" class="secondary" type="button">加载更多</button>
+        </div>
         <section id="orderMapPanel" class="order-map-panel hidden" aria-label="订单地图">
           <div class="order-map-layout">
             <aside class="order-map-sidebar" aria-label="地图导航工具">
@@ -355,6 +358,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260727-48"></script>
+  <script src="./app.js?v=20260727-49"></script>
 </body>
 </html>

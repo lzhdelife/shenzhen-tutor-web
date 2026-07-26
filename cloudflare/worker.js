@@ -466,10 +466,15 @@ function createWorker(dependencies = {}) {
                 ...dedupeOrdersByCanonicalRaw(visibleOrders.filter(order => order.status !== 'closed')),
                 ...visibleOrders.filter(order => order.status === 'closed')
               ];
-          const orders = await Promise.all(displayOrders.map(async order => ({
-            ...cleanOrder(order, await repo.listApplications({ orderId: order.id }), viewer),
-            teacherVisible: order.status !== 'closed' && teacherVisibleIds.has(order.id)
-          })));
+          const orders = await Promise.all(displayOrders.map(async order => {
+            const canSeeApplications = viewer?.role === 'admin'
+              || (viewer?.role === 'agency' && viewer.id === order.agencyId);
+            const applications = canSeeApplications ? await repo.listApplications({ orderId: order.id }) : [];
+            return {
+              ...cleanOrder(order, applications, viewer),
+              teacherVisible: order.status !== 'closed' && teacherVisibleIds.has(order.id)
+            };
+          }));
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const platformSettings = await repo.getSettings();

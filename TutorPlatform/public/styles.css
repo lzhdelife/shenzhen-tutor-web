@@ -482,6 +482,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .check:hover { border-color: #aeb8c3; }
 .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--blue); }
 .order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 12px; }
+.order-list-more { display: flex; justify-content: center; padding: 18px 0 4px; }
+.order-list-more button { min-width: 180px; }
 .order-list .card.highlight { outline: 3px solid var(--blue); box-shadow: 0 12px 30px rgba(30, 82, 180, .2); }
 .order-map-panel { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; background: #eef3f6; }
 .order-map-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); height: 620px; }

@@ -205,6 +205,31 @@ test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪�
   assert.equal('structured' in teacherState.orders[0], false);
 });
 
+test('老师信息列表不逐单查询接单申请', async () => {
+  const { call, repo } = harness();
+  const name = '列表性能测试', phone = ['136', '0013', '6000'].join(''), password = 'secret1';
+  const login = await (await call('/api/account/login', { method: 'POST', body: {
+    name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
+  } })).json();
+  await repo.createOrder({ id: 'list-order-one', agencyId: login.agency.id, status: 'open', district: '南山', subject: '数学' });
+  await repo.createOrder({ id: 'list-order-two', agencyId: 'another-agency', status: 'open', district: '福田', subject: '英语' });
+  let applicationReads = 0;
+  const listApplications = repo.listApplications.bind(repo);
+  repo.listApplications = async filters => {
+    applicationReads++;
+    return listApplications(filters);
+  };
+
+  const teacherState = await (await call('/api/state', {
+    headers: { authorization: `Bearer ${login.teacherToken}` }
+  })).json();
+  assert.equal(teacherState.orders.length, 2);
+  assert.equal(applicationReads, 0);
+
+  await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } });
+  assert.equal(applicationReads, 1, '发单者只查询自己订单的申请记录');
+});
+
 test('account login creates paired roles and persists only token hashes', async () => {
   const { repo, call } = harness();
   const name = '测试用户', phone = ['138', '0013', '8000'].join(''), password = 'secret1';

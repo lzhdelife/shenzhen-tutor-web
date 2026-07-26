@@ -36,6 +36,8 @@ let teacherPreferencesLoaded = false;
 let ordersRefreshBusy = false;
 let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
+let visibleOrderLimit = 20;
+let focusedListOrderId = '';
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
@@ -816,12 +818,26 @@ function orderCard(o) {
   </article>`;
 }
 
-function renderOrders() {
+function renderOrders({ resetLimit = false } = {}) {
   const list = filteredOrders();
-  $('#orders').innerHTML = list.length ? list.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
+  if (resetLimit) visibleOrderLimit = 20;
   const count = $('#orderCount');
   if (count) count.textContent = `共 ${list.length} 条`;
-  if (teacherViewMode === 'map') renderOrderMap(list).catch(error => showOrderMapStatus(error.message));
+  const more = $('#orderListMore');
+  if (teacherViewMode === 'map') {
+    $('#orders').replaceChildren();
+    more.classList.add('hidden');
+    renderOrderMap(list).catch(error => showOrderMapStatus(error.message));
+    return;
+  }
+  let visible = list.slice(0, visibleOrderLimit);
+  if (focusedListOrderId && !visible.some(order => order.id === focusedListOrderId)) {
+    const focused = list.find(order => order.id === focusedListOrderId);
+    if (focused) visible = [focused, ...visible.slice(0, Math.max(0, visibleOrderLimit - 1))];
+  }
+  $('#orders').innerHTML = visible.length ? visible.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
+  more.classList.toggle('hidden', visibleOrderLimit >= list.length);
+  $('#loadMoreOrders').textContent = `加载更多（${Math.min(visibleOrderLimit, list.length)}/${list.length}）`;
 }
 
 function showOrderMapStatus(message = '') {
@@ -1083,14 +1099,17 @@ function setTeacherViewMode(mode) {
   teacherViewMode = mode === 'map' ? 'map' : 'list';
   localStorage.setItem('teacherViewMode', teacherViewMode);
   $('#orders').classList.toggle('hidden', teacherViewMode === 'map');
+  $('#orderListMore').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
   if (activeView === 'teacher') setView('teacher');
   if (teacherViewMode === 'map') return renderOrderMap().catch(error => showOrderMapStatus(error.message));
+  renderOrders();
   return Promise.resolve();
 }
 
 function focusOrderFromMap(orderId) {
   orderMapInfoWindow?.close();
+  focusedListOrderId = orderId;
   setTeacherViewMode('list');
   requestAnimationFrame(() => {
     const card = document.getElementById(`order-card-${orderId}`);
@@ -1101,7 +1120,10 @@ function focusOrderFromMap(orderId) {
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
     card.classList.remove('highlight');
     requestAnimationFrame(() => card.classList.add('highlight'));
-    setTimeout(() => card.classList.remove('highlight'), 2400);
+    setTimeout(() => {
+      card.classList.remove('highlight');
+      focusedListOrderId = '';
+    }, 2400);
   });
 }
 
@@ -2197,8 +2219,8 @@ window.addEventListener('popstate', event => {
 });
 
 ['filterMinPrice', 'filterBike'].forEach(id => {
-  $('#' + id).addEventListener('input', () => { renderOrders(); queueTeacherPreferencesSave(); });
-  $('#' + id).addEventListener('change', () => { renderOrders(); queueTeacherPreferencesSave(); });
+  $('#' + id).addEventListener('input', () => { renderOrders({ resetLimit: true }); queueTeacherPreferencesSave(); });
+  $('#' + id).addEventListener('change', () => { renderOrders({ resetLimit: true }); queueTeacherPreferencesSave(); });
 });
 
 $('#teacherFilters').addEventListener('change', event => {
@@ -2208,7 +2230,7 @@ $('#teacherFilters').addEventListener('change', event => {
   if (input.checked) teacherFilterSelections[group].add(input.value);
   else teacherFilterSelections[group].delete(input.value);
   updateFilterSummary(group);
-  renderOrders();
+  renderOrders({ resetLimit: true });
   queueTeacherPreferencesSave();
 });
 
@@ -2216,7 +2238,7 @@ $('#teacherFilters').addEventListener('click', event => {
   const button = event.target.closest('[data-clear-filter]');
   if (!button) return;
   clearFilterGroup(button.dataset.clearFilter);
-  renderOrders();
+  renderOrders({ resetLimit: true });
   queueTeacherPreferencesSave();
 });
 
@@ -2236,8 +2258,13 @@ $('#clearTeacherFilters').addEventListener('click', () => {
   Object.keys(teacherFilterSelections).forEach(clearFilterGroup);
   $('#filterMinPrice').value = '';
   $('#filterBike').checked = false;
-  renderOrders();
+  renderOrders({ resetLimit: true });
   queueTeacherPreferencesSave();
+});
+
+$('#loadMoreOrders').addEventListener('click', () => {
+  visibleOrderLimit += 20;
+  renderOrders();
 });
 
 $('#routeModeSelect').addEventListener('change', () => {
