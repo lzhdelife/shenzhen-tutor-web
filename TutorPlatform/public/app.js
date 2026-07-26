@@ -1258,8 +1258,7 @@ function renderOrderCommuteSummary(routeResult = {}, orderId = '') {
   const metrics = isTransit ? [
     walking ? { value: walking, label: '步行' } : null,
     { value: `${transfers}次`, label: '换乘' },
-    Number(route.cost) ? { value: `¥${Number(route.cost).toFixed(1)}`, label: '费用' } : null,
-    routes.length > 1 ? { value: routes.length, label: '可选方案' } : null
+    Number(route.cost) ? { value: `¥${Number(route.cost).toFixed(1)}`, label: '费用' } : null
   ].filter(Boolean) : [];
   const steps = isTransit ? routeStepDetails(route) : [];
   const order = state.orders.find(item => item.id === orderId);

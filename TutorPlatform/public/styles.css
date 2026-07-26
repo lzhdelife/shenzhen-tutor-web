@@ -1127,14 +1127,15 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .multi-filter-menu,
   .multi-filter[data-filter-group="gender"] .multi-filter-menu { position: static; right: auto; left: auto; width: auto; margin-top: 6px; box-shadow: none; }
   .order-list { grid-template-columns: 1fr; }
+  .order-map-panel { overflow: visible; border: 0; border-radius: 0; background: transparent; }
   .order-map-layout {
     grid-template-areas: "controls" "map" "summary";
     grid-template-rows: auto minmax(430px, 62vh) auto;
   }
-  .order-map-canvas { min-height: 430px; border-top: 1px solid var(--line-strong); }
+  .order-map-canvas { min-height: 430px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; }
   .order-map-sidebar { display: contents; }
-  .order-map-controls { grid-area: controls; grid-template-columns: 92px minmax(0, 1fr); margin: 10px; }
-  .order-map-route-summary { grid-area: summary; width: auto; max-height: min(380px, 48vh); margin: 10px; }
+  .order-map-controls { grid-area: controls; grid-template-columns: 92px minmax(0, 1fr); margin: 0 0 12px; }
+  .order-map-route-summary { grid-area: summary; width: auto; max-height: min(380px, 48vh); margin: 12px 0 0; }
   .admin-order-list { grid-template-columns: 1fr; }
   .admin-metric { min-height: 94px; padding: 18px; }
   .admin-metric strong { font-size: 27px; }
@@ -1302,6 +1303,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   @media (max-width: 700px) {
     .auth-screen { background: var(--bg); }
     .auth-layout { background: var(--panel); }
+    .order-map-panel { background: transparent; }
   }
 }
 

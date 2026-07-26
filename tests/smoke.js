@@ -19,8 +19,12 @@ assert.match(browserAppSource, /history\.pushState\(\{ \.\.\.history\.state, \[S
   'mobile subpages should create a browser history entry');
 assert.match(browserAppSource, /window\.addEventListener\('popstate', event => syncSubpagesFromHistory\(event\.state\)\)/,
   'browser back should close the active subpage before leaving the site');
+assert.doesNotMatch(browserAppSource, /label: '可选方案'/,
+  'transit route cards should omit the redundant alternative count');
 assert.match(browserStylesSource, /@media \(max-width: 700px\)[\s\S]*grid-template-areas: "controls" "map" "summary";/,
   'phone map controls should appear between the location form and map');
+assert.match(browserStylesSource, /@media \(max-width: 700px\)[\s\S]*\.order-map-panel \{ overflow: visible; border: 0; border-radius: 0; background: transparent; \}/,
+  'phone map controls and map should use separate visual layers');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固
