@@ -23,6 +23,8 @@ let orderMapOriginMarker = null;
 let orderMapRenderRequest = 0;
 let orderMapApi = null;
 let orderMapLocations = null;
+let orderMapDataRevision = 0;
+let orderMapRenderedSignature = '';
 let orderMapRouteService = null;
 let activeMapRouteOrderId = '';
 let orderMapRouteRequest = 0;
@@ -137,6 +139,7 @@ function toast(text) {
 
 async function load() {
   orderMapLocations = null;
+  orderMapDataRevision += 1;
   state = await api('/api/state', {}, adminToken || agencyToken || teacherToken);
   if (adminToken && state.viewer?.role === 'admin') {
     state.adminStats = await api('/api/admin/stats', {}, adminToken);
@@ -158,6 +161,8 @@ function mergeCreatedOrders(created = []) {
   if (!created.length) return;
   const ids = new Set(created.map(order => order.id));
   state.orders = [...created, ...state.orders.filter(order => !ids.has(order.id))];
+  orderMapLocations = null;
+  orderMapDataRevision += 1;
   renderOrders();
   renderAgencyOrders();
 }
@@ -775,7 +780,7 @@ function renderOrders({ resetLimit = false } = {}) {
   if (teacherViewMode === 'map') {
     $('#orders').replaceChildren();
     more.classList.add('hidden');
-    renderOrderMap(list).catch(error => showOrderMapStatus(error.message));
+    ensureOrderMapCurrent(list).catch(error => showOrderMapStatus(error.message));
     return;
   }
   let visible = list.slice(0, visibleOrderLimit);
@@ -992,6 +997,27 @@ function scheduleOrderMapFit() {
   }, 1400);
 }
 
+function orderMapSignature(orders = filteredOrders()) {
+  return [
+    orderMapDataRevision,
+    selectedOriginCoordinates,
+    orders.map(order => order.id).join(',')
+  ].join('|');
+}
+
+function resumeOrderMap() {
+  showOrderMapStatus('');
+  requestAnimationFrame(() => orderMap?.resize?.());
+}
+
+function ensureOrderMapCurrent(orders = filteredOrders()) {
+  if (orderMap && orderMapRenderedSignature === orderMapSignature(orders)) {
+    resumeOrderMap();
+    return Promise.resolve();
+  }
+  return renderOrderMap(orders);
+}
+
 async function renderOrderMap(orders = filteredOrders()) {
   const renderRequest = ++orderMapRenderRequest;
   showOrderMapStatus('正在加载订单地图…');
@@ -1008,6 +1034,7 @@ async function renderOrderMap(orders = filteredOrders()) {
   const points = orderMapPoints(orders);
   if (!points.length) {
     if (renderRequest !== orderMapRenderRequest) return;
+    orderMapRenderedSignature = orderMapSignature(orders);
     applyOrderMapViewport(points);
     showOrderMapStatus('当前筛选结果中没有已确认坐标的订单');
     return;
@@ -1040,6 +1067,7 @@ async function renderOrderMap(orders = filteredOrders()) {
   if (renderRequest !== orderMapRenderRequest) return;
   applyOrderMapViewport(points);
   scheduleOrderMapFit();
+  orderMapRenderedSignature = orderMapSignature(orders);
   showOrderMapStatus('');
 }
 
@@ -1049,7 +1077,7 @@ function setTeacherViewMode(mode) {
   $('#orderListMore').classList.toggle('hidden', teacherViewMode === 'map');
   $('#orderMapPanel').classList.toggle('hidden', teacherViewMode !== 'map');
   if (activeView === 'teacher') setView('teacher');
-  if (teacherViewMode === 'map') return renderOrderMap().catch(error => showOrderMapStatus(error.message));
+  if (teacherViewMode === 'map') return ensureOrderMapCurrent().catch(error => showOrderMapStatus(error.message));
   renderOrders();
   return Promise.resolve();
 }
@@ -1293,7 +1321,7 @@ async function showAllOrdersOnMap() {
   activeMapRouteOrderId = '';
   $('#orderMapRouteSummary').classList.add('hidden');
   $('#activeMapRouteHint').textContent = '正在总览当前筛选中的全部订单';
-  await renderOrderMap(visibleOrders);
+  await ensureOrderMapCurrent(visibleOrders);
   await new Promise(resolve => window.setTimeout(resolve, 420));
   fitOrderMapPoints(orderMapPoints(visibleOrders));
   toast('已显示全部订单位置');
