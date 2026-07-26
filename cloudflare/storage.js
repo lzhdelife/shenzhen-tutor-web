@@ -309,21 +309,6 @@ function createRepository(env = {}) {
     return Number(result?.meta?.changes || result?.changes || 0);
   }
 
-  async function createFeedback(input) {
-    const id = input.id || makeId('f');
-    await run('INSERT INTO feedback (id, name, contact, content, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, input.name || '', input.contact || '', input.content, input.status || 'new', input.createdAt || nowIso()]);
-    return mapRow(await first('SELECT * FROM feedback WHERE id = ?', [id]));
-  }
-
-  async function listFeedback(filters = {}) {
-    const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
-    const rows = filters.status === undefined
-      ? await all('SELECT * FROM feedback ORDER BY created_at DESC LIMIT ?', [limit])
-      : await all('SELECT * FROM feedback WHERE status = ? ORDER BY created_at DESC LIMIT ?', [filters.status, limit]);
-    return rows.map(mapRow);
-  }
-
   async function createAnnouncement(input) {
     const timestamp = input.createdAt || nowIso();
     const id = input.id || makeId('n');
@@ -361,7 +346,7 @@ function createRepository(env = {}) {
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, listOrders,
     updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats,
-    listFeedback, createFeedback, listAnnouncements, createAnnouncement,
+    listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,
     completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };
 }

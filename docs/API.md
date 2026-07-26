@@ -19,7 +19,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/state` | 可选登录 | 返回页面状态；管理员可看到用户/反馈，中介所有者可看到申请人 |
+| GET | `/api/state` | 可选登录 | 返回页面状态；中介所有者可看到自己订单的申请人 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
 | GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
 | GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
@@ -28,7 +28,6 @@
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
-| POST | `/api/feedback` | 公共 | 提交问题反馈，最多保留最近 200 条 |
 
 ### 匿名浏览器身份
 
@@ -171,11 +170,9 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 }
 ```
 
-### 修改权限
+### 订单管理
 
-- 中介可修改：`status`、地点、科目、年级、价格、时间、性别、学生、要求和原文。
-- 管理员通过单条 `PATCH` 只能修改 `status`。
-- 状态值由前端使用 `open`、`matched`、`closed`；服务端当前没有严格枚举校验。
+订单发布后不再提供状态切换或单条修改，发单端和管理端均只保留删除操作。历史订单状态字段继续兼容读取。
 
 ## 账号密码接口
 
@@ -183,7 +180,6 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 | --- | --- | --- | --- |
 | POST | `/api/account/password` | teacher/agency | 登录状态下修改当前角色密码 |
 | POST | `/api/account/password-by-identity` | 公共 + 原密码 | 按名称/手机号同时修改双角色密码 |
-| POST | `/api/admin/reset-password` | admin | 管理员重置同一身份的双角色密码 |
 
 修改密码会撤销该身份全部记住登录令牌。
 
@@ -194,7 +190,6 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 | POST | `/api/admin/setup` | 未配置时公共 | 首次设置至少 8 位管理员密码 |
 | POST | `/api/admin/login` | 公共 | 管理员密码登录 |
 | POST | `/api/admin/batch-delete-orders` | admin | 最多接收 5000 个订单 ID |
-| POST | `/api/admin/batch-delete-users` | admin | 删除选中身份、关联订单/申请/会话 |
 | POST | `/api/admin/announcement` | admin | 发布或撤下公告 |
 | POST | `/api/settings` | admin | 保存默认地址和距离参数；不接收高德 Key |
 | POST | `/api/admin/reconcile-locations` | admin | 对指定或全部订单重新核验地点 |
@@ -205,12 +200,6 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 { "orderIds": ["o-...", "o-..."] }
 ```
 
-批量删除用户请求：
-
-```json
-{ "userIds": ["u-...", "u-..."] }
-```
-
 同一“名称 + 手机号”的老师和中介会作为一个身份一起删除。
 
 ## `/api/state` 返回裁剪
@@ -219,7 +208,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 - 老师：订单不包含申请人明细。
 - 中介：自己的订单包含申请人明细，其他订单不包含。
-- 管理员：所有申请人、用户列表和反馈列表可见。
+- 管理员：可查看全部订单和申请人。
 - `passwordHash`、`adminPasswordHash`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。高德 Key 仅存在于服务端环境/Secret，任何 API 都不返回。
 
 ## CORS 和浏览器说明

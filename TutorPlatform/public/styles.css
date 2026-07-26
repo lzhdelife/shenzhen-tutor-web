@@ -836,20 +836,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .status-badge.closed { color: #8b3340; background: #f8e7e9; }
 .admin-order-summary { margin-top: 12px; color: #435160; font-size: 12px; font-weight: 800; }
 .admin-order-card .applicant-list { margin-top: 7px; }
-.admin-user-list { display: grid; }
-.admin-user-row {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 0;
-  border-top: 1px solid var(--line);
-}
-.admin-user-row:first-child { border-top: 0; }
-.admin-user-main { min-width: 0; }
-.admin-user-main strong { display: block; margin-bottom: 2px; overflow-wrap: anywhere; }
-.admin-user-row > button { min-height: 34px; }
 .empty-state { padding: 22px 12px; color: var(--muted); text-align: center; }
 .applicant-list { display: grid; gap: 8px; margin-top: 9px; }
 .applicant-item { padding: 9px 11px; border: 1px solid #cbdcf4; border-left: 4px solid var(--blue); border-radius: 6px; background: #f6f9fe; line-height: 1.55; }
@@ -1035,8 +1021,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .admin-section-head { align-items: stretch; flex-direction: column; }
   .bulk-toolbar { justify-content: flex-start; }
   .card-head-side { flex-direction: column; align-items: flex-end; }
-  .admin-user-row { grid-template-columns: 20px minmax(0, 1fr); }
-  .admin-user-row > button { grid-column: 2; justify-self: start; }
   .grid { grid-template-columns: 1fr; }
   .contact-panel { padding: 10px; }
   .contact-card { padding: 16px; }

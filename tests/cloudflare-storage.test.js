@@ -141,14 +141,12 @@ async function run() {
   assert.deepEqual(await repo.getVisitorStats(1500), { totalVisitors: 2, onlineVisitors: 2 });
   assert.equal(db.tables.visitor_activity.find(row => row.visitor_id === 'visitor-one').visit_count, 2);
   await repo.createAnnouncement({ id: 'n-one', title: '测试公告', content: '仅合成内容', active: true });
-  await repo.createFeedback({ id: 'f-one', name: '访客', content: '测试反馈' });
   const state = await repo.getPublicState();
   assert.equal(state.settings.maxBikeKm, 12);
   assert.equal(state.settings.adminPasswordHash, undefined);
   assert.equal(state.adminConfigured, true);
   assert.equal(state.announcement.title, '测试公告');
   assert.equal(state.orders[0].id, order.id);
-  assert.equal((await repo.listFeedback())[0].content, '测试反馈');
 
   const capture = await repo.createClipboardCapture({ captureId: 'capture-storage-1', text: 'clipboard order' });
   assert.equal(capture.status, 'pending');

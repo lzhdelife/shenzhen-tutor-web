@@ -419,13 +419,10 @@ function createWorker(dependencies = {}) {
           })));
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
-          const allUsers = viewer?.role === 'admin' ? await repo.listUsers() : [];
           const platformSettings = await repo.getSettings();
           return json({ ...state, announcement: announcements ? (announcements[0] || null) : state.announcement,
             settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm || 12 }, viewer,
             adminConfigured: Boolean(state.adminConfigured), orders,
-            users: allUsers.map(user => ({ id: user.id, role: user.role, name: user.name, phone: user.phone, passwordSet: Boolean(user.passwordHash), createdAt: user.createdAt })),
-            feedback: viewer?.role === 'admin' ? await repo.listFeedback() : [],
             stats: { totalVisits: Math.max(0, Number(platformSettings.totalVisits) || 0) }, lists: LISTS });
         }
         if (method === 'GET' && path === '/api/stats') {
@@ -450,12 +447,6 @@ function createWorker(dependencies = {}) {
           const settings = await repo.getSettings();
           const visitors = await repo.getVisitorStats(Date.now() - ONLINE_WINDOW_MS);
           return json({ ...visitors, totalVisits: Math.max(0, Number(settings.totalVisits) || 0) });
-        }
-        if (method === 'POST' && path === '/api/feedback') {
-          const data = await bodyJson(request), content = text(data.content);
-          if (content.length < 2) return error('请填写反馈内容');
-          await repo.createFeedback({ name: text(data.name), contact: text(data.contact), content });
-          return json({ ok: true });
         }
         if (path === '/api/teacher/preferences' && ['GET', 'PUT'].includes(method)) {
           const teacher = await requireRole(repo, request, 'teacher');
@@ -588,12 +579,10 @@ function createWorker(dependencies = {}) {
           const agency = await requireRole(repo, request, 'agency');
           if (!agency) return error('请先以中介身份登录', 401);
           const data = await bodyJson(request);
-          if (!['close', 'delete'].includes(data.action)) return error('不支持的批量操作');
+          if (data.action !== 'delete') return error('不支持的批量操作');
           const orders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
-          const targets = data.action === 'close' ? orders.filter(order => order.status !== 'closed') : orders;
-          if (data.action === 'close') await Promise.all(targets.map(order => repo.updateOrder(order.id, { status: 'closed' })));
-          else await Promise.all(targets.map(order => repo.deleteOrder(order.id)));
-          return json({ action: data.action, affected: targets.length });
+          await Promise.all(orders.map(order => repo.deleteOrder(order.id)));
+          return json({ action: 'delete', affected: orders.length });
         }
         const apply = path.match(/^\/api\/orders\/([^/]+)\/apply$/);
         if (method === 'POST' && apply) {
@@ -623,17 +612,12 @@ function createWorker(dependencies = {}) {
           return json(await repo.updateOrder(order.id, { ...confirmed, locationCandidates: order.locationCandidates || [] }));
         }
         const orderRoute = path.match(/^\/api\/orders\/([^/]+)$/);
-        if (orderRoute && ['PATCH', 'DELETE'].includes(method)) {
+        if (orderRoute && method === 'DELETE') {
           const order = await repo.getOrderById(orderRoute[1]);
           if (!order) return error('订单不存在', 404);
           if (!viewer || !(viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId))) return error('你只能管理自己发布的订单', 403);
-          if (method === 'DELETE') {
-            await repo.deleteOrder(order.id); return json({ ok: true });
-          }
-          const data = await bodyJson(request);
-          const allowed = viewer.role === 'admin' ? ['status'] : ['status', 'district', 'place', 'placeOriginal', 'address', 'subject', 'grade', 'gradeDescription', 'price', 'priceMin', 'priceMax', 'priceUnit', 'hourlyPrice', 'priceText', 'monthly', 'schedule', 'gender', 'student', 'studentGender', 'requirements', 'raw'];
-          const patch = {}; for (const key of allowed) if (Object.prototype.hasOwnProperty.call(data, key)) patch[key] = data[key];
-          return json(await repo.updateOrder(order.id, patch));
+          await repo.deleteOrder(order.id);
+          return json({ ok: true });
         }
         if (method === 'POST' && path === '/api/admin/announcement') {
           if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);

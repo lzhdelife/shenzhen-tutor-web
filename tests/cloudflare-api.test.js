@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], feedback: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -31,8 +31,6 @@ function memoryRepository() {
     async recordVisitorVisit(id) { const item = state.visitors.get(id); state.visitors.set(id, item ? { ...item, lastSeenAt: Date.now(), visits: item.visits + 1 } : { lastSeenAt: Date.now(), visits: 1 }); },
     async touchVisitor(id) { const item = state.visitors.get(id); state.visitors.set(id, { ...item, lastSeenAt: Date.now(), visits: item?.visits || 1 }); },
     async getVisitorStats(since) { const values = [...state.visitors.values()]; return { totalVisitors: values.length, onlineVisitors: values.filter(item => item.lastSeenAt >= since).length }; },
-    async listFeedback() { return state.feedback; },
-    async createFeedback(input) { state.feedback.push(input); return input; },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
     async createClipboardCapture(input) { const existing = state.clipboard.get(input.captureId); if (existing) return existing; const capture = { ...input, status: 'pending', attempts: 0 }; state.clipboard.set(input.captureId, capture); return capture; },
@@ -68,6 +66,13 @@ test('管理端统计按访客去重并通过心跳计算在线人数', async ()
   } })).json();
   const response = await call('/api/admin/stats', { headers: { authorization: `Bearer ${setup.token}` } });
   assert.deepEqual(await response.json(), { totalVisitors: 2, onlineVisitors: 2, totalVisits: 2 });
+
+  const adminState = await (await call('/api/state', { headers: { authorization: `Bearer ${setup.token}` } })).json();
+  assert.equal('users' in adminState, false);
+  assert.equal('feedback' in adminState, false);
+  assert.equal((await call('/api/feedback', { method: 'POST', body: { content: 'test' } })).status, 404);
+  assert.equal((await call('/api/admin/reset-password', { method: 'POST', headers: { authorization: `Bearer ${setup.token}` }, body: {} })).status, 404);
+  assert.equal((await call('/api/admin/batch-delete-users', { method: 'POST', headers: { authorization: `Bearer ${setup.token}` }, body: {} })).status, 404);
 });
 
 function harness(extra = {}, envOverrides = {}) {
@@ -237,9 +242,8 @@ test('agency creates an order and teacher applies without duplicate application'
   assert.equal(state.orders[0].applicantCount, 1);
   assert.equal(state.orders[0].applicants.length, 1);
 
-  const closeAll = await (await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'close' } })).json();
-  assert.equal(closeAll.affected, 1);
-  assert.equal(repo.state.orders.get(order.id).status, 'closed');
+  assert.equal((await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'close' } })).status, 400);
+  assert.equal((await call(`/api/orders/${order.id}`, { method: 'PATCH', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { status: 'closed' } })).status, 404);
   const deleteAll = await (await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'delete' } })).json();
   assert.equal(deleteAll.affected, 1);
   assert.equal(repo.state.orders.size, 0);

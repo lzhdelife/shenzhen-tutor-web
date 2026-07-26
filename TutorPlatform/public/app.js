@@ -1,4 +1,4 @@
-let state = { viewer: null, settings: {}, users: [], orders: [], feedback: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0 }, lists: { districts: [], subjects: [], grades: [] } };
+let state = { viewer: null, settings: {}, orders: [], stats: { totalVisits: 0 }, adminStats: { totalVisitors: 0, onlineVisitors: 0 }, lists: { districts: [], subjects: [], grades: [] } };
 let currentTeacher = JSON.parse(localStorage.getItem('teacherUser') || 'null');
 let currentAgency = JSON.parse(localStorage.getItem('agencyUser') || 'null');
 let teacherToken = sessionStorage.getItem('teacherToken') || '';
@@ -145,8 +145,6 @@ async function load() {
   renderOrders();
   renderAgencyOrders();
   renderAdmin();
-  renderAdminUsers();
-  renderFeedbackList();
   renderPlatformStats();
   renderAdminStats();
   syncShell();
@@ -1247,7 +1245,7 @@ function renderAdmin() {
   const root = $('#adminOrders');
   if (!adminToken) {
     root.innerHTML = '';
-    updateAdminBulkControls('orders');
+    updateAdminBulkControls();
     return;
   }
   root.innerHTML = state.orders.length ? state.orders.map(o => {
@@ -1278,82 +1276,26 @@ function renderAdmin() {
           : '<div class="raw">暂无接单老师</div>'}
       </div>
       <div class="actions">
-        <button class="secondary" onclick="setStatus('${o.id}','open')">开放</button>
-        <button class="secondary" onclick="setStatus('${o.id}','matched')">已成交</button>
-        <button class="danger" onclick="setStatus('${o.id}','closed')">关闭</button>
         <button class="danger" onclick="deleteOrder('${o.id}','admin')">删除</button>
       </div>
     </article>`;
   }).join('') : '<div class="empty-state">目前没有订单。</div>';
-  updateAdminBulkControls('orders');
+  updateAdminBulkControls();
 }
 
-function renderAdminUsers() {
-  const root = $('#adminUsers');
-  if (!root) return;
-  if (!adminToken) {
-    root.innerHTML = '';
-    updateAdminBulkControls('users');
-    return;
-  }
-  const users = (state.users || []).filter(u => u.role === 'teacher' || u.role === 'agency');
-  const grouped = new Map();
-  for (const user of users) {
-    const key = user.phone ? `${user.name}\u0000${user.phone}` : user.id;
-    if (!grouped.has(key)) grouped.set(key, { ...user, ids: [], roles: [], passwordStates: [] });
-    const account = grouped.get(key);
-    account.ids.push(user.id);
-    account.roles.push(user.role);
-    account.passwordStates.push(user.passwordSet);
-  }
-  const accounts = [...grouped.values()];
-  root.innerHTML = accounts.length ? accounts.map(account => {
-    const roles = [...new Set(account.roles)].map(role => role === 'teacher' ? '老师' : '中介').join(' / ');
-    const passwordSet = account.passwordStates.every(Boolean);
-    return `<div class="admin-user-row">
-      <label class="selection-check admin-user-select-wrap">
-        <input class="admin-user-select" type="checkbox" value="${escapeHtml(account.ids.join(','))}" aria-label="选择账号 ${escapeHtml(account.name || '')}">
-        <span class="sr-only">选择</span>
-      </label>
-      <div class="admin-user-main">
-        <strong>${escapeHtml(account.name || '未填写名称')}</strong>
-        <div class="raw">${escapeHtml(account.phone || '未填写联系方式')} · ${escapeHtml(roles)} · ${passwordSet ? '已设置密码' : '未设置密码'}</div>
-      </div>
-      <button class="secondary" type="button" onclick="resetUserPassword('${account.ids[0]}')">重置密码</button>
-    </div>`;
-  }).join('') : '<div class="empty-state">还没有老师或中介账号。</div>';
-  updateAdminBulkControls('users');
-}
-
-function updateAdminBulkControls(type) {
-  const isOrders = type === 'orders';
-  const root = $(isOrders ? '#adminOrders' : '#adminUsers');
-  const selectAll = $(isOrders ? '#selectAllAdminOrders' : '#selectAllAdminUsers');
-  const deleteButton = $(isOrders ? '#batchDeleteAdminOrders' : '#batchDeleteAdminUsers');
-  const countLabel = $(isOrders ? '#adminOrderSelectionCount' : '#adminUserSelectionCount');
+function updateAdminBulkControls() {
+  const root = $('#adminOrders');
+  const selectAll = $('#selectAllAdminOrders');
+  const deleteButton = $('#batchDeleteAdminOrders');
+  const countLabel = $('#adminOrderSelectionCount');
   if (!root || !selectAll || !deleteButton || !countLabel) return;
-  const boxes = $$(isOrders ? '.admin-order-select' : '.admin-user-select', root);
+  const boxes = $$('.admin-order-select', root);
   const selected = boxes.filter(box => box.checked);
   selectAll.disabled = !boxes.length;
   selectAll.checked = Boolean(boxes.length && selected.length === boxes.length);
   selectAll.indeterminate = selected.length > 0 && selected.length < boxes.length;
   deleteButton.disabled = selected.length === 0;
-  countLabel.textContent = isOrders ? `已选 ${selected.length} 条` : `已选 ${selected.length} 个`;
-}
-
-function renderFeedbackList() {
-  const root = $('#adminFeedback');
-  if (!root) return;
-  if (!adminToken) {
-    root.innerHTML = '';
-    return;
-  }
-  const list = state.feedback || [];
-  root.innerHTML = list.length ? list.map(item => `<div class="admin-row">
-    <strong>${escapeHtml(item.name || '匿名反馈')}</strong>
-    <div class="raw">${escapeHtml(item.contact || '未留联系方式')} · ${new Date(item.createdAt).toLocaleString()}</div>
-    <div>${escapeHtml(item.content || '')}</div>
-  </div>`).join('') : '<div class="raw">暂时没有反馈。</div>';
+  countLabel.textContent = `已选 ${selected.length} 条`;
 }
 
 function renderAgencyOrders() {
@@ -1769,12 +1711,6 @@ async function applyOrder(id) {
   (form.elements.name.value ? form.elements.note : form.elements.name).focus();
 }
 
-async function setStatus(id, status) {
-  await api(`/api/orders/${id}`, { method: 'PATCH', body: { status } }, adminToken);
-  toast('状态已更新');
-  await load();
-}
-
 async function deleteOrder(id, actor) {
   if (!confirm('确定永久删除这条订单吗？删除后无法恢复。')) return;
   await api(`/api/orders/${id}`, { method: 'DELETE' }, actor === 'admin' ? adminToken : agencyToken);
@@ -1844,23 +1780,6 @@ async function batchDeleteAdminOrders() {
   await load();
 }
 
-async function batchDeleteAdminUsers() {
-  const userIds = $$('.admin-user-select:checked', $('#adminUsers'))
-    .flatMap(input => input.value.split(','))
-    .filter(Boolean);
-  const accountCount = $$('.admin-user-select:checked', $('#adminUsers')).length;
-  if (!userIds.length) return toast('请先选择要删除的账号');
-  const warning = `确定永久删除已选的 ${accountCount} 个账号吗？这些账号发布的订单也会同时删除，操作无法恢复。`;
-  if (!confirm(warning)) return;
-  const result = await api('/api/admin/batch-delete-users', {
-    method: 'POST',
-    body: { userIds }
-  }, adminToken);
-  const orderText = result.deletedOrders ? `，同时删除 ${result.deletedOrders} 条关联订单` : '';
-  toast(`已删除 ${result.deletedAccounts} 个账号${orderText}`);
-  await load();
-}
-
 async function changePassword(role, form) {
   const token = role === 'teacher' ? teacherToken : agencyToken;
   if (!token) return toast(role === 'teacher' ? '请先登录老师账号' : '请先登录中介账号');
@@ -1872,16 +1791,6 @@ async function changePassword(role, form) {
   invalidateCredentialForIdentity(user?.name, user?.phone);
   form.reset();
   toast('密码已修改');
-}
-
-async function resetUserPassword(userId) {
-  const user = (state.users || []).find(u => u.id === userId);
-  const newPassword = prompt(`给 ${user?.name || '这个账号'} 设置新密码（至少6位）`);
-  if (newPassword === null) return;
-  if (newPassword.trim().length < 6) return toast('新密码至少需要6位');
-  await api('/api/admin/reset-password', { method: 'POST', body: { userId, newPassword: newPassword.trim() } }, adminToken);
-  toast('密码已重置，请把新密码告诉对方');
-  await load();
 }
 
 function coordinatePair(value) {
@@ -2193,29 +2102,16 @@ $$('.close-auth-panel').forEach(button => button.addEventListener('click', () =>
 $('#logoutButton').addEventListener('click', logout);
 
 $('#adminOrders').addEventListener('change', event => {
-  if (event.target.matches('.admin-order-select')) updateAdminBulkControls('orders');
-});
-
-$('#adminUsers').addEventListener('change', event => {
-  if (event.target.matches('.admin-user-select')) updateAdminBulkControls('users');
+  if (event.target.matches('.admin-order-select')) updateAdminBulkControls();
 });
 
 $('#selectAllAdminOrders').addEventListener('change', event => {
   $$('.admin-order-select', $('#adminOrders')).forEach(input => { input.checked = event.currentTarget.checked; });
-  updateAdminBulkControls('orders');
-});
-
-$('#selectAllAdminUsers').addEventListener('change', event => {
-  $$('.admin-user-select', $('#adminUsers')).forEach(input => { input.checked = event.currentTarget.checked; });
-  updateAdminBulkControls('users');
+  updateAdminBulkControls();
 });
 
 $('#batchDeleteAdminOrders').addEventListener('click', () => {
   batchDeleteAdminOrders().catch(err => toast(err.message));
-});
-
-$('#batchDeleteAdminUsers').addEventListener('click', () => {
-  batchDeleteAdminUsers().catch(err => toast(err.message));
 });
 
 $('#teacherLocationForm').addEventListener('submit', async event => {

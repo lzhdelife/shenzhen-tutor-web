@@ -62,7 +62,6 @@ function readDb() {
   db.settings ||= {};
   db.users ||= [];
   db.orders ||= [];
-  db.feedback ||= [];
   db.clipboardInbox ||= [];
   db.clipboardReceipts ||= [];
   db.rememberSessions ||= [];
@@ -2231,17 +2230,6 @@ function publicDb(db, viewer = null) {
       maxBikeKm: db.settings.maxBikeKm || 12
     },
     adminConfigured: Boolean(db.settings.adminPasswordHash),
-    users: viewer && viewer.role === 'admin'
-      ? db.users.map(user => ({
-          id: user.id,
-          role: user.role,
-          name: user.name,
-          phone: user.phone,
-          passwordSet: Boolean(user.passwordHash),
-          createdAt: user.createdAt
-        }))
-      : [],
-    feedback: viewer && viewer.role === 'admin' ? db.feedback || [] : [],
     stats: platformStats(db),
     orders,
     lists: LISTS
@@ -2653,23 +2641,6 @@ async function handleApi(req, res) {
     return send(res, 200, { token });
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/feedback') {
-    const data = await bodyJson(req);
-    const content = textOf(data.content);
-    if (content.length < 2) return send(res, 400, { error: '请填写反馈内容' });
-    db.feedback ||= [];
-    db.feedback.unshift({
-      id: 'f-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
-      name: textOf(data.name),
-      contact: textOf(data.contact),
-      content,
-      createdAt: new Date().toISOString()
-    });
-    db.feedback = db.feedback.slice(0, 200);
-    writeDb(db);
-    return send(res, 200, { ok: true });
-  }
-
   if (req.method === 'POST' && url.pathname === '/api/distance-preview') {
     const teacher = requireRole(req, res, 'teacher');
     if (!teacher) return;
@@ -2750,25 +2721,6 @@ async function handleApi(req, res) {
     return send(res, 200, { ok: true });
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/admin/reset-password') {
-    if (!requireRole(req, res, 'admin')) return;
-    const data = await bodyJson(req);
-    const userId = textOf(data.userId);
-    const newPassword = textOf(data.newPassword);
-    if (newPassword.length < 6) return send(res, 400, { error: '新密码至少需要6位' });
-    const user = db.users.find(u => u.id === userId && ['teacher', 'agency'].includes(u.role));
-    if (!user) return send(res, 404, { error: '账号不存在' });
-    const identityUsers = db.users.filter(candidate => (
-      candidate.id === user.id || (
-        user.phone && candidate.name === user.name && candidate.phone === user.phone
-      )
-    ));
-    for (const identityUser of identityUsers) identityUser.passwordHash = passwordHash(newPassword);
-    revokeRememberIdentity(db, user.name, user.phone);
-    writeDb(db);
-    return send(res, 200, { ok: true, updatedUsers: identityUsers.length });
-  }
-
   if (req.method === 'POST' && url.pathname === '/api/admin/batch-delete-orders') {
     if (!requireRole(req, res, 'admin')) return;
     const data = await bodyJson(req);
@@ -2781,57 +2733,6 @@ async function handleApi(req, res) {
     if (!deletedOrders) return send(res, 404, { error: '所选订单已经不存在' });
     writeDb(db);
     return send(res, 200, { ok: true, deletedOrders });
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/admin/batch-delete-users') {
-    if (!requireRole(req, res, 'admin')) return;
-    const data = await bodyJson(req);
-    const userIds = uniq((Array.isArray(data.userIds) ? data.userIds : []).map(textOf)).slice(0, 5000);
-    if (!userIds.length) return send(res, 400, { error: '请先选择要删除的账号' });
-
-    const requestedIds = new Set(userIds);
-    const selectedUsers = db.users.filter(user => requestedIds.has(user.id) && ['teacher', 'agency'].includes(user.role));
-    if (!selectedUsers.length) return send(res, 404, { error: '所选账号已经不存在' });
-
-    const belongsToSelectedIdentity = user => selectedUsers.some(selected => (
-      user.id === selected.id || (
-        selected.phone && user.name === selected.name && user.phone === selected.phone
-      )
-    ));
-    const usersToDelete = db.users.filter(user => ['teacher', 'agency'].includes(user.role) && belongsToSelectedIdentity(user));
-    const deletedUserIds = new Set(usersToDelete.map(user => user.id));
-    const deletedAgencyIds = new Set(usersToDelete.filter(user => user.role === 'agency').map(user => user.id));
-    const deletedTeacherIds = new Set(usersToDelete.filter(user => user.role === 'teacher').map(user => user.id));
-    const deletedIdentityKeys = new Set(usersToDelete.map(user => `${textOf(user.name)}\u0000${textOf(user.phone)}`));
-
-    db.users = db.users.filter(user => !deletedUserIds.has(user.id));
-    const orderCountBefore = db.orders.length;
-    db.orders = db.orders.filter(order => !deletedAgencyIds.has(order.agencyId));
-    const deletedOrders = orderCountBefore - db.orders.length;
-    let deletedApplications = 0;
-    for (const order of db.orders) {
-      const beforeApplicants = order.applicants?.length || 0;
-      order.applicants = (order.applicants || []).filter(applicant => {
-        const identityKey = `${textOf(applicant.name)}\u0000${textOf(applicant.phone)}`;
-        return !deletedTeacherIds.has(applicant.teacherId) && !deletedIdentityKeys.has(identityKey);
-      });
-      deletedApplications += beforeApplicants - order.applicants.length;
-    }
-    db.rememberSessions = (db.rememberSessions || []).filter(item => (
-      !deletedIdentityKeys.has(`${textOf(item.name)}\u0000${textOf(item.phone)}`)
-    ));
-    for (const [token, session] of sessions) {
-      if (deletedUserIds.has(session.id)) sessions.delete(token);
-    }
-
-    writeDb(db);
-    return send(res, 200, {
-      ok: true,
-      deletedAccounts: deletedIdentityKeys.size,
-      deletedUserRecords: usersToDelete.length,
-      deletedOrders,
-      deletedApplications
-    });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/admin/announcement') {
@@ -2996,21 +2897,12 @@ async function handleApi(req, res) {
     const agency = requireRole(req, res, 'agency');
     if (!agency) return;
     const data = await bodyJson(req);
-    if (!['close', 'delete'].includes(data.action)) return send(res, 400, { error: '不支持的批量操作' });
+    if (data.action !== 'delete') return send(res, 400, { error: '不支持的批量操作' });
     const ownedOrders = db.orders.filter(order => order.agencyId === agency.id);
-    let affected = 0;
-    if (data.action === 'close') {
-      for (const order of ownedOrders) {
-        if (order.status === 'closed') continue;
-        order.status = 'closed';
-        affected++;
-      }
-    } else {
-      affected = ownedOrders.length;
-      db.orders = db.orders.filter(order => order.agencyId !== agency.id);
-    }
+    const affected = ownedOrders.length;
+    db.orders = db.orders.filter(order => order.agencyId !== agency.id);
     if (affected) writeDb(db);
-    return send(res, 200, { action: data.action, affected });
+    return send(res, 200, { action: 'delete', affected });
   }
 
   if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/apply$/)) {
@@ -3041,27 +2933,6 @@ async function handleApi(req, res) {
       alreadyApplied,
       applicant: { name: applicant.name, phone: applicant.phone, at: applicant.at }
     });
-  }
-
-  if (req.method === 'PATCH' && url.pathname.match(/^\/api\/orders\/[^/]+$/)) {
-    const id = url.pathname.split('/')[3];
-    const data = await bodyJson(req);
-    const order = db.orders.find(o => o.id === id);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    const actor = sessionOf(req);
-    const allowed = actor && (actor.role === 'admin' || (actor.role === 'agency' && order.agencyId === actor.id));
-    if (!allowed) return send(res, 403, { error: '你只能管理自己发布的订单' });
-    const allowedFields = actor.role === 'admin'
-      ? ['status']
-      : ['status', 'district', 'place', 'placeOriginal', 'address', 'subject', 'grade', 'gradeDescription', 'price', 'priceMin', 'priceMax', 'priceUnit', 'hourlyPrice', 'priceText', 'monthly', 'schedule', 'gender', 'student', 'studentGender', 'requirements', 'raw'];
-    for (const key of allowedFields) {
-      if (Object.prototype.hasOwnProperty.call(data, key)) order[key] = data[key];
-    }
-    const locationChanged = ['district', 'place', 'address'].some(key => Object.prototype.hasOwnProperty.call(data, key));
-    if (locationChanged) await enrichOrder(order, db.settings);
-    else order.score = score(order, db.settings);
-    writeDb(db);
-    return send(res, 200, order);
   }
 
   if (req.method === 'DELETE' && url.pathname.match(/^\/api\/orders\/[^/]+$/)) {
