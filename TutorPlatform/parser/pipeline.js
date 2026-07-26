@@ -124,7 +124,7 @@ function buildRuleStructuredOrder(ruleOrder, rawText) {
     gradeCurrent: sourced(ruleOrder.grade || '', evidence(raw, /幼儿园|(?:准)?小[一二三四五六]|[一二三四五六]年级|初[一二三]|高[一二三]|大学|成人/), ruleOrder.grade && ruleOrder.grade !== '其他' ? 0.95 : 0.2),
     gradeNext: sourced(/预习高一|熟悉高一/.test(raw) ? '高一' : '', evidence(raw, /预习高一|熟悉高一/), /预习高一|熟悉高一/.test(raw) ? 0.95 : 0),
     gradeContext: sourced(ruleOrder.gradeDescription || ruleOrder.grade || '', evidence(raw, /初三(?:刚)?毕业[^，。；;]*/), 0.9),
-    subjectsCurrent: sourced(subjects(ruleOrder.subject), evidence(raw, /语数英|数理化|语文|数学|英语|物理|化学|生物/), 0.95),
+    subjectsCurrent: sourced(ruleOrder.subject === '其他' ? [] : subjects(ruleOrder.subject), evidence(raw, /语数英|数理化|语文|数学|英语|物理|化学|生物/), ruleOrder.subject && ruleOrder.subject !== '其他' ? 0.95 : 0),
     subjectsPossible: sourced(subjects(ruleOrder.optionalSubjects), evidence(raw, /后续可能[^，。；;]*/), ruleOrder.optionalSubjects ? 0.95 : 0),
     subjectContext: sourced(ruleOrder.optionalSubjects ? '后续可能增加' : '', evidence(raw, /后续可能[^，。；;]*/), ruleOrder.optionalSubjects ? 0.9 : 0),
     studentGender: sourced(ruleOrder.studentGender || '', evidence(raw, /女生|女孩|男生|男孩|(?:高|初)[一二三]\s*[男女]/), ruleOrder.studentGender ? 0.95 : 0),

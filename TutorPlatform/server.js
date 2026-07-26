@@ -1250,8 +1250,8 @@ function extractPrice(text) {
   if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
   m = source.match(/(\d{2,5})\s*\/\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
   if (m) return finish(Number(m[1]) / Number(m[2]), m[0]);
-  m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每小时)/i)
-    || source.match(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(小时|h|时)/i);
+  m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每(?:个)?小时)/i)
+    || source.match(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(?:个)?\s*(小时|h|时)/i);
   if (m) return finish(Number(m[1]), m[0]);
   m = salary ? source.match(/(\d{2,5})/) : source.match(/(?:时薪|课酬|薪酬|课费|报酬)[^0-9]{0,8}(\d{2,5})/);
   if (m) return finish(Number(m[1]), m[0]);
@@ -1267,6 +1267,7 @@ function parseOrder(raw, source = '', agencyId = '') {
     .replace(/\bBARK\s*[:：]?/gi, '老师要求：')
     .replace(/\bBAR\s*[:：]?/gi, '老师要求：')
     .replace(/(?:^|\n)\s*BR\s*[:：]\s*/gi, '\n老师要求：')
+    .replace(/[『「]\s*([^』」：:]{1,12})\s*[』」]\s*[:：]?/g, '【$1】')
     .replace(/[【\[]\s*([^】\]：:]{1,12})\s*[：:]\s*[】\]]/g, '【$1】')
     .replace(/\[\s*([^】\]]{1,12})\s*】/g, '【$1】')
     .replace(/【\s*([^】\]]{1,12})\s*\]/g, '【$1】')
