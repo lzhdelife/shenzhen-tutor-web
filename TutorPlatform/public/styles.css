@@ -902,28 +902,11 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .selection-check input:focus-visible { outline: 3px solid rgba(36, 88, 211, .2); outline-offset: 2px; }
 .selection-count { min-width: 72px; color: var(--muted); font-size: 12px; text-align: center; }
 .bulk-toolbar button { min-height: 36px; }
-.admin-order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); gap: 12px; }
-.admin-order-card { border-top: 3px solid #b9c6d4; }
+.admin-order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 12px; }
 .admin-order-card .actions { margin-top: auto; }
-.admin-card-select { padding-top: 3px; }
 .admin-card-select span { font-size: 12px; }
-.status-badge {
-  min-height: 29px;
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 8px;
-  border-radius: 5px;
-  color: #4b5b6d;
-  background: #edf0f3;
-  font-size: 12px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-.status-badge.open { color: #176344; background: var(--soft-green); }
-.status-badge.matched { color: #735607; background: #fff4c9; }
-.status-badge.closed { color: #8b3340; background: #f8e7e9; }
-.admin-order-summary { margin-top: 12px; color: #435160; font-size: 12px; font-weight: 800; }
-.admin-order-card .applicant-list { margin-top: 7px; }
+.admin-card-actions { align-items: center; justify-content: space-between; }
+.admin-card-actions .danger { margin-left: auto; }
 .empty-state { padding: 22px 12px; color: var(--muted); text-align: center; }
 .applicant-list { display: grid; gap: 8px; margin-top: 9px; }
 .applicant-item { padding: 9px 11px; border: 1px solid #cbdcf4; border-left: 4px solid var(--blue); border-radius: 6px; background: #f6f9fe; line-height: 1.55; }

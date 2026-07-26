@@ -474,6 +474,34 @@ test('import enriches every location option after fast parsing', async () => {
   assert.equal(body.created[0].locationCoordinates, '113.9460,22.5400');
 });
 
+test('admin can retry and persist coordinates for a stored unverified location', async () => {
+  const { call, repo } = harness({ fetchImpl: async url => {
+    assert.equal(new URL(String(url)).searchParams.get('keywords'), '深圳市光明区峰荟花园');
+    return new Response(JSON.stringify({ status: '1', pois: [{
+      id: 'fenghui-poi', name: '峰荟花园', adname: '光明区', address: '马田街道',
+      location: '113.9000,22.7500', type: '商务住宅;住宅区'
+    }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  } }, { AMAP_WEB_SERVICE_KEY: 'synthetic-test-value' });
+  const password = 'admin-location-password';
+  const setup = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password, passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  await repo.createOrder({
+    id: 'stored-unverified', agencyId: 'legacy-agency', raw: '光明区峰荟花园，初二英语',
+    district: '光明', place: '峰荟花园', subject: '英语', grade: '初二',
+    locationQuery: '深圳市光明区峰荟花园', locationStatus: 'unverified', locationCoordinates: ''
+  });
+
+  const response = await call('/api/admin/orders/stored-unverified/location/retry', {
+    method: 'POST', headers: { authorization: `Bearer ${setup.token}` }
+  });
+  assert.equal(response.status, 200);
+  const stored = await repo.getOrderById('stored-unverified');
+  assert.equal(stored.locationVerified, true);
+  assert.equal(stored.locationCoordinates, '113.9000,22.7500');
+  assert.equal(stored.locationPoiId, 'fenghui-poi');
+});
+
 test('import skips the same order despite whitespace punctuation and emoji differences', async () => {
   const { call, repo } = harness();
   const name = '去重测试机构', phone = ['136', '0013', '6000'].join(''), password = 'secret1';

@@ -1424,9 +1424,11 @@ function renderAdminAnomalies() {
   count.textContent = anomalies.length ? `${anomalies.length} 条需要检查` : '';
   root.innerHTML = anomalies.map(order => {
     const meta = orderDisplayMeta(order);
+    const canRetryLocation = order.qualityIssues.some(issue => issue.code === 'location_unverified');
     return `<article class="admin-anomaly-row">
       <div><strong>${escapeHtml(meta.title)}</strong><div class="anomaly-tags">${order.qualityIssues.map(issue => `<span>${escapeHtml(issue.label)}</span>`).join('')}</div></div>
       <div class="actions">
+        ${canRetryLocation ? `<button class="secondary" onclick="retryAdminOrderLocation('${order.id}', this)">重新识别地点</button>` : ''}
         <button class="secondary" onclick="openRawText('${encodedOrderRawText(order)}')">查看原文</button>
         <button class="danger" onclick="deleteOrder('${order.id}','admin')">删除</button>
       </div>
@@ -1504,26 +1506,20 @@ function renderAdmin() {
   }
   root.innerHTML = state.orders.length ? state.orders.map(o => {
     const meta = orderDisplayMeta(o);
-    const status = ['open', 'matched', 'closed'].includes(o.status) ? o.status : 'open';
     return `<article class="card admin-order-card">
       <div class="card-head">
-        <div class="card-title-group">
-          <label class="selection-check admin-card-select">
-            <input class="admin-order-select" type="checkbox" value="${escapeHtml(o.id)}" aria-label="选择订单 ${escapeHtml(meta.title)}">
-            <span>选择</span>
-          </label>
-          <div>
-            <div class="title">${escapeHtml(meta.title)}</div>
-            <div class="source-line">${escapeHtml(cleanDisplayText(o.source || '', 28) || '平台订单')} · ${new Date(o.createdAt).toLocaleString()}</div>
-          </div>
+        <div>
+          <div class="title">${escapeHtml(meta.title)}</div>
+          <div class="source-line">${escapeHtml(cleanDisplayText(o.source || '', 28) || '平台订单')} · ${new Date(o.createdAt).toLocaleString()}</div>
         </div>
-        <div class="card-head-side">
-          <span class="status-badge ${status}">${escapeHtml(statusLabel(status))}</span>
-          <div class="score">${orderScore(o)}分</div>
-        </div>
+        <div class="score">${orderScore(o)}分</div>
       </div>
       ${orderDetailMarkup(o, meta)}
-      <div class="actions">
+      <div class="actions admin-card-actions">
+        <label class="selection-check admin-card-select">
+          <input class="admin-order-select" type="checkbox" value="${escapeHtml(o.id)}" aria-label="选择订单 ${escapeHtml(meta.title)}">
+          <span>选择</span>
+        </label>
         <button class="danger" onclick="deleteOrder('${o.id}','admin')">删除</button>
       </div>
     </article>`;
@@ -2003,6 +1999,25 @@ async function deleteOrder(id, actor) {
   await api(`/api/orders/${id}`, { method: 'DELETE' }, actor === 'admin' ? adminToken : agencyToken);
   toast('订单已删除');
   await load();
+}
+
+async function retryAdminOrderLocation(id, button) {
+  const originalText = button?.textContent || '重新识别地点';
+  if (button) {
+    button.disabled = true;
+    button.textContent = '正在识别…';
+  }
+  try {
+    const order = await api(`/api/admin/orders/${id}/location/retry`, { method: 'POST' }, adminToken);
+    toast(`已识别：${[order.district ? `${order.district}区` : '', order.place].filter(Boolean).join('·')}`);
+    await load();
+  } catch (error) {
+    toast(error.message);
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
 }
 
 async function deleteAllAgencyOrders() {
@@ -2869,9 +2884,8 @@ async function initializeApp() {
   }
   await load({ showProgress: true });
   renderPreview();
-  setView('teacher');
   setTeacherViewMode('list');
-  if (!teacherPreferencesLoaded) await loadTeacherPreferences({ showProgress: true });
+  if (!adminToken && !teacherPreferencesLoaded) await loadTeacherPreferences({ showProgress: true });
 }
 
 initializeApp().catch(err => {

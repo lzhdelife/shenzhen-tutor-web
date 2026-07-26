@@ -173,6 +173,22 @@ async function prepareCloudflareImportedOrder(item, agency, amap) {
   return { ...order, id: undefined, agencyId: agency.id, source: agency.name, status: 'open', structured: order.structured || order };
 }
 
+async function retryStoredOrderLocation(order, amap) {
+  if (order.locationVerified && order.locationCoordinates) return order;
+  const query = text(order.locationQuery || order.address
+    || ['深圳市', order.district ? `${text(order.district).replace(/区$/, '')}区` : '', order.place].filter(Boolean).join(''));
+  if (query.length < 2) throw Object.assign(new Error('这条订单缺少可重新识别的地点文字'), { status: 422 });
+  const result = await amap.candidates(query, order.district);
+  const candidate = result.candidates?.[0];
+  if (!candidate) throw Object.assign(new Error('高德暂时没有找到这个地点，请检查订单原文'), { status: 422 });
+  const confirmed = amap.confirm(candidate, order.district);
+  return {
+    ...confirmed,
+    locationQuery: query,
+    locationCandidates: result.candidates.map(item => ({ ...item, searchQuery: query }))
+  };
+}
+
 async function bodyJson(request) {
   const length = Number(request.headers.get('content-length') || 0);
   if (length > 10 * 1024 * 1024) throw Object.assign(new Error('请求内容过大'), { status: 413 });
@@ -694,6 +710,15 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request);
           const confirmed = amap.confirm(data.candidate, data.district || order.district);
           return json(await repo.updateOrder(order.id, { ...confirmed, locationCandidates: order.locationCandidates || [] }));
+        }
+        const locationRetry = path.match(/^\/api\/admin\/orders\/([^/]+)\/location\/retry$/);
+        if (method === 'POST' && locationRetry) {
+          if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);
+          const order = await repo.getOrderById(locationRetry[1]);
+          if (!order) return error('订单不存在', 404);
+          const resolved = await retryStoredOrderLocation(order, amap);
+          if (resolved === order) return json(order);
+          return json(await repo.updateOrder(order.id, resolved));
         }
         const orderRoute = path.match(/^\/api\/orders\/([^/]+)$/);
         if (orderRoute && method === 'DELETE') {
