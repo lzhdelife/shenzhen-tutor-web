@@ -2284,15 +2284,47 @@ $('#orderForm').addEventListener('submit', async event => {
 
 const MANUAL_IMPORT_QUEUE_KEY = 'manualImportQueueV1';
 const MAX_MANUAL_IMPORT_BYTES = 2 * 1024 * 1024;
+const MANUAL_IMPORT_EVENT_DEDUPE_MS = 30000;
+
+function manualImportFingerprint(text) {
+  return String(text || '').trim().replace(/\s+/g, ' ');
+}
+
 let manualImportQueue = [];
 try {
   const savedQueue = JSON.parse(sessionStorage.getItem(MANUAL_IMPORT_QUEUE_KEY) || '[]');
-  if (Array.isArray(savedQueue)) manualImportQueue = savedQueue.filter(item => item?.text);
+  if (Array.isArray(savedQueue)) {
+    const seen = new Set();
+    manualImportQueue = savedQueue.filter(item => {
+      const fingerprint = manualImportFingerprint(item?.text);
+      if (!fingerprint || seen.has(fingerprint)) return false;
+      seen.add(fingerprint);
+      return true;
+    });
+  }
 } catch {}
 let manualImportBusy = false;
 let manualImportRetryTimer = 0;
 let manualImportClearTimer = 0;
 let manualImportClearGeneration = 0;
+let manualImportActiveFingerprint = '';
+const recentManualImportFingerprints = new Map(manualImportQueue.map(item => [manualImportFingerprint(item.text), Date.now()]));
+
+function clearManualImportTextarea() {
+  manualImportClearGeneration++;
+  window.clearTimeout(manualImportClearTimer);
+  const textarea = $('#importForm')?.elements.text;
+  if (textarea) textarea.value = '';
+}
+
+function showPastedTextBriefly(textarea, rawText) {
+  const clearGeneration = ++manualImportClearGeneration;
+  window.clearTimeout(manualImportClearTimer);
+  textarea.value = rawText;
+  manualImportClearTimer = window.setTimeout(() => {
+    if (clearGeneration === manualImportClearGeneration) textarea.value = '';
+  }, 320);
+}
 
 function saveManualImportQueue() {
   try {
@@ -2338,6 +2370,8 @@ async function processManualImportQueue() {
   const [item] = manualImportQueue.splice(readyIndex, 1);
   saveManualImportQueue();
   manualImportBusy = true;
+  manualImportActiveFingerprint = manualImportFingerprint(item.text);
+  clearManualImportTextarea();
   setManualImportStatus(`正在识别，队列中还有 ${manualImportQueue.length} 批`, 'processing');
   try {
     const { imported, parsedCount } = await parseAndImportText(item.text);
@@ -2357,6 +2391,7 @@ async function processManualImportQueue() {
     }
   } finally {
     manualImportBusy = false;
+    manualImportActiveFingerprint = '';
     scheduleManualImportQueue();
   }
 }
@@ -2373,22 +2408,29 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
     toast('内容超过 2 MB，请拆分后再导入');
     return false;
   }
+  const fingerprint = manualImportFingerprint(rawText);
+  const now = Date.now();
+  for (const [key, acceptedAt] of recentManualImportFingerprints) {
+    if (now - acceptedAt > MANUAL_IMPORT_EVENT_DEDUPE_MS) recentManualImportFingerprints.delete(key);
+  }
+  const alreadyQueued = manualImportQueue.some(item => manualImportFingerprint(item.text) === fingerprint);
+  const duplicateEvent = alreadyQueued || manualImportActiveFingerprint === fingerprint
+    || now - Number(recentManualImportFingerprints.get(fingerprint) || 0) <= MANUAL_IMPORT_EVENT_DEDUPE_MS;
+  if (duplicateEvent) {
+    clearManualImportTextarea();
+    return false;
+  }
+  recentManualImportFingerprints.set(fingerprint, now);
   manualImportQueue.push({ id: crypto.randomUUID(), text: rawText, source, attempts: 0, nextAttemptAt: Date.now() + 180 });
   saveManualImportQueue();
   const textarea = $('#importForm')?.elements.text;
   if (textarea) {
-    const clearGeneration = ++manualImportClearGeneration;
-    window.clearTimeout(manualImportClearTimer);
-    textarea.value = showPastedText ? rawText : '';
+    if (showPastedText) showPastedTextBriefly(textarea, rawText);
+    else clearManualImportTextarea();
     textarea.classList.remove('queue-flash');
     void textarea.offsetWidth;
     textarea.classList.add('queue-flash');
     window.setTimeout(() => textarea.classList.remove('queue-flash'), 520);
-    if (showPastedText) {
-      manualImportClearTimer = window.setTimeout(() => {
-        if (clearGeneration === manualImportClearGeneration) textarea.value = '';
-      }, 320);
-    }
   }
   setManualImportStatus(`已粘贴成功，已加入识别队列，共 ${manualImportQueue.length + (manualImportBusy ? 1 : 0)} 批`, 'queued');
   toast(`${source}已粘贴成功`);
@@ -2399,9 +2441,7 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
 const importTextarea = $('#importForm')?.elements.text;
 function rejectManualImportTyping() {
   if (!importTextarea) return;
-  manualImportClearGeneration++;
-  window.clearTimeout(manualImportClearTimer);
-  importTextarea.value = '';
+  clearManualImportTextarea();
   importTextarea.classList.remove('input-blocked');
   void importTextarea.offsetWidth;
   importTextarea.classList.add('input-blocked');
