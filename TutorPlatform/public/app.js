@@ -55,7 +55,9 @@ try {
   sessionStorage.removeItem(IMPORT_PREVIEW_HISTORY_KEY);
 }
 const requestedView = new URLSearchParams(location.search).get('view');
-if (['teacher', 'agency'].includes(requestedView)) activeView = requestedView;
+if (requestedView === 'map') { activeView = 'teacher'; teacherViewMode = 'map'; }
+else if (requestedView === 'agency') activeView = 'agency';
+else if (requestedView === 'teacher' || requestedView === 'list') { activeView = 'teacher'; teacherViewMode = 'list'; }
 
 const visitorId = localStorage.getItem('tutorPlatformVisitorId')
   || (crypto.randomUUID ? crypto.randomUUID() : `visitor-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -175,6 +177,59 @@ function setView(name) {
     button.classList.toggle('active', button.dataset.view === name && teacherModeMatches);
   });
   $$('.view').forEach(view => view.classList.toggle('active', view.id === name));
+}
+
+function currentAppRoute() {
+  if (activeView === 'agency') return 'agency';
+  return teacherViewMode === 'map' ? 'map' : 'list';
+}
+
+function appRouteUrl(route) {
+  const url = new URL(location.href);
+  if (route === 'list') url.searchParams.delete('view');
+  else url.searchParams.set('view', route);
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function applyAppRoute(route) {
+  const next = ['map', 'agency'].includes(route) ? route : 'list';
+  if (next === 'agency') {
+    activeView = 'agency';
+    sessionStorage.setItem('activeView', activeView);
+    setView('agency');
+    return;
+  }
+  activeView = 'teacher';
+  sessionStorage.setItem('activeView', activeView);
+  setView('teacher');
+  setTeacherViewMode(next === 'map' ? 'map' : 'list');
+}
+
+function initializeAppHistory() {
+  const route = currentAppRoute();
+  if (history.state?.tutorRoute) {
+    history.replaceState({ ...history.state, tutorRoute: route }, '', appRouteUrl(route));
+    return;
+  }
+  if (route === 'list') {
+    history.replaceState({ tutorRoute: 'list' }, '', appRouteUrl('list'));
+    return;
+  }
+  history.replaceState({ tutorRoute: 'list' }, '', appRouteUrl('list'));
+  history.pushState({ tutorRoute: route }, '', appRouteUrl(route));
+}
+
+function navigateAppRoute(route) {
+  const next = ['map', 'agency'].includes(route) ? route : 'list';
+  const current = currentAppRoute();
+  if (next === current) return;
+  if (next === 'list' && history.state?.tutorRoute && current !== 'list') {
+    history.back();
+    return;
+  }
+  if (current === 'list') history.pushState({ tutorRoute: next }, '', appRouteUrl(next));
+  else history.replaceState({ tutorRoute: next }, '', appRouteUrl(next));
+  applyAppRoute(next);
 }
 
 function syncShell() {
@@ -1988,11 +2043,14 @@ function escapeHtml(text) {
 
 $$('.tabs button').forEach(btn => {
   btn.addEventListener('click', () => {
-    setView(btn.dataset.view);
-    if (btn.dataset.view === 'teacher' && btn.dataset.teacherMode) {
-      setTeacherViewMode(btn.dataset.teacherMode);
-    }
+    if (btn.dataset.view === 'admin') return setView('admin');
+    const route = btn.dataset.view === 'agency' ? 'agency' : btn.dataset.teacherMode === 'map' ? 'map' : 'list';
+    navigateAppRoute(route);
   });
+});
+
+window.addEventListener('popstate', event => {
+  if (event.state?.tutorRoute) applyAppRoute(event.state.tutorRoute);
 });
 
 ['filterMinPrice', 'filterBike'].forEach(id => {
@@ -2509,6 +2567,7 @@ async function initializeApp() {
   await load();
   renderPreview();
   setTeacherViewMode(teacherViewMode);
+  initializeAppHistory();
   if (!teacherPreferencesLoaded) await loadTeacherPreferences();
 }
 
