@@ -1,6 +1,40 @@
 # 数据模型
 
-当前数据库是 `TutorPlatform/data/db.json`。`readDb()` 在读取时为缺失的根字段补默认值，但没有 schema 版本和迁移系统。
+正式站使用 Cloudflare D1 `shenzhen-tutor-prod`，通过 `cloudflare/migrations/` 进行版本化迁移。本地开发使用 `TutorPlatform/data/db.json`；`readDb()` 会为缺失根字段补默认值，但本地 JSON 不是正式生产数据源。
+
+## 正式订单存储
+
+正式订单拆为一张订单主表和一张一对一地点表。列表常用字段独立成列，完整解析结果保留在 JSON 中：
+
+### `orders`
+
+| 列 | 说明 |
+| --- | --- |
+| `id` | 订单主键 |
+| `agency_id` | 关联 `users.id` 的发单身份；删除该身份会级联删除其订单 |
+| `source` / `status` | 发单来源和兼容状态；当前新订单使用 `open` |
+| `district` / `subject` / `grade` / `price` | 列表筛选、排序常用字段 |
+| `import_fingerprint` | 规范化原文的 SHA-256 指纹；唯一索引负责最终防重 |
+| `structured_json` | 完整订单快照：原文、解析字段、证据、置信度和扩展字段 |
+| `created_at` / `updated_at` | 创建和更新时间 |
+
+### `order_locations`
+
+`order_id` 同时是主键和指向 `orders.id` 的外键，因此每个订单最多有一条地点记录，删除订单时地点会自动级联删除。
+
+| 列 | 说明 |
+| --- | --- |
+| `place` / `address` / `original_place` | 展示地点、查询地址和高德处理前的地点文本 |
+| `verified` / `status` / `confidence` | 地点是否确认、核验状态和匹配置信度 |
+| `poi_id` / `coordinates` / `resolved_address` | 高德 POI、经纬度和标准地址 |
+| `query_text` / `queries_json` | 地点查询主文本及备选查询组合 |
+| `candidates_json` | 高德候选列表，供人工复核 |
+| `options_json` / `relation` | “A 或 B”多地点选项及其关系 |
+| `updated_at` | 地点最后更新时间 |
+
+发单人的称呼和联系方式不复制进订单正文。订单只保存 `agency_id`，用户主动点击“申请接单”时再通过 `publisher_access` 读取对应资料。老师自己的出发位置、直线距离和路线结果不写入订单数据库。
+
+## 本地 JSON 兼容模型
 
 ## 根对象
 
@@ -119,25 +153,11 @@
 
 解析预览中的每个地点选项还包含 `raw`、`query`、`locationQueries[]` 和 `nearby`。这些字段只表达文本证据与候选查询意图；POI、坐标和最终地址只能由独立地图核验或用户确认补充。
 
-### 去重和申请
+### 去重
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `importFingerprint` | string | 近期语义去重指纹，公开状态接口会移除 |
-| `applicants` | array | 申请老师列表 |
-
-申请项：
-
-```json
-{
-  "teacherId": "u-...",
-  "name": "示例老师",
-  "phone": "<手机号>",
-  "note": "",
-  "at": "<ISO time>",
-  "status": "pending"
-}
-```
 
 ## `feedback[]`
 
@@ -178,7 +198,7 @@
 
 ## 迁移注意事项
 
-迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`applications`、`teacher_preferences`、`announcements`、`feedback` 和 `sessions` 表。应增加：
+迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`order_locations`、`publisher_access`、`teacher_preferences`、`announcements`、`feedback` 和 `sessions` 表。应增加：
 
 - 用户角色 + 名称 + 手机号唯一约束。
 - 中介订单编号/指纹的适当唯一约束。

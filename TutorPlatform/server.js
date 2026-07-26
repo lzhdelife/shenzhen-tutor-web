@@ -1363,7 +1363,6 @@ function parseOrder(raw, source = '', agencyId = '') {
     status: 'open',
     distanceKm: '',
     routeMode: '待计算',
-    applicants: [],
     createdAt: new Date().toISOString()
   };
 }
@@ -2195,8 +2194,8 @@ function publicDb(db, viewer = null) {
       viewer.role === 'admin' ||
       (viewer.role === 'agency' && order.agencyId === viewer.id)
     );
-    copy.applicantCount = order.applicants?.length || 0;
-    copy.applicants = ownsPreciseLocation ? (order.applicants || []) : [];
+    delete copy.applicants;
+    delete copy.applicantCount;
     delete copy.sourceImages;
     delete copy.importFingerprint;
     if (!ownsPreciseLocation) {
@@ -2808,7 +2807,6 @@ async function handleApi(req, res) {
     order.importFingerprint = semanticFingerprint;
     order.id = 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     order.createdAt = new Date().toISOString();
-    order.applicants = [];
     db.orders.unshift(order);
     writeDb(db);
     return send(res, 200, order);
@@ -2903,36 +2901,6 @@ async function handleApi(req, res) {
     db.orders = db.orders.filter(order => order.agencyId !== agency.id);
     if (affected) writeDb(db);
     return send(res, 200, { action: 'delete', affected });
-  }
-
-  if (req.method === 'POST' && url.pathname.match(/^\/api\/orders\/[^/]+\/apply$/)) {
-    const teacher = requireRole(req, res, 'teacher');
-    if (!teacher) return;
-    const id = url.pathname.split('/')[3];
-    const data = await bodyJson(req);
-    const order = db.orders.find(o => o.id === id);
-    if (!order) return send(res, 404, { error: '订单不存在' });
-    if (order.status === 'closed') return send(res, 400, { error: '这个订单已经下架' });
-    const teacherUser = db.users.find(user => user.id === teacher.id && user.role === 'teacher');
-    if (!teacherUser) return send(res, 404, { error: '老师账号不存在' });
-    order.applicants ||= [];
-    const name = textOf(data.name).slice(0, 40) || textOf(teacherUser.name) || '未命名老师';
-    const phone = textOf(data.contact).slice(0, 80) || textOf(teacherUser.phone);
-    if (!phone) return send(res, 400, { error: '请填写方便上传者联系你的方式' });
-    let applicant = order.applicants.find(item => item.teacherId === teacher.id || (phone && item.phone === phone));
-    const alreadyApplied = Boolean(applicant);
-    if (!applicant) {
-      applicant = { teacherId: teacher.id, name, phone, note: textOf(data.note), at: new Date().toISOString(), status: 'pending' };
-      order.applicants.push(applicant);
-    } else {
-      Object.assign(applicant, { name, phone, note: textOf(data.note), at: new Date().toISOString() });
-    }
-    writeDb(db);
-    return send(res, 200, {
-      ok: true,
-      alreadyApplied,
-      applicant: { name: applicant.name, phone: applicant.phone, at: applicant.at }
-    });
   }
 
   if (req.method === 'DELETE' && url.pathname.match(/^\/api\/orders\/[^/]+$/)) {

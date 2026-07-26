@@ -13,7 +13,7 @@ test('D1 import converts local orders into idempotent private SQL', () => {
     users: [{ id: 'agency-1', role: 'agency', name: "测试'机构", phone: '', passwordHash: 'legacy-hash', preferences: {} }],
     orders: [{
       id: 'order-1', agencyId: 'agency-1', source: "测试'机构", status: 'open', district: '南山',
-      subject: '数学', grade: '初二', price: 200, raw, applicants: [], createdAt: '2026-07-25T00:00:00.000Z'
+      subject: '数学', grade: '初二', price: 200, raw, createdAt: '2026-07-25T00:00:00.000Z'
     }]
   };
   const result = buildImportSql(db, { generatedAt: '2026-07-25T01:00:00.000Z' });

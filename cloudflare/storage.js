@@ -218,30 +218,6 @@ function createRepository(env = {}) {
     return Number(result?.meta?.changes || result?.changes || 0);
   }
 
-  async function createApplication(input) {
-    const timestamp = input.createdAt || input.at || nowIso();
-    const id = input.id || makeId('a');
-    await run(`INSERT INTO applications (id, order_id, teacher_id, name, phone, note, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, input.orderId, input.teacherId, input.name || '', input.phone || '',
-      input.note || '', input.status || 'pending', timestamp, input.updatedAt || timestamp]);
-    return mapRow(await first('SELECT * FROM applications WHERE id = ?', [id]));
-  }
-
-  async function listApplications(filters = {}) {
-    const clauses = [], values = [];
-    for (const [key, column] of [['orderId', 'order_id'], ['teacherId', 'teacher_id'], ['status', 'status']]) {
-      if (filters[key] !== undefined) { clauses.push(`${column} = ?`); values.push(filters[key]); }
-    }
-    return (await all(`SELECT * FROM applications${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY created_at DESC`, values)).map(mapRow);
-  }
-
-  async function updateApplication(id, patch) {
-    const columns = { note: 'note', status: 'status', name: 'name', phone: 'phone' };
-    const entries = Object.entries(patch).filter(([key]) => columns[key]);
-    if (entries.length) await run(`UPDATE applications SET ${entries.map(([key]) => `${columns[key]}=?`).join(',')}, updated_at=? WHERE id=?`, [...entries.map(([, value]) => value), nowIso(), id]);
-    return mapRow(await first('SELECT * FROM applications WHERE id = ?', [id]));
-  }
-
   async function getSettings() {
     const result = {};
     for (const row of await all('SELECT key, value_json FROM settings')) result[row.key] = parseJson(row.value_json, null);
@@ -418,9 +394,9 @@ function createRepository(env = {}) {
   async function getPublicState() {
     const [settings, announcements, orders] = await Promise.all([getSettings(), listAnnouncements({ active: true }), listOrders({ status: 'open' })]);
     const publicOrders = orders.map(order => {
-      const { importFingerprint: _fingerprint, sourceImages: _sourceImages, applicants = [], ...safe } = order;
-      return { ...safe,
-        applicantCount: Array.isArray(applicants) ? applicants.length : 0, applicants: [] };
+      const { importFingerprint: _fingerprint, sourceImages: _sourceImages, applicants: _applicants,
+        applicantCount: _applicantCount, ...safe } = order;
+      return safe;
     });
     return {
       settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm ?? 12 },
@@ -433,7 +409,7 @@ function createRepository(env = {}) {
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact, listOrders,
-    updateOrder, deleteOrder, deleteOrdersOlderThan, createApplication, listApplications, updateApplication, getSettings, setSetting, incrementSetting,
+    updateOrder, deleteOrder, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
     listAnnouncements, createAnnouncement,

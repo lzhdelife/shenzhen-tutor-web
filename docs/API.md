@@ -19,7 +19,7 @@
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
-| GET | `/api/state` | 可选登录 | 返回页面状态；中介所有者可看到自己订单的申请人 |
+| GET | `/api/state` | 可选登录 | 返回页面状态；订单所有者可看到自己订单的私有字段 |
 | GET | `/api/stats` | 公共 | 注册身份数和最近 5 分钟访客数 |
 | GET | `/api/location-suggestions?q=&district=` | 公共 | 查询高德地点候选，可用深圳区名约束；不返回本地伪候选 |
 | GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
@@ -97,7 +97,7 @@ Content-Type: application/json
 | POST | `/api/distance-preview` | teacher | 对所有未关闭订单计算指定路线模式 |
 | GET | `/api/teacher/preferences` | teacher | 兼容接口；当前网页偏好保存在浏览器 |
 | PUT | `/api/teacher/preferences` | teacher | 兼容接口；当前网页不调用 |
-| POST | `/api/orders/:id/apply` | teacher | 提交申请人姓名、联系方式和备注；不返回上传者资料 |
+| GET | `/api/orders/:id/contact` | teacher | 用户主动点击申请接单后，按订单读取原文、发单人和管理员联系方式 |
 
 路线预览请求：
 
@@ -129,7 +129,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 }
 ```
 
-申请响应包含 `alreadyApplied`、`contact` 和当前 `applicant`。重复申请不会重复写入。
+联系方式接口不会创建接单申请，也不会把联系方式提前放入订单列表响应。
 
 ## 中介和订单接口
 
@@ -206,9 +206,9 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 所有访问者都能得到公开订单、列表、公告和统计。返回内容根据 Bearer Token 变化：
 
-- 老师：订单不包含申请人明细。
-- 中介：自己的订单包含申请人明细，其他订单不包含。
-- 管理员：可查看全部订单和申请人。
+- 老师：只收到公开订单字段。
+- 中介：自己的订单包含私有地点和解析字段，其他订单仍按公开规则裁剪。
+- 管理员：可查看全部订单和质量异常信息。
 - `passwordHash`、`adminPasswordHash`、记住登录令牌、图片文件名和内部导入指纹不会通过该接口返回。高德 Key 仅存在于服务端环境/Secret，任何 API 都不返回。
 
 ## CORS 和浏览器说明

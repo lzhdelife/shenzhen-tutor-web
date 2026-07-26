@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), applications: [], settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -22,9 +22,6 @@ function memoryRepository() {
     async listOrders() { return [...state.orders.values()]; },
     async updateOrder(id, patch) { Object.assign(state.orders.get(id), patch); return state.orders.get(id); },
     async deleteOrder(id) { state.orders.delete(id); },
-    async createApplication(input) { const application = { id: `a-${state.applications.length + 1}`, createdAt: new Date().toISOString(), ...input }; state.applications.push(application); return application; },
-    async listApplications(filters = {}) { return state.applications.filter(item => (!filters.orderId || item.orderId === filters.orderId) && (!filters.teacherId || item.teacherId === filters.teacherId)); },
-    async updateApplication(id, patch) { const item = state.applications.find(value => value.id === id); Object.assign(item, patch); return item; },
     async getSettings() { return { ...state.settings }; },
     async setSetting(key, value) { state.settings[key] = value; return value; },
     async incrementSetting(key) { state.settings[key] = Math.max(0, Number(state.settings[key]) || 0) + 1; return state.settings[key]; },
@@ -205,7 +202,7 @@ test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪�
   assert.equal('structured' in teacherState.orders[0], false);
 });
 
-test('老师信息列表不逐单查询接单申请', async () => {
+test('老师复用公共订单读取，发单者只额外读取私有订单', async () => {
   const { call, repo } = harness();
   const name = '列表性能测试', phone = ['136', '0013', '6000'].join(''), password = 'secret1';
   const login = await (await call('/api/account/login', { method: 'POST', body: {
@@ -213,14 +210,8 @@ test('老师信息列表不逐单查询接单申请', async () => {
   } })).json();
   await repo.createOrder({ id: 'list-order-one', agencyId: login.agency.id, status: 'open', district: '南山', subject: '数学' });
   await repo.createOrder({ id: 'list-order-two', agencyId: 'another-agency', status: 'open', district: '福田', subject: '英语' });
-  let applicationReads = 0;
   let privateOrderReads = 0;
-  const listApplications = repo.listApplications.bind(repo);
   const listOrders = repo.listOrders.bind(repo);
-  repo.listApplications = async filters => {
-    applicationReads++;
-    return listApplications(filters);
-  };
   repo.listOrders = async filters => {
     privateOrderReads++;
     return listOrders(filters);
@@ -230,12 +221,14 @@ test('老师信息列表不逐单查询接单申请', async () => {
     headers: { authorization: `Bearer ${login.teacherToken}` }
   })).json();
   assert.equal(teacherState.orders.length, 2);
-  assert.equal(applicationReads, 0);
   assert.equal(privateOrderReads, 0, '老师复用公共订单读取结果');
+  assert.equal('applicantCount' in teacherState.orders[0], false);
+  assert.equal('applicants' in teacherState.orders[0], false);
 
-  await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } });
-  assert.equal(applicationReads, 1, '发单者只查询自己订单的申请记录');
+  const agencyState = await (await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } })).json();
   assert.equal(privateOrderReads, 1, '发单者仍读取包含私有字段的订单');
+  assert.equal('applicantCount' in agencyState.orders[0], false);
+  assert.equal('applicants' in agencyState.orders[0], false);
 });
 
 test('account login creates paired roles and persists only token hashes', async () => {
@@ -323,7 +316,7 @@ test('shared clipboard bridge requires its program token and exposes a common qu
   assert.equal(inbox.pending, 1);
 });
 
-test('agency creates an order and teacher applies without duplicate application', async () => {
+test('agency creates and batch deletes orders while the legacy application route is absent', async () => {
   const { repo, call } = harness();
   const loginName = '张老师', loginPhone = ['139', '0013', '9000'].join('');
   const login = await (await call('/api/account/login', { method: 'POST', body: { name: loginName, phone: loginPhone, password: 'secret1', passwordProof: await clientPasswordProof('secret1', loginName, loginPhone) } })).json();
@@ -333,18 +326,9 @@ test('agency creates an order and teacher applies without duplicate application'
   const order = await createdResponse.json();
   assert.equal(order.agencyId, login.agency.id);
 
-  const apply = () => call(`/api/orders/${order.id}/apply`, { method: 'POST', headers: { authorization: `Bearer ${login.teacherToken}` }, body: {
-    name: '李老师', contact: 'wechat-test-contact', note: '可周末上课'
-  } });
-  const firstApplication = await (await apply()).json();
-  assert.equal(firstApplication.alreadyApplied, false);
-  assert.equal('contact' in firstApplication, false, 'applicant must not receive uploader contact');
-  assert.equal((await (await apply()).json()).alreadyApplied, true);
-  assert.equal(repo.state.applications.length, 1);
-
-  const state = await (await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } })).json();
-  assert.equal(state.orders[0].applicantCount, 1);
-  assert.equal(state.orders[0].applicants.length, 1);
+  assert.equal((await call(`/api/orders/${order.id}/apply`, {
+    method: 'POST', headers: { authorization: `Bearer ${login.teacherToken}` }, body: { contact: 'legacy-contact' }
+  })).status, 404);
 
   assert.equal((await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'close' } })).status, 400);
   assert.equal((await call(`/api/orders/${order.id}`, { method: 'PATCH', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { status: 'closed' } })).status, 404);
@@ -371,16 +355,10 @@ test('guest device receives stable paired roles without a login form', async () 
     method: 'POST', headers: { authorization: `Bearer ${first.agencyToken}` },
     body: { district: '南山', subject: '物理', grade: '高二', price: 300 }
   })).json();
-  const application = await (await call(`/api/orders/${order.id}/apply`, {
-    method: 'POST', headers: { authorization: `Bearer ${other.teacherToken}` },
-    body: { name: '李老师', contact: 'wechat-contact', note: '有经验' }
-  })).json();
-  assert.equal(application.alreadyApplied, false);
-  assert.equal('contact' in application, false);
   const ownerState = await (await call('/api/state', { headers: { authorization: `Bearer ${first.agencyToken}` } })).json();
-  assert.equal(ownerState.orders[0].applicants[0].phone, 'wechat-contact');
+  assert.equal(ownerState.orders[0].agencyId, first.agency.id);
   const otherState = await (await call('/api/state', { headers: { authorization: `Bearer ${other.agencyToken}` } })).json();
-  assert.equal(otherState.orders[0].applicants.length, 0);
+  assert.equal(otherState.orders[0].source, '');
 });
 
 test('password login and injectable parser have explicit behavior', async () => {

@@ -277,11 +277,12 @@ async function pairedLogin(repo, request, data, env) {
     { 'set-cookie': sessionCookie(agencyToken) });
 }
 
-function cleanOrder(order, applications, viewer) {
+function cleanOrder(order, viewer) {
   const canSee = viewer && (viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId));
-  const copy = { ...order, raw: recoverOrderRawText(order), applicantCount: applications.length, applicants: canSee ? applications : [] };
+  const copy = { ...order, raw: recoverOrderRawText(order) };
   if (viewer?.role === 'admin') copy.qualityIssues = detectOrderIssues(order);
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
+  delete copy.applicants; delete copy.applicantCount;
   if (!canSee) {
     copy.source = '';
     delete copy.address; delete copy.locationAddress; delete copy.locationCoordinates;
@@ -483,15 +484,12 @@ function createWorker(dependencies = {}) {
                 ...dedupeOrdersByCanonicalRaw(visibleOrders.filter(order => order.status !== 'closed')),
                 ...visibleOrders.filter(order => order.status === 'closed')
               ];
-          const orders = await Promise.all(displayOrders.map(async order => {
-            const canSeeApplications = viewer?.role === 'admin'
-              || (viewer?.role === 'agency' && viewer.id === order.agencyId);
-            const applications = canSeeApplications ? await repo.listApplications({ orderId: order.id }) : [];
+          const orders = displayOrders.map(order => {
             return {
-              ...cleanOrder(order, applications, viewer),
+              ...cleanOrder(order, viewer),
               teacherVisible: order.status !== 'closed' && teacherVisibleIds.has(order.id)
             };
-          }));
+          });
           const settings = state.settings || {};
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const platformSettings = await repo.getSettings();
@@ -682,24 +680,6 @@ function createWorker(dependencies = {}) {
             },
             admin: { name: '吴老师', contact: ['187', '1937', '1936'].join('') }
           });
-        }
-        const apply = path.match(/^\/api\/orders\/([^/]+)\/apply$/);
-        if (method === 'POST' && apply) {
-          const teacher = await requireRole(repo, request, 'teacher');
-          if (!teacher) return error('请先以老师身份登录', 401);
-          const order = await repo.getOrderById(apply[1]);
-          if (!order) return error('订单不存在', 404);
-          if (order.status === 'closed') return error('这个订单已经下架');
-          const existing = (await repo.listApplications({ orderId: order.id })).find(item => item.teacherId === teacher.id);
-          const data = await bodyJson(request);
-          const name = text(data.name).slice(0, 40) || teacher.name || '未命名老师';
-          const contact = text(data.contact).slice(0, 80);
-          if (!contact) return error('请填写方便上传者联系你的方式');
-          const applicant = existing
-            ? await repo.updateApplication(existing.id, { name, phone: contact, note: text(data.note) })
-            : await repo.createApplication({ orderId: order.id, teacherId: teacher.id, name, phone: contact, note: text(data.note) });
-          return json({ ok: true, alreadyApplied: Boolean(existing),
-            applicant: { name: applicant.name, phone: applicant.phone, at: applicant.createdAt } });
         }
         const locationConfirmation = path.match(/^\/api\/orders\/([^/]+)\/location\/confirm$/);
         if (method === 'POST' && locationConfirmation) {

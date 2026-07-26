@@ -35,11 +35,6 @@ function buildImportSql(db, options = {}) {
   const feedback = Array.isArray(db.feedback) ? db.feedback : [];
   const userById = new Map(users.map(user => [user.id, user]));
   const referencedUserIds = new Set(orders.map(order => order.agencyId).filter(Boolean));
-  for (const order of orders) {
-    for (const applicant of Array.isArray(order.applicants) ? order.applicants : []) {
-      if (applicant.teacherId) referencedUserIds.add(applicant.teacherId);
-    }
-  }
 
   const missingUsers = [...referencedUserIds].filter(id => !userById.has(id));
   if (missingUsers.length) throw new Error(`Orders reference missing users: ${missingUsers.join(', ')}`);
@@ -69,6 +64,7 @@ function buildImportSql(db, options = {}) {
     const structured = { ...order };
     delete structured.sourceImages;
     delete structured.applicants;
+    delete structured.applicantCount;
     delete structured.importFingerprint;
     const agency = userById.get(order.agencyId);
     const orderValues = [sqlValue(order.id), resolvedUserIdSql(agency), sqlValue(order.source || ''),
@@ -84,15 +80,6 @@ function buildImportSql(db, options = {}) {
       jsonValue(order.locationOptions, []), order.locationRelation || '', updatedAt];
     lines.push(`INSERT OR IGNORE INTO order_locations (order_id, place, address, original_place, verified, status, poi_id, coordinates, resolved_address, confidence, query_text, queries_json, candidates_json, options_json, relation, updated_at) SELECT ${locationValues.map(sqlValue).join(', ')} WHERE EXISTS (SELECT 1 FROM orders WHERE id = ${sqlValue(order.id)});`);
 
-    for (const applicant of Array.isArray(order.applicants) ? order.applicants : []) {
-      if (!applicant.id || !applicant.teacherId) continue;
-      const appliedAt = applicant.createdAt || applicant.at || createdAt;
-      const teacher = userById.get(applicant.teacherId);
-      const applicationValues = [sqlValue(applicant.id), sqlValue(order.id), resolvedUserIdSql(teacher),
-        sqlValue(applicant.name || ''), sqlValue(applicant.phone || ''), sqlValue(applicant.note || ''),
-        sqlValue(applicant.status || 'pending'), sqlValue(appliedAt), sqlValue(applicant.updatedAt || appliedAt)];
-      lines.push(`INSERT OR IGNORE INTO applications (id, order_id, teacher_id, name, phone, note, status, created_at, updated_at) SELECT ${applicationValues.join(', ')} WHERE EXISTS (SELECT 1 FROM orders WHERE id = ${sqlValue(order.id)}) AND ${resolvedUserIdSql(teacher)} IS NOT NULL;`);
-    }
     importableOrders++;
   }
 
