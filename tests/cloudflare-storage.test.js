@@ -224,6 +224,8 @@ async function run() {
   assert.equal(state.adminConfigured, true);
   assert.equal(state.announcement.title, '测试公告');
   assert.equal(state.orders[0].id, order.id);
+  assert.equal(await repo.deleteOrdersByIds([order.id, order.id, 'missing-order']), 1);
+  assert.equal((await repo.listOrders()).length, 0);
 
   const capture = await repo.createClipboardCapture({ captureId: 'capture-storage-1', text: 'clipboard order' });
   assert.equal(capture.status, 'pending');

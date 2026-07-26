@@ -767,6 +767,18 @@ function createWorker(dependencies = {}) {
           if (resolved === order) return json(order);
           return json(await repo.updateOrder(order.id, resolved));
         }
+        if (method === 'POST' && path === '/api/admin/batch-delete-orders') {
+          if (!(await requireRole(repo, request, 'admin'))) return error('需要管理员权限', 401);
+          const data = await bodyJson(request);
+          const orderIds = [...new Set((Array.isArray(data.orderIds) ? data.orderIds : [])
+            .map(id => text(id)).filter(Boolean))].slice(0, 5000);
+          if (!orderIds.length) return error('请先选择要删除的订单');
+          const deletedOrders = typeof repo.deleteOrdersByIds === 'function'
+            ? await repo.deleteOrdersByIds(orderIds)
+            : (await Promise.all(orderIds.map(id => repo.deleteOrder(id)))).length;
+          if (!deletedOrders) return error('所选订单已经不存在', 404);
+          return json({ ok: true, deletedOrders });
+        }
         const orderRoute = path.match(/^\/api\/orders\/([^/]+)$/);
         if (orderRoute && method === 'DELETE') {
           const order = await repo.getOrderById(orderRoute[1]);

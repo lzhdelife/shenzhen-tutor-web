@@ -22,6 +22,14 @@ function memoryRepository() {
     async listOrders() { return [...state.orders.values()]; },
     async updateOrder(id, patch) { Object.assign(state.orders.get(id), patch); return state.orders.get(id); },
     async deleteOrder(id) { state.orders.delete(id); },
+    async deleteOrdersByIds(ids) {
+      let deleted = 0;
+      for (const id of new Set(ids)) {
+        if (!state.orders.delete(id)) continue;
+        deleted++;
+      }
+      return deleted;
+    },
     async getSettings() { return { ...state.settings }; },
     async setSetting(key, value) { state.settings[key] = value; return value; },
     async incrementSetting(key) { state.settings[key] = Math.max(0, Number(state.settings[key]) || 0) + 1; return state.settings[key]; },
@@ -498,6 +506,25 @@ test('admin can retry and persist coordinates for a stored unverified location',
   assert.equal(stored.locationVerified, true);
   assert.equal(stored.locationCoordinates, '113.9000,22.7500');
   assert.equal(stored.locationPoiId, 'fenghui-poi');
+});
+
+test('admin can batch delete selected orders', async () => {
+  const { call, repo } = harness();
+  await repo.createOrder({ id: 'batch-order-one', agencyId: 'agency-one', raw: '合成订单一' });
+  await repo.createOrder({ id: 'batch-order-two', agencyId: 'agency-one', raw: '合成订单二' });
+  const path = '/api/admin/batch-delete-orders';
+  assert.equal((await call(path, { method: 'POST', body: { orderIds: ['batch-order-one'] } })).status, 401);
+  const password = 'admin-batch-delete-password';
+  const admin = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password, passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  const response = await call(path, {
+    method: 'POST', headers: { authorization: `Bearer ${admin.token}` },
+    body: { orderIds: ['batch-order-one', 'batch-order-two', 'batch-order-one', 'missing-order'] }
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deletedOrders, 2);
+  assert.equal(repo.state.orders.size, 0);
 });
 
 test('import skips the same order despite whitespace punctuation and emoji differences', async () => {

@@ -245,6 +245,20 @@ function createRepository(env = {}) {
 
   async function deleteOrder(id) { return run('DELETE FROM orders WHERE id = ?', [id]); }
 
+  async function deleteOrdersByIds(ids) {
+    const orderIds = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean))];
+    let deleted = 0;
+    for (let index = 0; index < orderIds.length; index += 100) {
+      const statements = orderIds.slice(index, index + 100)
+        .map(id => db.prepare('DELETE FROM orders WHERE id = ?').bind(id));
+      const results = typeof db.batch === 'function'
+        ? await db.batch(statements)
+        : await Promise.all(statements.map(statement => statement.run()));
+      deleted += results.reduce((total, result) => total + Number(result?.meta?.changes || result?.changes || 0), 0);
+    }
+    return deleted;
+  }
+
   async function deleteOrdersOlderThan(cutoff) {
     const result = await run('DELETE FROM orders WHERE created_at <= ?', [cutoff]);
     return Number(result?.meta?.changes || result?.changes || 0);
@@ -485,7 +499,7 @@ function createRepository(env = {}) {
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact, listOrders,
-    updateOrder, deleteOrder, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
+    updateOrder, deleteOrder, deleteOrdersByIds, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
     upsertOrderIssueReport, listOrderIssueReports, deleteExportedOrderIssueReports,
