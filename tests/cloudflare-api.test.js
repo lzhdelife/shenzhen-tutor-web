@@ -305,6 +305,42 @@ test('import reuses verified preview locations and resolves only unverified orde
   ]);
 });
 
+test('import enriches every location option after fast parsing', async () => {
+  const requested = [];
+  const { call } = harness({ fetchImpl: async url => {
+    const keywords = new URL(String(url)).searchParams.get('keywords');
+    requested.push(keywords);
+    const second = keywords.includes('会展');
+    return new Response(JSON.stringify({ status: '1', pois: [{
+      id: second ? 'option-b' : 'option-a',
+      name: second ? '深圳国际会展中心' : '科技园',
+      adname: second ? '宝安区' : '南山区',
+      address: second ? '展城路1号' : '科苑路1号',
+      location: second ? '113.7760,22.7070' : '113.9460,22.5400',
+      type: '商务住宅;住宅区'
+    }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  } }, { AMAP_WEB_SERVICE_KEY: 'synthetic-test-value' });
+  const name = '双地点测试机构', phone = ['138', '0013', '8000'].join(''), password = 'secret1';
+  const login = await (await call('/api/login', { method: 'POST', body: {
+    role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
+  } })).json();
+  const response = await call('/api/import', { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body: { orders: [{
+    raw: '南山区科技园或宝安区国际会展中心附近，高一数学，200元/小时',
+    district: '南山', place: '科技园', locationQuery: '深圳市南山区科技园', locationVerified: false,
+    locationOptions: [
+      { district: '南山', place: '科技园', query: '深圳市南山区科技园' },
+      { district: '宝安', place: '深圳国际会展中心附近', query: '深圳市宝安区国际会展中心' }
+    ]
+  }] } });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(requested.sort(), ['深圳市南山区科技园', '深圳市宝安区国际会展中心'].sort());
+  assert.deepEqual(body.created[0].locationOptions.map(option => [option.verified, option.coordinates]), [
+    [true, '113.9460,22.5400'], [true, '113.7760,22.7070']
+  ]);
+  assert.equal(body.created[0].locationCoordinates, '113.9460,22.5400');
+});
+
 test('import skips the same order despite whitespace punctuation and emoji differences', async () => {
   const { call } = harness();
   const name = '去重测试机构', phone = ['136', '0013', '6000'].join(''), password = 'secret1';

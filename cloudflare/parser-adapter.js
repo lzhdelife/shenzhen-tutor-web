@@ -9,42 +9,13 @@ const { runParserPipeline } = require('../TutorPlatform/parser/pipeline.js');
 
 async function parseOrders(data, context) {
   const agency = context.agency;
-  const env = context.env || {};
-  const settings = {
-    amapWebServiceKey: env.AMAP_WEB_SERVICE_KEY || '',
-    homeAddress: '',
-    maxBikeKm: 12
-  };
-  const resolveWithoutDistrictRegression = async (order, scopedSettings) => {
-    const original = {
-      district: order.district,
-      place: order.place,
-      placeOriginal: order.placeOriginal,
-      address: order.address,
-      locationQuery: order.locationQuery,
-      locationQueries: order.locationQueries
-    };
-    await platform.resolveOrderLocation(order, scopedSettings);
-    if (original.district && order.district && order.district !== original.district) {
-      Object.assign(order, original, {
-        locationVerified: false,
-        locationStatus: 'ambiguous',
-        locationConfidence: 0,
-        locationPoiId: '',
-        locationCoordinates: '',
-        locationAddress: ''
-      });
-    }
-  };
   return recognizeOrders({
     text: data?.text || '',
     source: agency.name,
-    agencyId: agency.id,
-    settings
+    agencyId: agency.id
   }, {
     splitDetailed: platform.splitImportBlocksDetailed,
     parseRuleOrder: platform.parseOrder,
-    resolveLocation: resolveWithoutDistrictRegression,
     buildStructured: ({ rawText, ruleOrder }) => runParserPipeline({ rawText, ruleOrder })
   });
 }

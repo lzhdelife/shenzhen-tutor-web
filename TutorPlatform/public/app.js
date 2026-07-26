@@ -1778,18 +1778,20 @@ function setClipboardAutomationStatus(message, tone = '') {
   status.textContent = message;
 }
 
-async function parseAndImportText(text) {
+async function parseAndImportText(text, onStage = () => {}) {
   const rawText = String(text || '').trim();
   if (!rawText) throw new Error('请先粘贴订单文字');
+  onStage({ stage: 'parsing' });
   const parsed = await api('/api/parse', { method: 'POST', body: { text: rawText } }, agencyToken);
   parsedImport = parsed.parsed || [];
   ignoredImportBlocks = parsed.ignoredBlocks || [];
   renderPreview();
   if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
+  onStage({ stage: 'publishing', total: parsedImport.length, ignored: ignoredImportBlocks.length });
   const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
   mergeCreatedOrders(imported.created || []);
   scheduleBackgroundStateRefresh();
-  return { imported, parsedCount: parsedImport.length };
+  return { imported, parsedCount: parsedImport.length, ignoredCount: ignoredImportBlocks.length };
 }
 
 async function pollClipboardInbox() {
@@ -1820,8 +1822,10 @@ async function pollClipboardInbox() {
     for (const item of inbox.items) {
       if (!$('#clipboardAutomationEnabled').checked) break;
       activeItem = item;
-      setClipboardAutomationStatus(`已收到剪贴板，正在识别并导入…`, 'processing');
-      const { imported, parsedCount } = await parseAndImportText(item.text);
+      const { imported, parsedCount } = await parseAndImportText(item.text, progress => {
+        if (progress.stage === 'parsing') setClipboardAutomationStatus('已收到剪贴板，正在切割并识别…', 'processing');
+        if (progress.stage === 'publishing') setClipboardAutomationStatus(`已识别 ${progress.total} 条，正在处理地点并发布…`, 'processing');
+      });
       await api(`/api/clipboard/${encodeURIComponent(item.captureId)}/complete`, { method: 'POST', body: {
         created: imported.created?.length || 0,
         duplicatesSkipped: imported.duplicatesSkipped || 0
@@ -2378,12 +2382,26 @@ async function processManualImportQueue() {
   manualImportBusy = true;
   manualImportActiveFingerprint = manualImportFingerprint(item.text);
   clearManualImportTextarea();
-  setManualImportStatus(`正在识别，队列中还有 ${manualImportQueue.length} 批`, 'processing');
+  const remainingBatches = () => manualImportQueue.length ? `，队列中还有 ${manualImportQueue.length} 批` : '';
   try {
-    const { imported, parsedCount } = await parseAndImportText(item.text);
+    const { imported, parsedCount, ignoredCount } = await parseAndImportText(item.text, progress => {
+      if (progress.stage === 'parsing') {
+        setManualImportStatus(`正在切割并识别本批内容${remainingBatches()}`, 'processing');
+      }
+      if (progress.stage === 'publishing') {
+        const ignored = progress.ignored ? `，已过滤 ${progress.ignored} 段无效内容` : '';
+        setManualImportStatus(`已识别 ${progress.total} 条订单${ignored}；正在处理地点并发布${remainingBatches()}`, 'processing');
+      }
+    });
     const created = imported.created?.length || 0;
-    setManualImportStatus(created ? `已导入 ${created} 条${manualImportQueue.length ? `，还有 ${manualImportQueue.length} 批` : ''}` : `已识别 ${parsedCount} 条，没有新增订单`, 'success');
-    toast(created ? `已自动导入 ${created} 条` : '内容已处理，没有新增订单');
+    const duplicates = Number(imported.duplicatesSkipped || 0);
+    const outcome = [
+      created ? `成功发布 ${created} 条` : '',
+      duplicates ? `跳过重复 ${duplicates} 条` : '',
+      ignoredCount ? `过滤无效内容 ${ignoredCount} 段` : ''
+    ].filter(Boolean).join('，') || `已识别 ${parsedCount} 条，没有新增订单`;
+    setManualImportStatus(`${outcome}${remainingBatches()}`, 'success');
+    toast(created ? `成功发布 ${created} 条订单` : '内容已处理，没有新增订单');
   } catch (error) {
     if (error.message === '没有识别出可以导入的订单') {
       const incompleteMessage = item.source === '输入内容'
@@ -2451,8 +2469,8 @@ function enqueueManualImport(text, source = '粘贴内容', showPastedText = fal
   }
   const queuedCount = manualImportQueue.length + (manualImportBusy ? 1 : 0);
   setManualImportStatus(source === '粘贴内容'
-    ? `已粘贴成功，已加入识别队列，共 ${queuedCount} 批`
-    : `${source}已加入识别队列，共 ${queuedCount} 批`, 'queued');
+    ? `已粘贴成功，已加入识别队列，等待切割（共 ${queuedCount} 批）`
+    : `${source}已加入识别队列，等待切割（共 ${queuedCount} 批）`, 'queued');
   toast(source === '粘贴内容' ? '已粘贴成功' : `${source}已加入识别队列`);
   scheduleManualImportQueue();
   return true;

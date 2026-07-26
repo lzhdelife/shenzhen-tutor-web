@@ -739,7 +739,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .import-input-status:empty { visibility: hidden; }
 .import-input-status[data-tone="queued"],
 .import-input-status[data-tone="success"] { background: #edf8f3; color: #176344; }
-.import-input-status[data-tone="processing"] { background: #f1f6ff; color: #285c9b; }
+.import-input-status[data-tone="processing"] { min-height: 38px; padding: 9px 10px; border: 1px solid #b9cde7; background: #edf4fc; color: #234f84; font-weight: 700; }
+.import-input-status[data-tone="processing"]::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border: 2px solid #9bb7d8; border-top-color: #28689d; border-radius: 50%; vertical-align: -1px; animation: import-status-spin .75s linear infinite; }
+@keyframes import-status-spin { to { transform: rotate(360deg); } }
 .import-input-status[data-tone="error"] { background: #fff5f4; color: #a43127; }
 .agency-import-panel .import-input-column .actions { margin-top: 12px; }
 .agency-import-panel .import-preview-column .preview { min-height: 415px; max-height: 515px; align-content: start; margin-top: 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9fb; }

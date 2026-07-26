@@ -20,6 +20,7 @@ test('Cloudflare adapter exposes the shared lossless parser contract', async () 
   assert.equal(result.splitDiagnostics.length, 2);
   assert.ok(result.parsed.every(order => Array.isArray(order.structured.diagnostics.uncertainFields)));
   assert.ok(result.parsed.every(order => order.structured.locations.value.every(location => Array.isArray(location.locationQueries))));
+  assert.ok(result.parsed.every(order => !order.locationCoordinates), 'fast parsing must not wait for Amap enrichment');
 });
 
 test('Cloudflare adapter reports non-order preamble without importing it', async () => {

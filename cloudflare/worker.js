@@ -100,7 +100,8 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 
 async function prepareCloudflareImportedOrder(item, agency, amap) {
   const order = sanitizeImportedOrder(item);
-  if (!canReuseVerifiedLocation(order)) {
+  const hasLocationOptions = Array.isArray(order.locationOptions) && order.locationOptions.length > 1;
+  if (!hasLocationOptions && !canReuseVerifiedLocation(order)) {
     order.locationVerified = false;
     order.locationStatus = order.locationQuery ? 'unverified' : 'missing';
     order.locationPoiId = '';
@@ -116,6 +117,44 @@ async function prepareCloudflareImportedOrder(item, agency, amap) {
       } catch (_) {
         order.locationStatus = 'unverified';
       }
+    }
+  }
+  if (hasLocationOptions) {
+    order.locationOptions = await mapWithConcurrency(order.locationOptions, 2, async option => {
+      const query = text(option.query || option.locationQuery);
+      if (!query) return { ...option, verified: false, status: 'missing', routeOptions: {} };
+      try {
+        const result = await amap.candidates(query, option.district || order.district);
+        const candidate = result.candidates?.[0];
+        if (!candidate) return { ...option, verified: false, status: 'not_found', candidates: [], routeOptions: {} };
+        const confirmed = amap.confirm(candidate, option.district || order.district);
+        return {
+          ...option,
+          district: confirmed.district || option.district,
+          place: confirmed.place || option.place,
+          poiId: confirmed.locationPoiId || '',
+          coordinates: confirmed.locationCoordinates || '',
+          confidence: confirmed.locationConfidence || 0,
+          verified: Boolean(confirmed.locationCoordinates),
+          status: confirmed.locationStatus || 'verified',
+          candidates: result.candidates,
+          routeOptions: {}
+        };
+      } catch (_) {
+        return { ...option, verified: false, status: 'unverified', routeOptions: {} };
+      }
+    });
+    const primary = order.locationOptions[0];
+    order.locationRelation = 'OR';
+    order.locationVerified = order.locationOptions.some(option => option.verified);
+    order.locationStatus = order.locationOptions.every(option => option.verified) ? 'verified' : 'options_unverified';
+    if (primary?.verified) {
+      order.district = primary.district || order.district;
+      order.place = primary.place || order.place;
+      order.locationPoiId = primary.poiId || '';
+      order.locationCoordinates = primary.coordinates || '';
+      order.locationConfidence = primary.confidence || 0;
+      order.locationCandidates = primary.candidates || [];
     }
   }
   markRoutePending(order);
