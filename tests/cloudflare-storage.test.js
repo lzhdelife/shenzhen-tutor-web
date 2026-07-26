@@ -133,6 +133,7 @@ async function run() {
     locationVerified: true, locationCoordinates: '113.9,22.5', locationCandidates: [{ name: '科技园' }]
   });
   assert.equal(order.raw, '合成测试订单');
+  assert.equal(db.tables.orders[0].structured_json.includes('合成测试订单'), true);
   assert.equal(order.place, '科技园');
   assert.equal(order.locationVerified, true);
   assert.deepEqual(order.locationCandidates, [{ name: '科技园' }]);

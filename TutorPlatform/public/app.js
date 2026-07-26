@@ -809,7 +809,7 @@ function orderCard(o) {
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图查看</button>
-      <button class="secondary" onclick="openRawText('${encodeURIComponent(o.raw || o.requirements || '').replace(/'/g, '%27')}')">查看原文</button>
+      <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
     </div>
   </article>`;
 }
@@ -1316,10 +1316,40 @@ async function showNearbyOrdersOnMap() {
   toast('已显示我附近的订单');
 }
 
+function rawTextForOrder(order = {}) {
+  const candidates = [order.raw, order.rawText, order.structured?.rawText, order.requirements?.rawEvidence, order.structured?.requirements?.rawEvidence];
+  return candidates.find(value => typeof value === 'string' && value.trim() && value.trim() !== '[object Object]')?.trim() || '';
+}
+
+function encodedOrderRawText(order) {
+  return encodeURIComponent(rawTextForOrder(order)).replace(/'/g, '%27');
+}
+
+function renderAdminAnomalies() {
+  const panel = $('#adminAnomalyPanel');
+  const root = $('#adminAnomalyOrders');
+  const count = $('#adminAnomalyCount');
+  if (!panel || !root || !count) return;
+  const anomalies = adminToken ? state.orders.filter(order => Array.isArray(order.qualityIssues) && order.qualityIssues.length) : [];
+  panel.classList.toggle('hidden', !anomalies.length);
+  count.textContent = anomalies.length ? `${anomalies.length} 条需要检查` : '';
+  root.innerHTML = anomalies.map(order => {
+    const meta = orderDisplayMeta(order);
+    return `<article class="admin-anomaly-row">
+      <div><strong>${escapeHtml(meta.title)}</strong><div class="anomaly-tags">${order.qualityIssues.map(issue => `<span>${escapeHtml(issue.label)}</span>`).join('')}</div></div>
+      <div class="actions">
+        <button class="secondary" onclick="openRawText('${encodedOrderRawText(order)}')">查看原文</button>
+        <button class="danger" onclick="deleteOrder('${order.id}','admin')">删除</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
 function renderAdmin() {
   const root = $('#adminOrders');
   if (!adminToken) {
     root.innerHTML = '';
+    renderAdminAnomalies();
     updateAdminBulkControls();
     return;
   }
@@ -1355,6 +1385,7 @@ function renderAdmin() {
       </div>
     </article>`;
   }).join('') : '<div class="empty-state">目前没有订单。</div>';
+  renderAdminAnomalies();
   updateAdminBulkControls();
 }
 

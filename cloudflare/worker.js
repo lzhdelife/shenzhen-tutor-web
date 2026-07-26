@@ -7,6 +7,7 @@ const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
 const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe.js');
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
+const { recoverOrderRawText, detectOrderIssues } = require('../shared/order-quality.js');
 
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const ONLINE_WINDOW_MS = 90 * 1000;
@@ -255,7 +256,8 @@ async function pairedLogin(repo, request, data, env) {
 
 function cleanOrder(order, applications, viewer) {
   const canSee = viewer && (viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId));
-  const copy = { ...order, applicantCount: applications.length, applicants: canSee ? applications : [] };
+  const copy = { ...order, raw: recoverOrderRawText(order), applicantCount: applications.length, applicants: canSee ? applications : [] };
+  if (viewer?.role === 'admin') copy.qualityIssues = detectOrderIssues(order);
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
   if (!canSee) {
     copy.source = '';

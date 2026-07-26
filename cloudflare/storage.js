@@ -154,7 +154,8 @@ function createRepository(env = {}) {
     const orderStatement = db.prepare(`INSERT INTO orders (id, agency_id, source, status, district, subject, grade, price,
       import_fingerprint, structured_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
       id, input.agencyId, input.source || '', input.status || 'open', input.district || '', input.subject || '',
-      input.grade || '', Number(input.price || 0), input.importFingerprint || null, JSON.stringify(input.structured || input), timestamp, input.updatedAt || timestamp);
+      input.grade || '', Number(input.price || 0), input.importFingerprint || null,
+      JSON.stringify({ ...input, structured: input.structured || null }), timestamp, input.updatedAt || timestamp);
     const locationStatement = db.prepare(`INSERT INTO order_locations (order_id, place, address, original_place, verified, status,
       poi_id, coordinates, resolved_address, confidence, query_text, queries_json, candidates_json, options_json, relation, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, ...locationFrom(input, input.updatedAt || timestamp));
@@ -182,7 +183,7 @@ function createRepository(env = {}) {
     await run(`UPDATE orders SET agency_id=?, source=?, status=?, district=?, subject=?, grade=?, price=?, import_fingerprint=?,
       structured_json=?, updated_at=? WHERE id=?`, [merged.agencyId, merged.source || '', merged.status || 'open', merged.district || '',
       merged.subject || '', merged.grade || '', Number(merged.price || 0), merged.importFingerprint || null,
-      JSON.stringify(patch.structured || merged), timestamp, id]);
+      JSON.stringify({ ...merged, structured: patch.structured || merged.structured || null }), timestamp, id]);
     await run(`INSERT INTO order_locations (order_id, place, address, original_place, verified, status, poi_id, coordinates,
       resolved_address, confidence, query_text, queries_json, candidates_json, options_json, relation, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

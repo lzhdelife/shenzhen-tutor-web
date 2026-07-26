@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260726-23">
+  <link rel="stylesheet" href="./styles.css?v=20260726-24">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -243,6 +243,12 @@
             </div>
             <div id="adminAmapUsage" class="amap-usage-list"></div>
           </section>
+          <section id="adminAnomalyPanel" class="panel admin-anomaly-panel hidden">
+            <div class="admin-section-head">
+              <div><h2>异常订单</h2><span id="adminAnomalyCount" class="form-note"></span></div>
+            </div>
+            <div id="adminAnomalyOrders" class="admin-anomaly-list"></div>
+          </section>
           <section class="panel admin-orders-panel">
             <div class="admin-section-head">
               <div><h2>订单管理</h2></div>
@@ -308,6 +314,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
-  <script src="./app.js?v=20260726-43"></script>
+  <script src="./app.js?v=20260726-44"></script>
 </body>
 </html>

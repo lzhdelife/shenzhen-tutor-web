@@ -52,7 +52,7 @@ test('访问量按页面打开持久累计并出现在公共状态中', async ()
 });
 
 test('管理端统计按访客去重并通过心跳计算在线人数', async () => {
-  const { call } = harness();
+  const { call, repo } = harness();
   const headers = id => ({ 'x-visitor-id': id });
   await call('/api/visit', { method: 'POST', headers: headers('visitor-one') });
   await call('/api/visit', { method: 'POST', headers: headers('visitor-one') });
@@ -67,7 +67,11 @@ test('管理端统计按访客去重并通过心跳计算在线人数', async ()
   const response = await call('/api/admin/stats', { headers: { authorization: `Bearer ${setup.token}` } });
   assert.deepEqual(await response.json(), { totalVisitors: 2, onlineVisitors: 2, totalVisits: 2 });
 
+  await repo.createOrder({ id: 'quality-order', agencyId: 'missing-agency', rawText: '南山区科技园，初二数学，每周两次。', district: '南山', place: '科技园', subject: '数学', grade: '初二' });
+
   const adminState = await (await call('/api/state', { headers: { authorization: `Bearer ${setup.token}` } })).json();
+  assert.equal(adminState.orders[0].raw, '南山区科技园，初二数学，每周两次。');
+  assert.deepEqual(adminState.orders[0].qualityIssues.map(issue => issue.code), ['raw_recovered']);
   assert.equal('users' in adminState, false);
   assert.equal('feedback' in adminState, false);
   assert.equal((await call('/api/feedback', { method: 'POST', body: { content: 'test' } })).status, 404);
