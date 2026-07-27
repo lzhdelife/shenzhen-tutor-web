@@ -398,7 +398,7 @@ function setOptions(select, values, first = '') {
 function fillSelects() {
   TEACHER_FILTER_OPTIONS.district = [...state.lists.districts];
   const ownPublisher = currentAgency?.id
-    ? [{ value: currentAgency.id, label: '自己发的单子' }]
+    ? [{ value: currentAgency.id, label: '自己' }]
     : [];
   const otherPublishers = (Array.isArray(state.publisherProfiles) ? state.publisherProfiles : [])
     .filter(profile => profile.userId && profile.userId !== currentAgency?.id)
@@ -431,6 +431,19 @@ function fillTeacherFilters() {
     }).join('');
     updateFilterSummary(group);
   }
+  const publisherSelect = $('#filterPublisher');
+  if (publisherSelect) {
+    const publisherOptions = TEACHER_FILTER_OPTIONS.publisher.map(teacherFilterOption);
+    const availableValues = new Set(publisherOptions.map(option => option.value));
+    const selectedValue = [...teacherFilterSelections.publisher].find(value => availableValues.has(value)) || '';
+    teacherFilterSelections.publisher.clear();
+    if (selectedValue) teacherFilterSelections.publisher.add(selectedValue);
+    publisherSelect.innerHTML = [
+      '<option value="">全选</option>',
+      ...publisherOptions.map(option => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+    ].join('');
+    publisherSelect.value = selectedValue;
+  }
 }
 
 function updateFilterSummary(group) {
@@ -445,6 +458,8 @@ function updateFilterSummary(group) {
 function clearFilterGroup(group) {
   teacherFilterSelections[group].clear();
   $$(`input[data-filter-option="${group}"]`).forEach(input => { input.checked = false; });
+  const select = $(`select[data-filter-select="${group}"]`);
+  if (select) select.value = '';
   updateFilterSummary(group);
 }
 
@@ -2610,6 +2625,15 @@ $('#filterBike').addEventListener('change', event => {
 });
 
 $('#teacherFilters').addEventListener('change', event => {
+  const select = event.target.closest('select[data-filter-select]');
+  if (select) {
+    const group = select.dataset.filterSelect;
+    teacherFilterSelections[group].clear();
+    if (select.value) teacherFilterSelections[group].add(select.value);
+    renderOrders({ resetLimit: true });
+    queueTeacherPreferencesSave();
+    return;
+  }
   const input = event.target.closest('input[data-filter-option]');
   if (!input) return;
   const group = input.dataset.filterOption;

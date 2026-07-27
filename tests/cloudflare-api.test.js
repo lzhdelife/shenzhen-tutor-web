@@ -292,6 +292,9 @@ test('publisher access requires an application and admin approval before publish
 
   assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 403);
   assert.equal((await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: { district: '南山', subject: '数学' } })).status, 403);
+  assert.equal((await call('/api/publisher-access', { method: 'POST', headers: agencyHeaders, body: {
+    displayName: '这是一个明显超过十二个字的发布者称呼', contact: 'wechat-publisher'
+  } })).status, 400);
   const publicState = await (await call('/api/state')).json();
   assert.ok(Array.isArray(publicState.orders), 'public order browsing remains available');
 

@@ -438,9 +438,10 @@ function createWorker(dependencies = {}) {
         if (path === '/api/publisher-access' && method === 'POST') {
           if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
           const data = await bodyJson(request);
-          const displayName = text(data.displayName).slice(0, 40);
+          const displayName = text(data.displayName);
           const contact = text(data.contact).slice(0, 80);
           if (!displayName) return error('请填写称呼');
+          if ([...displayName].length > 12) return error('称呼最多填写12个字');
           if (contact.length < 5) return error('请填写微信号或手机号');
           if (typeof repo.submitPublisherAccess !== 'function') return error('发单审核服务尚未配置', 503);
           const approved = typeof repo.findApprovedPublisherAccess === 'function'
