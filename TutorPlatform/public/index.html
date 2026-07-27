@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260727-41">
+  <link rel="stylesheet" href="./styles.css?v=20260727-42">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -154,10 +154,13 @@
               <button class="filter-clear" type="button" data-clear-filter="gender">清空本项</button>
             </div>
           </details>
-          <label class="single-filter" for="filterPublisher">
-            <span>发布者</span>
-            <select id="filterPublisher" data-filter-select="publisher" aria-label="筛选订单发布者"></select>
-          </label>
+          <details class="multi-filter" data-filter-group="publisher">
+            <summary aria-label="发布者多选"><span>发布者</span><strong id="filterPublisherSummary">全选</strong></summary>
+            <div class="multi-filter-menu">
+              <div class="multi-filter-options" data-filter-options="publisher"></div>
+              <button class="filter-clear" type="button" data-clear-filter="publisher">清空本项</button>
+            </div>
+          </details>
           <input id="filterMinPrice" type="number" aria-label="最低每次课酬，按两小时计算" placeholder="最低课酬/次">
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
         </div>
@@ -357,6 +360,6 @@
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
   <script src="./order-score.js?v=20260727-2"></script>
-  <script src="./app.js?v=20260727-71"></script>
+  <script src="./app.js?v=20260727-72"></script>
 </body>
 </html>

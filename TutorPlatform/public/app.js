@@ -422,7 +422,11 @@ function fillTeacherFilters() {
   for (const [group, options] of Object.entries(TEACHER_FILTER_OPTIONS)) {
     const root = $(`[data-filter-options="${group}"]`);
     if (!root) continue;
-    root.innerHTML = options.map(rawOption => {
+    const allOption = group === 'publisher' ? `<label class="multi-option">
+      <input type="checkbox" data-filter-all="publisher"${teacherFilterSelections.publisher.size ? '' : ' checked'}>
+      <span>全选</span>
+    </label>` : '';
+    root.innerHTML = allOption + options.map(rawOption => {
       const option = teacherFilterOption(rawOption);
       return `<label class="multi-option">
       <input type="checkbox" value="${escapeHtml(option.value)}" data-filter-option="${group}"${teacherFilterSelections[group].has(option.value) ? ' checked' : ''}>
@@ -431,19 +435,6 @@ function fillTeacherFilters() {
     }).join('');
     updateFilterSummary(group);
   }
-  const publisherSelect = $('#filterPublisher');
-  if (publisherSelect) {
-    const publisherOptions = TEACHER_FILTER_OPTIONS.publisher.map(teacherFilterOption);
-    const availableValues = new Set(publisherOptions.map(option => option.value));
-    const selectedValue = [...teacherFilterSelections.publisher].find(value => availableValues.has(value)) || '';
-    teacherFilterSelections.publisher.clear();
-    if (selectedValue) teacherFilterSelections.publisher.add(selectedValue);
-    publisherSelect.innerHTML = [
-      '<option value="">全选</option>',
-      ...publisherOptions.map(option => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
-    ].join('');
-    publisherSelect.value = selectedValue;
-  }
 }
 
 function updateFilterSummary(group) {
@@ -451,15 +442,15 @@ function updateFilterSummary(group) {
   const labels = selected.map(value => teacherFilterLabel(group, value));
   const summary = $(`#filter${group === 'gender' ? 'Gender' : group[0].toUpperCase() + group.slice(1)}Summary`);
   if (!summary) return;
-  summary.textContent = !labels.length ? '不限' : labels.length <= 2 ? labels.join('、') : `已选${labels.length}项`;
+  summary.textContent = !labels.length ? (group === 'publisher' ? '全选' : '不限') : labels.length <= 2 ? labels.join('、') : `已选${labels.length}项`;
   summary.title = labels.join('、');
 }
 
 function clearFilterGroup(group) {
   teacherFilterSelections[group].clear();
   $$(`input[data-filter-option="${group}"]`).forEach(input => { input.checked = false; });
-  const select = $(`select[data-filter-select="${group}"]`);
-  if (select) select.value = '';
+  const allInput = $(`input[data-filter-all="${group}"]`);
+  if (allInput) allInput.checked = true;
   updateFilterSummary(group);
 }
 
@@ -2625,11 +2616,13 @@ $('#filterBike').addEventListener('change', event => {
 });
 
 $('#teacherFilters').addEventListener('change', event => {
-  const select = event.target.closest('select[data-filter-select]');
-  if (select) {
-    const group = select.dataset.filterSelect;
+  const allInput = event.target.closest('input[data-filter-all]');
+  if (allInput) {
+    const group = allInput.dataset.filterAll;
     teacherFilterSelections[group].clear();
-    if (select.value) teacherFilterSelections[group].add(select.value);
+    $$(`input[data-filter-option="${group}"]`).forEach(input => { input.checked = false; });
+    allInput.checked = true;
+    updateFilterSummary(group);
     renderOrders({ resetLimit: true });
     queueTeacherPreferencesSave();
     return;
@@ -2639,6 +2632,8 @@ $('#teacherFilters').addEventListener('change', event => {
   const group = input.dataset.filterOption;
   if (input.checked) teacherFilterSelections[group].add(input.value);
   else teacherFilterSelections[group].delete(input.value);
+  const groupAllInput = $(`input[data-filter-all="${group}"]`);
+  if (groupAllInput) groupAllInput.checked = teacherFilterSelections[group].size === 0;
   updateFilterSummary(group);
   renderOrders({ resetLimit: true });
   queueTeacherPreferencesSave();
