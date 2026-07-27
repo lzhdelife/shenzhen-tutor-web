@@ -432,7 +432,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 
 .toolbar {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr)) minmax(120px, .72fr) auto auto;
+  grid-template-columns: repeat(5, minmax(130px, 1fr)) minmax(120px, .72fr) auto;
   gap: 9px;
   align-items: stretch;
   margin-bottom: 16px;

@@ -324,6 +324,8 @@ test('publisher access requires an application and admin approval before publish
   assert.deepEqual(contact.admin, { name: '吴老师', contact: ['187', '1937', '1936'].join('') });
   const teacherState = await (await call('/api/state', { headers: { authorization: `Bearer ${guest.teacherToken}` } })).json();
   assert.equal(JSON.stringify(teacherState).includes('wechat-publisher'), false, 'publisher contact is revealed only after an explicit contact request');
+  assert.deepEqual(teacherState.publisherProfiles, [{ userId: guest.agency.id, displayName: '申请人' }]);
+  assert.equal('contact' in teacherState.publisherProfiles[0], false);
 
   const otherBrowser = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_other_browser' } })).json();
   const restored = await (await call('/api/publisher-access', { method: 'POST', headers: { authorization: `Bearer ${otherBrowser.agencyToken}` }, body: {

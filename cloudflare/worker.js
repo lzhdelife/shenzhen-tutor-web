@@ -522,13 +522,18 @@ function createWorker(dependencies = {}) {
           const announcements = viewer?.role === 'admin' ? await repo.listAnnouncements() : null;
           const platformSettings = await repo.getSettings();
           const publisherAccess = viewer?.role === 'agency' && typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(viewer.id) : null;
-          const publisherRequests = viewer?.role === 'admin' && typeof repo.listPublisherAccess === 'function' ? await repo.listPublisherAccess() : [];
+          const publisherAccessRecords = typeof repo.listPublisherAccess === 'function' ? await repo.listPublisherAccess() : [];
+          const activePublisherIds = new Set(orders.map(order => order.agencyId).filter(Boolean));
+          const publisherProfiles = publisherAccessRecords
+            .filter(item => item.status === 'approved' && activePublisherIds.has(item.userId))
+            .map(item => ({ userId: item.userId, displayName: text(item.displayName) }));
+          const publisherRequests = viewer?.role === 'admin' ? publisherAccessRecords : [];
           const orderIssueReports = viewer?.role === 'admin' && typeof repo.listOrderIssueReports === 'function'
             ? await repo.listOrderIssueReports()
             : undefined;
           return json({ ...state, announcement: announcements ? (announcements[0] || null) : state.announcement,
             settings: { homeAddress: settings.homeAddress || '', maxBikeKm: settings.maxBikeKm || 12 }, viewer,
-            adminConfigured: Boolean(state.adminConfigured), orders, publisherAccess, publisherRequests,
+            adminConfigured: Boolean(state.adminConfigured), orders, publisherAccess, publisherProfiles, publisherRequests,
             ...(orderIssueReports ? { orderIssueReports } : {}),
             stats: { totalVisits: Math.max(0, Number(platformSettings.totalVisits) || 0) }, lists: LISTS });
         }

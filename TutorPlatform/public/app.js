@@ -113,13 +113,15 @@ const TEACHER_FILTER_OPTIONS = {
   district: [],
   subject: [...K12_FILTER_SUBJECTS, '其他'],
   grade: ['小学', '初中', '高中', '其他'],
-  gender: ['男老师', '女老师', '男女不限', '教师性别未说明']
+  gender: ['男老师', '女老师', '男女不限', '教师性别未说明'],
+  publisher: []
 };
 const teacherFilterSelections = {
   district: new Set(),
   subject: new Set(),
   grade: new Set(),
-  gender: new Set()
+  gender: new Set(),
+  publisher: new Set()
 };
 
 const routeLabels = {
@@ -395,27 +397,49 @@ function setOptions(select, values, first = '') {
 
 function fillSelects() {
   TEACHER_FILTER_OPTIONS.district = [...state.lists.districts];
+  const ownPublisher = currentAgency?.id
+    ? [{ value: currentAgency.id, label: '自己发的单子' }]
+    : [];
+  const otherPublishers = (Array.isArray(state.publisherProfiles) ? state.publisherProfiles : [])
+    .filter(profile => profile.userId && profile.userId !== currentAgency?.id)
+    .map(profile => ({ value: profile.userId, label: profile.displayName || '其他发布者' }));
+  TEACHER_FILTER_OPTIONS.publisher = [...ownPublisher, ...otherPublishers];
   fillTeacherFilters();
+}
+
+function teacherFilterOption(option) {
+  return typeof option === 'string' ? { value: option, label: option } : option;
+}
+
+function teacherFilterLabel(group, value) {
+  const option = TEACHER_FILTER_OPTIONS[group]
+    ?.map(teacherFilterOption)
+    .find(item => item.value === value);
+  return option?.label || value;
 }
 
 function fillTeacherFilters() {
   for (const [group, options] of Object.entries(TEACHER_FILTER_OPTIONS)) {
     const root = $(`[data-filter-options="${group}"]`);
     if (!root) continue;
-    root.innerHTML = options.map(option => `<label class="multi-option">
-      <input type="checkbox" value="${escapeHtml(option)}" data-filter-option="${group}"${teacherFilterSelections[group].has(option) ? ' checked' : ''}>
-      <span>${escapeHtml(option)}</span>
-    </label>`).join('');
+    root.innerHTML = options.map(rawOption => {
+      const option = teacherFilterOption(rawOption);
+      return `<label class="multi-option">
+      <input type="checkbox" value="${escapeHtml(option.value)}" data-filter-option="${group}"${teacherFilterSelections[group].has(option.value) ? ' checked' : ''}>
+      <span>${escapeHtml(option.label)}</span>
+    </label>`;
+    }).join('');
     updateFilterSummary(group);
   }
 }
 
 function updateFilterSummary(group) {
   const selected = [...teacherFilterSelections[group]];
+  const labels = selected.map(value => teacherFilterLabel(group, value));
   const summary = $(`#filter${group === 'gender' ? 'Gender' : group[0].toUpperCase() + group.slice(1)}Summary`);
   if (!summary) return;
-  summary.textContent = !selected.length ? '不限' : selected.length <= 2 ? selected.join('、') : `已选${selected.length}项`;
-  summary.title = selected.join('、');
+  summary.textContent = !labels.length ? '不限' : labels.length <= 2 ? labels.join('、') : `已选${labels.length}项`;
+  summary.title = labels.join('、');
 }
 
 function clearFilterGroup(group) {
@@ -549,6 +573,7 @@ function filteredOrders() {
     .filter(o => matchesSelection(subjectBuckets(o), teacherFilterSelections.subject))
     .filter(o => matchesSelection(gradeBuckets(o), teacherFilterSelections.grade))
     .filter(o => !teacherFilterSelections.gender.size || teacherFilterSelections.gender.has(genderBucket(o)))
+    .filter(o => !teacherFilterSelections.publisher.size || teacherFilterSelections.publisher.has(o.agencyId))
     .filter(o => !minPrice || (window.TutorOrderScore?.lessonPriceAmount(o) || Number(o.price)) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) > 0 && Number(o.distanceKm) <= NEARBY_DISTANCE_KM))
     .sort((a, b) => {
