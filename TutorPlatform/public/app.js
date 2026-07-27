@@ -59,6 +59,15 @@ const SUBPAGE_PANEL_IDS = ['contactPanel', 'applicationPanel', 'rawTextPanel'];
 const PRIVATE_STATE_REFRESH_MS = 60 * 1000;
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 const NEARBY_DISTANCE_KM = 10;
+const ORDER_ISSUE_TYPES = [
+  ['location', '地点'],
+  ['grade_subject', '年级/科目'],
+  ['price', '课酬'],
+  ['schedule', '时间/次数'],
+  ['teacher_requirements', '老师要求'],
+  ['student', '学生信息'],
+  ['other', '其他']
+];
 try {
   const savedPreviewHistory = JSON.parse(sessionStorage.getItem(IMPORT_PREVIEW_HISTORY_KEY) || '[]');
   if (Array.isArray(savedPreviewHistory)) {
@@ -886,6 +895,35 @@ function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
   </div>`;
 }
 
+function issueReportMarkup(selectHandler) {
+  return `<div class="issue-report-control">
+    <button type="button" class="text-button issue-report-button" aria-expanded="false" onclick="toggleIssueReportMenu(this,event)">识别有误</button>
+    <div class="issue-report-menu hidden">
+      <strong>哪项数据有误？</strong>
+      <div class="issue-report-options">${ORDER_ISSUE_TYPES.map(([code, label]) => `<button type="button" class="secondary" data-issue-label="${escapeHtml(label)}" onclick="${selectHandler(code)}">${escapeHtml(label)}</button>`).join('')}</div>
+    </div>
+  </div>`;
+}
+
+function closeIssueReportMenus(except = null) {
+  $$('.issue-report-control').forEach(control => {
+    if (control === except) return;
+    control.querySelector('.issue-report-menu')?.classList.add('hidden');
+    control.querySelector('.issue-report-button')?.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function toggleIssueReportMenu(button, event) {
+  event?.stopPropagation();
+  const control = button.closest('.issue-report-control');
+  const menu = control?.querySelector('.issue-report-menu');
+  if (!menu) return;
+  const willOpen = menu.classList.contains('hidden');
+  closeIssueReportMenus(control);
+  menu.classList.toggle('hidden', !willOpen);
+  button.setAttribute('aria-expanded', String(willOpen));
+}
+
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
   return `<article class="card" id="order-card-${escapeHtml(o.id)}">
@@ -901,7 +939,7 @@ function orderCard(o) {
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>
       <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
-      <button class="text-button issue-report-button" onclick="reportPublishedOrderIssue('${o.id}', this)">识别有误</button>
+      ${issueReportMarkup(issueType => `reportPublishedOrderIssue('${o.id}','${issueType}',this)`)}
     </div>
   </article>`;
 }
@@ -1529,10 +1567,11 @@ function renderAdminAnomalies() {
   count.textContent = anomalies.length || reports.length ? `${anomalies.length + reports.length} 项需要检查` : '';
   const reportMarkup = reports.map(report => {
     const snapshot = report.parsedSnapshot || {};
+    const reportedIssueLabel = snapshot.reportedIssue?.label || '';
     const linkedOrder = report.orderId ? state.orders.find(order => order.id === report.orderId) : null;
     const meta = orderDisplayMeta(linkedOrder || snapshot);
     return `<article class="admin-anomaly-row user-reported-issue">
-      <div><strong>${escapeHtml(meta.title || '识别预览')}</strong><div class="anomaly-tags"><span>用户反馈</span>${report.reportCount > 1 ? `<span>${report.reportCount} 人反馈</span>` : ''}${report.parserVersion ? `<span>解析器 ${escapeHtml(report.parserVersion)}</span>` : ''}</div></div>
+      <div><strong>${escapeHtml(meta.title || '识别预览')}</strong><div class="anomaly-tags"><span>用户反馈</span>${reportedIssueLabel ? `<span>${escapeHtml(reportedIssueLabel)}有误</span>` : ''}${report.reportCount > 1 ? `<span>${report.reportCount} 人反馈</span>` : ''}${report.parserVersion ? `<span>解析器 ${escapeHtml(report.parserVersion)}</span>` : ''}</div></div>
       <div class="actions">
         <button class="secondary" onclick="openRawText('${encodeURIComponent(report.rawText || '').replace(/'/g, '%27')}')">查看原文</button>
         <button class="secondary" onclick="openIssueSnapshot('${encodeURIComponent(JSON.stringify(snapshot, null, 2)).replace(/'/g, '%27')}')">查看识别结果</button>
@@ -1830,32 +1869,37 @@ function previewCard(o, index, batchId = '') {
     ${uncertainFields.length ? `<div class="parse-warning">导入前请确认：${escapeHtml(uncertainFields.join('、'))}</div>` : ''}
     <details class="parse-evidence"><summary>订单原文（导入时保留）</summary><div>${escapeHtml(o.raw || structured.rawText || '')}</div></details>
     ${notes ? `<div class="raw">${escapeHtml(notes)}</div>` : ''}
-    <div class="actions"><button class="text-button issue-report-button" onclick="reportPreviewIssue('${batchId}',${index},this)">识别有误</button></div>
+    <div class="actions">${issueReportMarkup(issueType => `reportPreviewIssue('${batchId}',${index},'${issueType}',this)`)}</div>
   </div>`;
 }
 
 async function submitIssueReport(body, button) {
   if (button?.disabled) return;
+  const originalText = button?.textContent || '';
+  const control = button?.closest('.issue-report-control');
   if (button) { button.disabled = true; button.textContent = '提交中…'; }
   try {
     const token = body.orderId ? teacherToken : agencyToken;
     await api('/api/order-issues', { method: 'POST', body }, token);
-    if (button) button.textContent = '已反馈';
-    toast('已反馈，订单继续保留');
+    if (button) { button.disabled = false; button.textContent = originalText; }
+    control?.querySelector('.issue-report-menu')?.classList.add('hidden');
+    const toggle = control?.querySelector('.issue-report-button');
+    if (toggle) { toggle.textContent = '已反馈'; toggle.setAttribute('aria-expanded', 'false'); }
+    toast(`已反馈：${button?.dataset.issueLabel || '识别有误'}`);
   } catch (error) {
-    if (button) { button.disabled = false; button.textContent = '识别有误'; }
+    if (button) { button.disabled = false; button.textContent = originalText; }
     toast(error.message);
   }
 }
 
-function reportPublishedOrderIssue(orderId, button) {
-  return submitIssueReport({ orderId }, button);
+function reportPublishedOrderIssue(orderId, issueType, button) {
+  return submitIssueReport({ orderId, issueType }, button);
 }
 
-function reportPreviewIssue(batchId, orderIndex, button) {
+function reportPreviewIssue(batchId, orderIndex, issueType, button) {
   const order = previewBatchById(batchId)?.orders?.[orderIndex];
   if (!order) return toast('这条识别结果已不存在');
-  return submitIssueReport({ raw: order.raw || order.structured?.rawText || '', parsedSnapshot: order,
+  return submitIssueReport({ raw: order.raw || order.structured?.rawText || '', parsedSnapshot: order, issueType,
     parserVersion: order.structured?.parserVersion || order.parserVersion || '' }, button);
 }
 
@@ -2657,6 +2701,11 @@ $$('.multi-filter').forEach(details => {
 document.addEventListener('click', event => {
   if (event.target.closest('.multi-filter')) return;
   $$('.multi-filter').forEach(details => { details.open = false; });
+});
+
+document.addEventListener('click', event => {
+  if (event.target.closest('.issue-report-control')) return;
+  closeIssueReportMenus();
 });
 
 $('#clearTeacherFilters').addEventListener('click', () => {

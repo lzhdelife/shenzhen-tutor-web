@@ -587,18 +587,22 @@ test('识别有误反馈保存快照、同人去重且仅管理员可读取', as
   assert.equal((await call('/api/order-issues', { method: 'POST', body: { orderId: 'issue-order' } })).status, 401);
   const teacherHeaders = { authorization: `Bearer ${guest.teacherToken}` };
   assert.equal((await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: {
-    orderId: 'issue-order', parsedSnapshot: { place: '伪造地点' }
+    orderId: 'issue-order'
+  } })).status, 400);
+  assert.equal((await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: {
+    orderId: 'issue-order', issueType: 'location', parsedSnapshot: { place: '伪造地点' }
   } })).status, 200);
-  await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: { orderId: 'issue-order' } });
+  await call('/api/order-issues', { method: 'POST', headers: teacherHeaders, body: { orderId: 'issue-order', issueType: 'location' } });
   assert.equal(repo.state.orderIssueReports.size, 1);
   const published = [...repo.state.orderIssueReports.values()][0];
   assert.equal(published.parsedSnapshot.place, '错误地点');
+  assert.deepEqual(published.parsedSnapshot.reportedIssue, { code: 'location', label: '地点' });
   assert.equal(published.parserVersion, '2.2.1');
 
   const agencyHeaders = { authorization: `Bearer ${guest.agencyToken}` };
   const preview = { raw: '宝安区合成小区，高一物理', place: '识别地点', structured: { parserVersion: '2.2.1' } };
   assert.equal((await call('/api/order-issues', { method: 'POST', headers: agencyHeaders, body: {
-    raw: preview.raw, parsedSnapshot: preview, parserVersion: '2.2.1'
+    raw: preview.raw, parsedSnapshot: preview, parserVersion: '2.2.1', issueType: 'grade_subject'
   } })).status, 200);
   assert.equal(repo.state.orderIssueReports.size, 2);
 

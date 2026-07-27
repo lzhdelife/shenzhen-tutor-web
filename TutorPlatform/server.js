@@ -19,6 +19,15 @@ const DB_PATH = path.join(DATA_DIR, 'db.json');
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const MAX_CLIPBOARD_INBOX = 500;
+const ORDER_ISSUE_TYPES = Object.freeze({
+  location: '地点',
+  grade_subject: '年级/科目',
+  price: '课酬',
+  schedule: '时间/次数',
+  teacher_requirements: '老师要求',
+  student: '学生信息',
+  other: '其他'
+});
 const sessions = new Map();
 const REMEMBER_COOKIE = 'tutor_remember';
 const REMEMBER_LOGIN_MS = 30 * 24 * 60 * 60 * 1000;
@@ -2318,6 +2327,9 @@ async function handleApi(req, res) {
     if (!viewer || !['teacher', 'agency'].includes(viewer.role)) return send(res, 401, { error: '需要有效的浏览器身份' });
     const data = await bodyJson(req);
     const orderId = textOf(data.orderId);
+    const issueType = textOf(data.issueType);
+    const issueLabel = ORDER_ISSUE_TYPES[issueType];
+    if (!issueLabel) return send(res, 400, { error: '请选择哪项数据识别有误' });
     let source, rawText, parsedSnapshot, parserVersion, targetKey;
     if (orderId) {
       const order = db.orders.find(item => item.id === orderId);
@@ -2338,6 +2350,7 @@ async function handleApi(req, res) {
       if (!rawText) return send(res, 400, { error: '缺少订单原文' });
       targetKey = `preview:${crypto.createHash('sha256').update(canonicalOrderText(rawText)).digest('hex')}`;
     }
+    parsedSnapshot = { ...parsedSnapshot, reportedIssue: { code: issueType, label: issueLabel } };
     if (Buffer.byteLength(rawText, 'utf8') > 256 * 1024) return send(res, 413, { error: '订单原文过大' });
     if (Buffer.byteLength(JSON.stringify(parsedSnapshot), 'utf8') > 512 * 1024) return send(res, 413, { error: '识别结果过大' });
     const timestamp = new Date().toISOString();

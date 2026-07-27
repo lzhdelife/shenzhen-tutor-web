@@ -14,6 +14,15 @@ const ONLINE_WINDOW_MS = 90 * 1000;
 const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
 const MAX_ISSUE_RAW_BYTES = 256 * 1024;
 const MAX_ISSUE_SNAPSHOT_BYTES = 512 * 1024;
+const ORDER_ISSUE_TYPES = Object.freeze({
+  location: '地点',
+  grade_subject: '年级/科目',
+  price: '课酬',
+  schedule: '时间/次数',
+  teacher_requirements: '老师要求',
+  student: '学生信息',
+  other: '其他'
+});
 const LOCATION_CACHE_CONTROL = 'public, max-age=300, s-maxage=86400';
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const LISTS = {
@@ -703,6 +712,9 @@ function createWorker(dependencies = {}) {
           if (typeof repo.upsertOrderIssueReport !== 'function') return error('识别反馈服务尚未配置', 503);
           const data = await bodyJson(request);
           const orderId = text(data.orderId);
+          const issueType = text(data.issueType);
+          const issueLabel = ORDER_ISSUE_TYPES[issueType];
+          if (!issueLabel) return error('请选择哪项数据识别有误');
           let source, rawText, parsedSnapshot, parserVersion, targetKey;
           if (orderId) {
             const order = await repo.getOrderById(orderId);
@@ -723,6 +735,7 @@ function createWorker(dependencies = {}) {
             if (!rawText) return error('缺少订单原文');
             targetKey = `preview:${await sha256(canonicalOrderText(rawText))}`;
           }
+          parsedSnapshot = { ...parsedSnapshot, reportedIssue: { code: issueType, label: issueLabel } };
           if (new TextEncoder().encode(rawText).byteLength > MAX_ISSUE_RAW_BYTES) return error('订单原文过大', 413);
           if (jsonByteLength(parsedSnapshot) > MAX_ISSUE_SNAPSHOT_BYTES) return error('识别结果过大', 413);
           const report = await repo.upsertOrderIssueReport({

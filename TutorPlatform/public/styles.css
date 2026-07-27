@@ -742,6 +742,24 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .info-chip.wide { border-radius: 6px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .card .actions { margin-top: auto; padding-top: 14px; }
+.issue-report-control { position: relative; }
+.issue-report-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 14;
+  width: min(292px, calc(100vw - 48px));
+  padding: 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(23, 33, 43, .18);
+}
+.issue-report-menu > strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 13px; }
+.issue-report-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.issue-report-options button { min-width: 0; min-height: 34px; padding: 6px 8px; font-size: 12px; }
+.preview-card .issue-report-control { width: 100%; }
+.preview-card .issue-report-menu { position: static; width: 100%; margin-top: 7px; }
 
 .columns { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(360px, 1fr); gap: 14px; align-items: start; }
 .admin-metrics { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 7px; background: #fff; }
@@ -1048,6 +1066,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 }
 
 @media (max-width: 700px) {
+  .issue-report-menu { position: fixed; right: 14px; bottom: max(14px, env(safe-area-inset-bottom)); left: 14px; width: auto; z-index: 45; }
+  .card:hover { transform: none; }
   .auth-screen { padding: 0; place-items: stretch; background: #fff; }
   .auth-layout { min-height: 100vh; grid-template-columns: 1fr; grid-template-rows: 142px minmax(0, 1fr); align-content: start; border: 0; box-shadow: none; }
   .auth-brand { min-height: 142px; padding: 24px 20px; }
@@ -1159,6 +1179,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .admin-metrics,
   .suggestions,
   .multi-filter-menu,
+  .issue-report-menu,
   .contact-card,
   .source-image-card { background: var(--panel); color: var(--ink); }
   .card,
