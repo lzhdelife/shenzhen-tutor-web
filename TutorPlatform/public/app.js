@@ -846,11 +846,6 @@ function detailItem(label, value, wide = false) {
   return `<span class="info-chip${wide ? ' wide' : ''}" title="${escapeHtml(label)}">${escapeHtml(text)}</span>`;
 }
 
-function teacherDisplayName(name) {
-  const value = cleanDisplayText(name || '', 24) || '未填写姓名';
-  return /老师$/.test(value) ? value : `${value}老师`;
-}
-
 function orderDisplayMeta(o) {
   if (Array.isArray(o.locationOptions) && o.locationOptions.length > 1) {
     const labels = o.locationOptions.slice(0, 3).map((option, index) => {
@@ -1795,35 +1790,35 @@ function updateAdminBulkControls() {
 function renderAgencyOrders() {
   const root = $('#agencyOrders');
   const deleteAllButton = $('#deleteAllAgencyOrders');
+  const count = $('#agencyOrderCount');
   if (!currentAgency || !agencyToken) {
-    root.innerHTML = '<div class="raw">正在恢复这个浏览器的发单记录…</div>';
+    root.innerHTML = '<div class="empty-state">正在恢复这个浏览器的发单记录…</div>';
+    count.textContent = '0 条';
     deleteAllButton.disabled = true;
     return;
   }
-  const orders = state.orders.filter(o => o.agencyId === currentAgency.id);
+  const orders = state.orders
+    .filter(o => o.agencyId === currentAgency.id)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  count.textContent = `${orders.length} 条`;
   deleteAllButton.disabled = !orders.length;
   root.innerHTML = orders.length ? orders.map(o => {
     const meta = orderDisplayMeta(o);
-    return `<div class="admin-row">
-      <strong>${escapeHtml(meta.title)}</strong>
-      <div class="raw">${escapeHtml(priceLabel(o))} · 状态：${escapeHtml(statusLabel(o.status))} · 申请 ${o.applicantCount || 0} 人</div>
-      <div class="applicant-list">
-        ${(o.applicants || []).length
-          ? o.applicants.map(a => `<div class="applicant-item">
-              <div><strong>${escapeHtml(teacherDisplayName(a.name))}</strong>，联系方式 <span>${escapeHtml(a.phone || '未填写')}</span>，已申请</div>
-              <div class="raw">${a.at ? new Date(a.at).toLocaleString() : ''}${a.note ? ` · ${escapeHtml(a.note)}` : ''}</div>
-            </div>`).join('')
-          : '<div class="raw">暂时还没有老师申请。</div>'}
+    const publishedAt = o.createdAt ? `${new Date(o.createdAt).toLocaleString()} 发布` : '发布时间未知';
+    return `<article class="agency-order-card">
+      <div class="agency-order-head">
+        <div>
+          <strong>${escapeHtml(meta.title)}</strong>
+          <div class="source-line">${escapeHtml(publishedAt)}</div>
+        </div>
       </div>
-      <div class="actions">
+      ${orderDetailMarkup(o, meta)}
+      <div class="actions agency-order-actions">
+        <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
       </div>
-    </div>`;
-  }).join('') : '<div class="raw">这个浏览器还没有发布订单。</div>';
-}
-
-function statusLabel(status) {
-  return ({ open: '开放中', matched: '已成交', closed: '已下架' })[status] || status || '开放中';
+    </article>`;
+  }).join('') : '<div class="empty-state">还没有发布订单。</div>';
 }
 
 function previewCard(o, index, batchId = '') {

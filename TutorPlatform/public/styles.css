@@ -877,8 +877,12 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .import-preview-empty { min-height: 390px; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
 .agency-orders-section { margin-top: 24px; }
 .agency-orders-section #agencyOrders { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.agency-orders-section .admin-row { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
-.agency-orders-section .admin-row:first-child { border-top: 1px solid var(--line); }
+.agency-order-card { display: grid; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.agency-order-head { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.agency-order-head > div { min-width: 0; }
+.agency-order-head strong { display: block; overflow-wrap: anywhere; font-size: 16px; line-height: 1.45; }
+.agency-order-actions { justify-content: flex-end; margin-top: 0; padding-top: 2px; border-top: 1px solid var(--line); }
+.agency-order-actions button { min-height: 36px; }
 .admin-row { padding: 11px 0; border-top: 1px solid var(--line); }
 .admin-row:first-child { border-top: 0; }
 .admin-orders-panel { grid-column: 1 / -1; }
@@ -922,9 +926,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .admin-card-actions { align-items: center; justify-content: space-between; }
 .admin-card-actions .danger { margin-left: auto; }
 .empty-state { padding: 22px 12px; color: var(--muted); text-align: center; }
-.applicant-list { display: grid; gap: 8px; margin-top: 9px; }
-.applicant-item { padding: 9px 11px; border: 1px solid #cbdcf4; border-left: 4px solid var(--blue); border-radius: 6px; background: #f6f9fe; line-height: 1.55; }
-.applicant-item a { color: #174cae; font-weight: 800; text-decoration: none; }
 
 .contact-panel {
   position: fixed;
@@ -1186,8 +1187,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .admin-anomaly-row,
   .publisher-request-row,
   .preview-card,
-  .agency-orders-section .admin-row,
-  .applicant-item { border-color: var(--line); background: var(--card); color: var(--ink); }
+  .agency-order-card { border-color: var(--line); background: var(--card); color: var(--ink); }
   .auth-brand { background: #1d2326; color: var(--ink); }
   .auth-brand::after { background: var(--green); }
   .auth-platform-stats small,
