@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>深圳家教接单平台</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./styles.css?v=20260727-38">
+  <link rel="stylesheet" href="./styles.css?v=20260727-39">
 </head>
 <body>
   <section id="authScreen" class="auth-screen hidden">
@@ -238,26 +238,6 @@
           </div>
           <div id="agencyOrders"></div>
         </section>
-        <details class="panel manual-entry-panel">
-          <summary>
-            <span><strong>手动录入</strong></span>
-            <b>展开</b>
-          </summary>
-          <form id="orderForm" class="manual-entry-form">
-            <div class="grid">
-              <select name="district"></select>
-              <input name="place" placeholder="地点，如 后海、蛇口、西乡">
-              <select name="subject"></select>
-              <select name="grade"></select>
-              <input name="price" type="number" placeholder="课酬（元/小时）">
-              <input name="priceText" placeholder="薪酬原文，如 300/2h">
-              <input name="schedule" placeholder="上课时间">
-              <input name="gender" placeholder="教师性别要求">
-            </div>
-            <textarea name="requirements" placeholder="学生情况、教师要求和其他备注"></textarea>
-            <button type="submit" class="primary">发布订单</button>
-          </form>
-        </details>
         </div>
       </section>
 
@@ -373,6 +353,6 @@
   <script src="https://webapi.amap.com/loader.js"></script>
   <script src="./schedule-format.js?v=20260717-5"></script>
   <script src="./order-score.js?v=20260727-2"></script>
-  <script src="./app.js?v=20260727-68"></script>
+  <script src="./app.js?v=20260727-69"></script>
 </body>
 </html>

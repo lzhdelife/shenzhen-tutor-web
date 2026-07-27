@@ -396,9 +396,6 @@ function setOptions(select, values, first = '') {
 function fillSelects() {
   TEACHER_FILTER_OPTIONS.district = [...state.lists.districts];
   fillTeacherFilters();
-  setOptions($('[name="district"]', $('#orderForm')), state.lists.districts, '选择区域');
-  setOptions($('[name="subject"]', $('#orderForm')), state.lists.subjects, '选择科目');
-  setOptions($('[name="grade"]', $('#orderForm')), state.lists.grades, '选择年级');
 }
 
 function fillTeacherFilters() {
@@ -2777,19 +2774,6 @@ $('#teacherOrigin').addEventListener('input', () => {
 $('#teacherOrigin').addEventListener('focus', queueLocationSuggestions);
 document.addEventListener('click', event => {
   if (!event.target.closest('.autocomplete-wrap')) hideLocationSuggestions();
-});
-
-$('#orderForm').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = event.currentTarget;
-  if (!currentAgency || !agencyToken) return toast('请先进入中介端');
-  const data = Object.fromEntries(new FormData(form).entries());
-  data.raw = `${data.district} ${data.place} ${data.grade} ${data.subject} ${data.priceText || data.price || ''} ${data.schedule} ${data.gender} ${data.requirements}`;
-  data.price = Number(data.price || 0);
-  await api('/api/orders', { method: 'POST', body: data }, agencyToken);
-  form.reset();
-  toast('订单已发布');
-  await load();
 });
 
 const MANUAL_IMPORT_QUEUE_KEY = 'manualImportQueueV1';

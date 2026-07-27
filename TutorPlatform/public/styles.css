@@ -861,28 +861,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .agency-orders-section #agencyOrders { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .agency-orders-section .admin-row { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
 .agency-orders-section .admin-row:first-child { border-top: 1px solid var(--line); }
-.manual-entry-panel { margin-top: 28px; padding: 0; overflow: hidden; }
-.manual-entry-panel > summary {
-  min-height: 72px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 16px 20px;
-  cursor: pointer;
-  list-style: none;
-  background: #f7f9fb;
-}
-.manual-entry-panel > summary::-webkit-details-marker { display: none; }
-.manual-entry-panel > summary span { display: grid; gap: 5px; }
-.manual-entry-panel > summary strong { font-size: 17px; }
-.manual-entry-panel > summary small { color: var(--muted); }
-.manual-entry-panel > summary b { color: var(--blue); font-size: 13px; }
-.manual-entry-panel[open] > summary { border-bottom: 1px solid var(--line); }
-.manual-entry-panel[open] > summary b { font-size: 0; }
-.manual-entry-panel[open] > summary b::after { content: '收起'; font-size: 13px; }
-.manual-entry-form { padding: 20px; }
-.manual-entry-form > textarea { margin: 10px 0; }
 .admin-row { padding: 11px 0; border-top: 1px solid var(--line); }
 .admin-row:first-child { border-top: 0; }
 .admin-orders-panel { grid-column: 1 / -1; }
@@ -1109,8 +1087,6 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .agency-import-panel .import-input-column textarea.large { min-height: 240px; }
   .agency-import-panel .import-preview-column .preview { min-height: 260px; max-height: 420px; }
   .import-preview-empty { min-height: 235px; }
-  .manual-entry-panel > summary { padding: 14px; }
-  .manual-entry-form { padding: 14px; }
   .refresh-button b { display: none; }
   .refresh-button { width: 36px; padding: 0; justify-content: center; }
   .location-strip { grid-template-columns: 1fr 1fr; }

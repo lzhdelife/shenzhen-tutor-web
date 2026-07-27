@@ -9,6 +9,7 @@ const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public
 
 const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
 const browserStylesSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'styles.css'), 'utf8');
+const browserHtmlSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'index.html'), 'utf8');
 assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
 assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,
@@ -37,6 +38,10 @@ assert.match(browserStylesSource, /@media \(prefers-color-scheme: dark\)[\s\S]*-
   'dark mode should use a distinct card color instead of relying on borders');
 assert.match(browserStylesSource, /\.card,[\s\S]*background: var\(--card\); color: var\(--ink\);/,
   'dark repeated cards should use the raised card layer');
+assert.doesNotMatch(browserHtmlSource, /id="orderForm"|manual-entry-panel|手动录入/,
+  'the redundant manual order form should not be shown');
+assert.doesNotMatch(browserAppSource, /\$\('#orderForm'\)/,
+  'removed manual order form should have no event handlers');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固
