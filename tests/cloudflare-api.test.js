@@ -565,6 +565,34 @@ test('import skips the same order despite whitespace punctuation and emoji diffe
   assert.equal(repeated.duplicatesSkipped, 1);
 });
 
+test('import merges cross-group wording variants but keeps different subjects separate', async () => {
+  const { call, repo } = harness();
+  const name = '跨群去重机构', phone = ['136', '0013', '6001'].join(''), password = 'secret1';
+  const login = await (await call('/api/login', { method: 'POST', body: {
+    role: 'agency', name, phone, password, passwordProof: await clientPasswordProof(password, name, phone)
+  } })).json();
+  approvePublisher(repo, login.user);
+  const headers = { authorization: `Bearer ${login.token}` };
+  const common = {
+    district: '宝安', place: '中心壹方城', grade: '初三', subject: '数学',
+    price: 525, priceMin: 500, priceMax: 550, priceUnit: '次', hourlyPrice: 263,
+    schedule: '暑假共10次左右，8月10号左右开始，集中晚上或下午上课。每次时长：2h',
+    locationVerified: true, locationStatus: 'verified', locationPoiId: 'uniwalk-poi',
+    locationCoordinates: '113.9000,22.5600'
+  };
+  const variants = [
+    '在职老师【g深圳市宝安中心壹方城旁边新初三数学】\n【要求】男女不限，在职老师，有经验',
+    '🟥🟧🟨 今日新单、\n【g深圳市宝安中心壹方城旁边新初三数学】\n【要求】男女不限，在职老师优先，有经验',
+    '【g深圳市宝安中心壹方城旁边新初三数学】\n【要求】男女不限，在职老师优先，有经验'
+  ];
+  const result = await (await call('/api/import', { method: 'POST', headers, body: {
+    orders: variants.map(raw => ({ ...common, raw })).concat({ ...common, subject: '物理', raw: variants[2].replace(/数学/g, '物理') })
+  } })).json();
+  assert.equal(result.created.length, 2);
+  assert.equal(result.duplicatesSkipped, 2);
+  assert.deepEqual(result.created.map(order => order.subject).sort(), ['数学', '物理']);
+});
+
 test('scheduled cleanup deletes orders older than three days', async () => {
   const { repo, worker } = harness();
   const now = Date.UTC(2026, 6, 25, 4, 0, 0);

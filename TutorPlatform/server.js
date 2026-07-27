@@ -8,7 +8,7 @@ const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter
 const { recognizeOrders } = require('./parser/recognizer');
 const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
-const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe');
+const { canonicalOrderText, semanticOrderFingerprint: sharedSemanticOrderFingerprint, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe');
 const { isExpiredOrder, millisecondsUntilShanghaiNoon } = require('../shared/order-retention');
 
 const PORT = Number(process.env.PORT || 8787);
@@ -1414,15 +1414,10 @@ function rawOrderFingerprint(raw) {
 }
 
 function semanticOrderFingerprint(order) {
-  const place = ocrComparable(cleanLocationCandidate(order.place || order.address || '', order.district || ''));
-  const grade = ocrComparable(order.grade);
-  const subject = ocrComparable(order.subject);
-  if (!place || !grade || !subject || grade === ocrComparable('其他') || subject === ocrComparable('其他')) return '';
-  const compensation = Number(order.monthly) > 0
-    ? `m${Math.round(Number(order.monthly) / 100)}`
-    : `h${Math.round(Number(order.price || 0) / 5)}`;
-  const schedule = ocrComparable(order.schedule).slice(0, 36);
-  return `${place}|${grade}|${subject}|${compensation}|${schedule}`;
+  return sharedSemanticOrderFingerprint({
+    ...order,
+    place: cleanLocationCandidate(order.place || order.address || '', order.district || '')
+  });
 }
 
 function buildAddress(district, place, raw = '') {
@@ -2902,7 +2897,8 @@ async function handleApi(req, res) {
       || (semanticFingerprint
         && existing.status === 'open'
         && Date.parse(existing.createdAt || 0) >= recentCutoff
-        && (existing.importFingerprint || semanticOrderFingerprint(parseOrder(existing.raw, existing.source, existing.agencyId))) === semanticFingerprint)
+        && [existing.importFingerprint, semanticOrderFingerprint(parseOrder(existing.raw, existing.source, existing.agencyId))]
+          .filter(Boolean).includes(semanticFingerprint))
     ));
     if (duplicate) return send(res, 409, { error: '这条订单已经存在，已阻止重复发布' });
     const order = await enrichOrder(base, db.settings);
@@ -2948,7 +2944,7 @@ async function handleApi(req, res) {
     const recentCutoff = Date.now() - (7 * 24 * 60 * 60 * 1000);
     const semanticFingerprints = new Set(db.orders
       .filter(order => order.status === 'open' && Date.parse(order.createdAt || 0) >= recentCutoff)
-      .map(order => order.importFingerprint || semanticOrderFingerprint(parseOrder(order.raw, agency.name, agency.id)))
+      .flatMap(order => [order.importFingerprint, semanticOrderFingerprint(parseOrder(order.raw, agency.name, agency.id))])
       .filter(Boolean));
     const accepted = [];
     for (const item of incoming) {

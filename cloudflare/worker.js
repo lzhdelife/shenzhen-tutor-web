@@ -5,7 +5,7 @@ const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
-const { canonicalOrderText, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe.js');
+const { canonicalOrderText, semanticOrderFingerprint, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe.js');
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 const { recoverOrderRawText, detectOrderIssues } = require('../shared/order-quality.js');
 
@@ -643,13 +643,22 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request);
           const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
           const raw = text(orderData.raw);
-          const importFingerprint = raw ? await sha256(canonicalOrderText(raw)) : '';
-          if (importFingerprint) {
+          const rawFingerprint = raw ? await sha256(canonicalOrderText(raw)) : '';
+          const semanticKey = semanticOrderFingerprint(orderData);
+          const semanticFingerprint = semanticKey ? await sha256(`semantic:v1:${semanticKey}`) : '';
+          const importFingerprint = semanticFingerprint || rawFingerprint;
+          if (rawFingerprint || semanticFingerprint) {
             const existingOrders = await repo.listOrders({ limit: 500 });
             const duplicate = (await Promise.all(existingOrders.map(async order => {
               const existingRaw = text(order.raw || order.structured?.raw);
-              return text(order.importFingerprint) === importFingerprint
-                || (existingRaw && await sha256(canonicalOrderText(existingRaw)) === importFingerprint);
+              const existingRawFingerprint = existingRaw ? await sha256(canonicalOrderText(existingRaw)) : '';
+              const existingSemanticKey = semanticOrderFingerprint(order);
+              const existingSemanticFingerprint = existingSemanticKey ? await sha256(`semantic:v1:${existingSemanticKey}`) : '';
+              return [rawFingerprint, semanticFingerprint].filter(Boolean).some(fingerprint => (
+                text(order.importFingerprint) === fingerprint
+                || existingRawFingerprint === fingerprint
+                || existingSemanticFingerprint === fingerprint
+              ));
             }))).some(Boolean);
             if (duplicate) return error('这条订单已经存在，已阻止重复发布', 409);
           }
@@ -665,23 +674,29 @@ function createWorker(dependencies = {}) {
           const existingOrders = await repo.listOrders({ limit: 500 });
           const knownFingerprints = new Set((await Promise.all(existingOrders.map(async order => {
             const raw = text(order.raw || order.structured?.raw);
+            const semanticKey = semanticOrderFingerprint(order);
             return [
               text(order.importFingerprint),
-              raw ? await sha256(canonicalOrderText(raw)) : ''
+              raw ? await sha256(canonicalOrderText(raw)) : '',
+              semanticKey ? await sha256(`semantic:v1:${semanticKey}`) : ''
             ];
           }))).flat().filter(Boolean));
           const fingerprinted = await Promise.all(incoming.map(async item => {
             const raw = text(item.raw);
-            return { item, importFingerprint: raw ? await sha256(canonicalOrderText(raw)) : '' };
+            const rawFingerprint = raw ? await sha256(canonicalOrderText(raw)) : '';
+            const semanticKey = semanticOrderFingerprint(item);
+            const semanticFingerprint = semanticKey ? await sha256(`semantic:v1:${semanticKey}`) : '';
+            return { item, rawFingerprint, semanticFingerprint, importFingerprint: semanticFingerprint || rawFingerprint };
           }));
           const accepted = [];
           let duplicatesSkipped = 0;
           for (const entry of fingerprinted) {
-            if (entry.importFingerprint && knownFingerprints.has(entry.importFingerprint)) {
+            if ([entry.rawFingerprint, entry.semanticFingerprint].filter(Boolean).some(fingerprint => knownFingerprints.has(fingerprint))) {
               duplicatesSkipped++;
               continue;
             }
-            if (entry.importFingerprint) knownFingerprints.add(entry.importFingerprint);
+            if (entry.rawFingerprint) knownFingerprints.add(entry.rawFingerprint);
+            if (entry.semanticFingerprint) knownFingerprints.add(entry.semanticFingerprint);
             accepted.push(entry);
           }
           const prepared = await mapWithConcurrency(accepted, 3, entry => prepareCloudflareImportedOrder(entry.item, agency, amap));
