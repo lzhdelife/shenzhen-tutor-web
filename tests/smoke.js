@@ -33,6 +33,10 @@ assert.match(browserStylesSource, /@media \(max-width: 980px\)[\s\S]*grid-templa
   'phone and tablet map controls should appear between the location form and map');
 assert.match(browserStylesSource, /@media \(max-width: 980px\)[\s\S]*\.order-map-panel \{ overflow: visible; border: 0; border-radius: 0; background: transparent; \}/,
   'phone and tablet map controls and map should use separate visual layers');
+assert.match(browserStylesSource, /@media \(prefers-color-scheme: dark\)[\s\S]*--card: #232a29;/,
+  'dark mode should use a distinct card color instead of relying on borders');
+assert.match(browserStylesSource, /\.card,[\s\S]*background: var\(--card\); color: var\(--ink\);/,
+  'dark repeated cards should use the raised card layer');
 
 const sample = `【L 南山区后海地铁站高二数学】
 【学生】女生，基础巩固

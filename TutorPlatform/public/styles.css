@@ -1151,15 +1151,16 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17191a;
-    --panel: #202223;
-    --surface: #191b1c;
-    --surface-raised: #292b2c;
-    --surface-hover: #313334;
-    --ink: #dfddd8;
-    --muted: #9f9c97;
-    --line: #353738;
-    --line-strong: #47494a;
+    --bg: #111516;
+    --panel: #1b2121;
+    --card: #232a29;
+    --surface: #14191a;
+    --surface-raised: #293130;
+    --surface-hover: #343d3b;
+    --ink: #e2e1dc;
+    --muted: #a2a6a1;
+    --line: #2b3332;
+    --line-strong: #3b4643;
     --blue: #5f91b5;
     --blue-dark: #78a6c8;
     --green: #5f9f81;
@@ -1179,13 +1180,17 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .auth-layout,
   .topbar,
   .panel,
-  .card,
   .admin-metrics,
-  .admin-anomaly-row,
   .suggestions,
   .multi-filter-menu,
   .contact-card,
   .source-image-card { background: var(--panel); color: var(--ink); }
+  .card,
+  .admin-anomaly-row,
+  .publisher-request-row,
+  .preview-card,
+  .agency-orders-section .admin-row,
+  .applicant-item { border-color: var(--line); background: var(--card); color: var(--ink); }
   .auth-brand { background: #1d2326; color: var(--ink); }
   .auth-brand::after { background: var(--green); }
   .auth-platform-stats small,
@@ -1200,26 +1205,22 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   input,
   select,
   textarea,
-  .toolbar,
-  .location-strip,
   .multi-filter summary,
   .multi-option,
   .check,
   .filter-clear,
-  .order-map-sidebar,
-  .order-map-controls,
-  .commute-metrics div,
   .map-cluster-order-list button,
-  .info-chip,
-  .amap-usage-row,
-  .publisher-request-row,
-  .preview-card,
   .txt-drop-zone,
   .agency-import-panel .import-preview-column .preview,
-  .agency-orders-section .admin-row,
-  .applicant-item,
   .raw-text-content,
   .source-image-stage { background: var(--surface); color: var(--ink); }
+  .toolbar,
+  .location-strip,
+  .order-map-sidebar,
+  .order-map-controls { border-color: var(--line); background: var(--card); color: var(--ink); }
+  .commute-metrics div,
+  .info-chip,
+  .amap-usage-row { border-color: var(--line); background: var(--surface-raised); color: var(--ink); }
 
   button.secondary,
   .refresh-button { color: #c8c6c1; background: var(--surface-raised); }
@@ -1261,9 +1262,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .order-map-origin-marker b { border-color: #465d52; color: #acd2bf; background: rgba(29, 38, 34, .96); }
   .map-cluster-order-list button:hover { background: var(--soft-blue); }
 
-  .card:hover { border-color: #555859; box-shadow: 0 10px 28px rgba(0, 0, 0, .25); }
+  .card:hover { border-color: var(--line-strong); box-shadow: 0 10px 28px rgba(0, 0, 0, .25); }
   .score { background: linear-gradient(135deg, #356f59, #477e68); }
-  .info-chip { border-color: #3e4142; }
+  .info-chip { border-color: var(--line); }
   .admin-anomaly-panel { border-color: #5d5130; background: #29271f; }
   .admin-anomaly-row { border-color: #5d5130; }
   .anomaly-tags span,
