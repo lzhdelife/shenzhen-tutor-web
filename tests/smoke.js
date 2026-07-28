@@ -10,6 +10,10 @@ const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public
 const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
 const browserStylesSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'styles.css'), 'utf8');
 const browserHtmlSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'index.html'), 'utf8');
+assert.match(browserHtmlSource, /id="toggleOrderSearch"/,
+  'order list should expose the secondary keyword-search control');
+assert.match(browserAppSource, /searchTokens\.every\(token => searchable\.includes\(token\)\)/,
+  'keyword search should require every entered token to match');
 assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
 assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,

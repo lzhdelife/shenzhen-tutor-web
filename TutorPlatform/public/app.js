@@ -572,9 +572,29 @@ function matchesSelection(values, selected) {
   return !selected.size || [...selected].some(value => values.has(value));
 }
 
+function normalizedOrderSearchText(value) {
+  return String(value == null ? '' : value).normalize('NFKC').toLowerCase();
+}
+
+function orderSearchTokens() {
+  return normalizedOrderSearchText($('#orderKeywordSearch')?.value)
+    .split(/[\s,，、;；|/]+/)
+    .map(token => token.trim())
+    .filter(Boolean);
+}
+
+function orderSearchText(order) {
+  return normalizedOrderSearchText([
+    order.district, order.place, order.subject, order.grade, order.gradeDescription,
+    order.price, order.priceText, order.priceUnit, order.schedule, order.student,
+    order.studentGender, order.gender, order.requirements, order.raw
+  ].map(displayFieldValue).filter(Boolean).join(' '));
+}
+
 function filteredOrders() {
   const minPrice = Number($('#filterMinPrice').value || 0);
   const onlyRange = $('#filterBike').checked;
+  const searchTokens = orderSearchTokens();
   return state.orders
     .filter(o => o.status !== 'closed')
     .filter(o => o.teacherVisible !== false)
@@ -585,6 +605,11 @@ function filteredOrders() {
     .filter(o => !teacherFilterSelections.publisher.size || teacherFilterSelections.publisher.has(o.agencyId))
     .filter(o => !minPrice || (window.TutorOrderScore?.lessonPriceAmount(o) || Number(o.price)) >= minPrice || Number(o.monthly) >= minPrice)
     .filter(o => !onlyRange || (Number(o.distanceKm) > 0 && Number(o.distanceKm) <= NEARBY_DISTANCE_KM))
+    .filter(o => {
+      if (!searchTokens.length) return true;
+      const searchable = orderSearchText(o);
+      return searchTokens.every(token => searchable.includes(token));
+    })
     .sort((a, b) => {
       const scoreDifference = orderScore(b) - orderScore(a);
       if (scoreDifference) return scoreDifference;
@@ -2688,8 +2713,46 @@ $('#clearTeacherFilters').addEventListener('click', () => {
   Object.keys(teacherFilterSelections).forEach(clearFilterGroup);
   $('#filterMinPrice').value = '';
   $('#filterBike').checked = false;
+  $('#orderKeywordSearch').value = '';
+  setOrderSearchOpen(false);
   renderOrders({ resetLimit: true });
   queueTeacherPreferencesSave();
+});
+
+function setOrderSearchOpen(open) {
+  const panel = $('#orderSearchPanel');
+  const toggle = $('#toggleOrderSearch');
+  panel.classList.toggle('hidden', !open);
+  toggle.classList.toggle('active', open || Boolean($('#orderKeywordSearch').value.trim()));
+  toggle.setAttribute('aria-expanded', String(open));
+  if (open) requestAnimationFrame(() => $('#orderKeywordSearch').focus());
+}
+
+$('#toggleOrderSearch').addEventListener('click', () => {
+  const isOpen = !$('#orderSearchPanel').classList.contains('hidden');
+  if (isOpen && $('#orderKeywordSearch').value.trim()) return $('#orderKeywordSearch').focus();
+  setOrderSearchOpen(!isOpen);
+});
+
+$('#orderKeywordSearch').addEventListener('input', () => {
+  $('#toggleOrderSearch').classList.toggle('active', Boolean($('#orderKeywordSearch').value.trim()));
+  renderOrders({ resetLimit: true });
+});
+
+$('#orderKeywordSearch').addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  event.preventDefault();
+  $('#orderKeywordSearch').value = '';
+  setOrderSearchOpen(false);
+  renderOrders({ resetLimit: true });
+  $('#toggleOrderSearch').focus();
+});
+
+$('#clearOrderSearch').addEventListener('click', () => {
+  $('#orderKeywordSearch').value = '';
+  setOrderSearchOpen(false);
+  renderOrders({ resetLimit: true });
+  $('#toggleOrderSearch').focus();
 });
 
 $('#loadMoreOrders').addEventListener('click', () => {

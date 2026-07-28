@@ -432,7 +432,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 
 .toolbar {
   display: grid;
-  grid-template-columns: repeat(5, minmax(130px, 1fr)) minmax(120px, .72fr) auto;
+  grid-template-columns: repeat(5, minmax(130px, 1fr)) minmax(120px, .72fr) auto 42px;
   gap: 9px;
   align-items: stretch;
   margin-bottom: 16px;
@@ -441,6 +441,49 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   border-radius: 12px;
   background: #eaf0f6;
 }
+.order-search-toggle {
+  width: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  background: #fff;
+}
+.order-search-toggle:hover,
+.order-search-toggle.active { border-color: #9fb5d6; color: var(--blue); background: var(--soft-blue); }
+.order-search-toggle span {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+.order-search-toggle span::after {
+  content: "";
+  position: absolute;
+  width: 7px;
+  height: 2px;
+  right: -6px;
+  bottom: -3px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: rotate(45deg);
+  transform-origin: left center;
+}
+.order-search-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: center;
+}
+.order-search-panel.hidden { display: none; }
+.order-search-panel input { min-height: 42px; }
+.order-search-panel input::-webkit-search-cancel-button { appearance: none; }
+.order-search-panel .icon-button { width: 38px; min-width: 38px; min-height: 38px; }
 .multi-filter { position: relative; min-width: 0; }
 .multi-filter[open] { z-index: 12; }
 .multi-filter summary {
@@ -1115,6 +1158,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .nearby-filter { grid-column: 1 / -1; }
   .location-strip button { width: 100%; }
   .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; }
+  .order-search-toggle { justify-self: end; }
+  .order-search-panel { grid-column: 1 / -1; }
   .multi-filter[open] { grid-column: 1 / -1; }
   .multi-filter-menu,
   .multi-filter[data-filter-group="gender"] .multi-filter-menu { position: static; right: auto; left: auto; width: auto; margin-top: 6px; box-shadow: none; }
@@ -1202,6 +1247,7 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   input,
   select,
   textarea,
+  .order-search-toggle,
   .multi-filter summary,
   .multi-option,
   .check,

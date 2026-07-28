@@ -163,6 +163,11 @@
           </details>
           <input id="filterMinPrice" type="number" aria-label="最低每次课酬，按两小时计算" placeholder="最低课酬/次">
           <button id="clearTeacherFilters" class="secondary filter-reset" type="button">清空筛选</button>
+          <button id="toggleOrderSearch" class="order-search-toggle" type="button" aria-label="搜索订单关键词" title="搜索订单关键词" aria-expanded="false" aria-controls="orderSearchPanel"><span aria-hidden="true"></span></button>
+          <div id="orderSearchPanel" class="order-search-panel hidden">
+            <input id="orderKeywordSearch" type="search" autocomplete="off" aria-label="订单关键词" placeholder="搜索订单关键词">
+            <button id="clearOrderSearch" class="icon-button" type="button" aria-label="清除搜索" title="清除搜索">×</button>
+          </div>
         </div>
         <div id="orders" class="order-list"></div>
         <div id="orderListMore" class="order-list-more hidden">
