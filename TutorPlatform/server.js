@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { runParserPipeline } = require('./parser/pipeline');
-const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
+const { sanitizeImportedOrder, isOnlineOrder, markOnlineLocation, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
 const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
 const { classifyOrderBlock } = require('./parser/classifier');
@@ -45,7 +45,7 @@ const ROUTE_MODES = ['walking', 'cycling', 'driving', 'transit'];
 const ONLINE_WINDOW_MS = 90 * 1000;
 
 const LISTS = {
-  districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'],
+  districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏', '线上'],
   subjects: ['语文', '数学', '英语', '物理', '化学', '生物', '道法', '政治', '历史', '地理', '科学', '信息技术', '编程', '微积分', '奥数', '全科', '陪读', '体育', '音乐', '美术', '书法', '油画', '心理', '作业辅导', '托管', '陪玩', 'p5.js', '雅思', '托福', '日语', '德语', '俄语', '其他'],
   grades: ['幼儿园', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '小学', '初一', '初二', '初三', '初中', '高一', '高二', '高三', '高中', '中考', '高考', '大一', '大二', '大三', '大四', '大学', '成人', '其他']
 };
@@ -938,6 +938,7 @@ function extractTitle(text) {
 }
 
 function extractDistrict(text) {
+  if (isOnlineOrder(text)) return '线上';
   const raw = firstMatch(text, /罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|前海|深圳湾/);
   if (raw === '前海' || raw === '深圳湾') return '南山';
   if (!raw) {
@@ -1347,11 +1348,16 @@ function parseOrder(raw, source = '', agencyId = '') {
     || (numberedLocation && /(深圳|罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|酒店|小区|花园|公馆|中心|地铁|附近)/.test(numberedLocation) ? numberedLocation : '')
     || title
     || looseLocationLine;
-  const transitLocation = extractTransitLocation(text);
-  const district = transitLocation?.district || extractDistrict(locationText + '\n' + title + '\n' + text);
-  const locationOptions = extractLocationOptions(text);
-  const locationHierarchy = extractLocationHierarchy(text, locationField || looseLocationLine, district);
-  const place = transitLocation
+  const online = isOnlineOrder(locationText + '\n' + title + '\n' + text);
+  const transitLocation = online ? null : extractTransitLocation(text);
+  const district = online ? '线上' : transitLocation?.district || extractDistrict(locationText + '\n' + title + '\n' + text);
+  const locationOptions = online ? [] : extractLocationOptions(text);
+  const locationHierarchy = online
+    ? { raw: '线上授课', place: '线上授课', queries: [] }
+    : extractLocationHierarchy(text, locationField || looseLocationLine, district);
+  const place = online
+    ? '线上授课'
+    : transitLocation
     ? [transitLocation.area, transitLocation.place].filter(Boolean).join('·')
     : locationHierarchy.place || (locationText ? extractPlace(locationText, district) : extractPlace(title, district));
   const student = extractStudent(text);
@@ -1372,8 +1378,10 @@ function parseOrder(raw, source = '', agencyId = '') {
     id: 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     agencyId,
     district, place, placeOriginal: locationHierarchy.raw || place, address, subject, grade, gradeDescription,
-    locationQuery: transitLocation?.queries[0] || locationHierarchy.queries[0] || address,
-    locationQueries: transitLocation?.queries || locationHierarchy.queries,
+    locationQuery: online ? '' : transitLocation?.queries[0] || locationHierarchy.queries[0] || address,
+    locationQueries: online ? [] : transitLocation?.queries || locationHierarchy.queries,
+    locationVerified: online ? true : undefined,
+    locationStatus: online ? 'online' : '',
     area: transitLocation?.area || '',
     transitLine: transitLocation?.transitLine || '',
     locationOptions,
@@ -1421,6 +1429,7 @@ function semanticOrderFingerprint(order) {
 }
 
 function buildAddress(district, place, raw = '') {
+  if (district === '线上' || isOnlineOrder(raw)) return '线上授课';
   const city = '深圳市';
   const addressPlace = textOf(place).replace(/^\d{1,2}号线\s*/, '');
   if (district && addressPlace) return `${city}${district.endsWith('区') ? district : district + '区'}${addressPlace}`;
@@ -1728,6 +1737,7 @@ async function amapGeocodeCandidate(settings, query, districtHint) {
 }
 
 async function resolveOrderLocation(order, settings) {
+  if (markOnlineLocation(order)) return order;
   if (Array.isArray(order.locationOptions) && order.locationOptions.length > 1) {
     const resolvedOptions = [];
     for (const option of order.locationOptions) {
@@ -2082,13 +2092,15 @@ async function enrichOrder(order, settings) {
     });
   }
   if (!order.address) order.address = buildAddress(order.district, order.place, order.raw);
-  const routed = await routeKm(settings, order.address, order.locationCoordinates);
+  const routed = isOnlineOrder(order) ? null : await routeKm(settings, order.address, order.locationCoordinates);
   if (routed) {
     order.distanceKm = routed.km;
     order.routeMode = routed.mode;
-  } else {
+  } else if (!isOnlineOrder(order)) {
     order.distanceKm = estimateKm(order.district, order.place);
     order.routeMode = '估算';
+  } else {
+    markRoutePending(order);
   }
   order.score = score(order, settings);
   return order;
@@ -2131,6 +2143,9 @@ async function previewDistances(settings, origin, orders, requestedMode = 'cycli
   const key = amapServiceKey(settings);
   const originCoordinates = key ? await geocode(key, scopedSettings.routeOrigin) : '';
   return mapWithConcurrency(orders, 2, async order => {
+    if (isOnlineOrder(order)) {
+      return { id: order.id, distanceKm: '', routeMode: '线上', routeStatus: 'not_applicable', routeOptions: {}, score: score(order, scopedSettings) };
+    }
     if (Array.isArray(order.locationOptions) && order.locationOptions.length > 1) {
       const locationOptionRoutes = await mapWithConcurrency(order.locationOptions, 2, async option => ({
         ...option,
@@ -2214,6 +2229,7 @@ function publicDb(db, viewer = null) {
       ];
   const orders = visibleOrders.map(order => {
     const copy = { ...order, score: score(order, db.settings) };
+    markOnlineLocation(copy);
     copy.teacherVisible = order.status !== 'closed' && teacherVisibleIds.has(order.id);
     const ownsPreciseLocation = viewer && (
       viewer.role === 'admin' ||
@@ -2310,7 +2326,7 @@ async function handleApi(req, res) {
     if (!teacher) return;
     const orders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status === 'open')).map(order => ({
       id: order.id,
-      locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+      locations: isOnlineOrder(order) ? [] : Array.isArray(order.locationOptions) && order.locationOptions.length > 1
         ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
         : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
     })).filter(order => order.locations.length);

@@ -14,7 +14,7 @@ test('Cloudflare adapter exposes the shared lossless parser contract', async () 
     env: {}
   });
 
-  assert.equal(result.parserVersion, '2.2.2');
+  assert.equal(result.parserVersion, '2.2.3');
   assert.deepEqual(result.parsed.map(order => order.raw), [first, second]);
   assert.deepEqual(result.parsed.map(order => order.structured.rawText), [first, second]);
   assert.equal(result.splitDiagnostics.length, 2);
@@ -31,6 +31,19 @@ test('Cloudflare adapter reports non-order preamble without importing it', async
   assert.equal(result.parsed.length, 1);
   assert.equal(result.ignoredBlocks.length, 1);
   assert.equal(result.ignoredBlocks[0].rawText, text.split('\n\n')[0]);
+});
+
+test('Cloudflare adapter recognizes online lessons without creating a map query', async () => {
+  const raw = '网课，新高一数学，200元/小时，每周两次，需要有经验老师';
+  const result = await adapter.parseOrders({ text: raw }, {
+    agency: { id: 'synthetic-agency', name: '匿名合成机构' }, env: {}
+  });
+  assert.equal(result.parsed.length, 1);
+  assert.equal(result.parsed[0].district, '线上');
+  assert.equal(result.parsed[0].place, '线上授课');
+  assert.equal(result.parsed[0].locationStatus, 'online');
+  assert.equal(result.parsed[0].locationQuery, '');
+  assert.equal(result.parsed[0].structured.locations.source, 'rule');
 });
 
 test('Cloudflare adapter keeps keycap-numbered compact orders separate', async () => {

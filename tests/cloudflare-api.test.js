@@ -88,6 +88,7 @@ test('访问量按页面打开持久累计并出现在公共状态中', async ()
   assert.deepEqual(await (await call('/api/stats')).json(), { totalVisits: 2 });
   const state = await (await call('/api/state')).json();
   assert.deepEqual(state.stats, { totalVisits: 2 });
+  assert.ok(state.lists.districts.includes('线上'));
 });
 
 test('管理端统计按访客去重并通过心跳计算在线人数', async () => {
@@ -445,15 +446,22 @@ test('import reuses verified preview locations and resolves only unverified orde
   }, {
     raw: '宝安区待核实花园，高三物理', district: '宝安', place: '待核实花园', locationQuery: '深圳市宝安区待核实花园',
     locationQueries: ['深圳市宝安区待核实花园'], locationVerified: false, structured: { locations: { value: [{ query: '深圳市宝安区待核实花园' }] } }
+  }, {
+    raw: '网课，新高一数学，200元/小时', district: '线上', place: '线上授课', locationQuery: '',
+    locationQueries: [], locationVerified: true, locationStatus: 'online'
   }] } });
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.equal(body.created.length, 2);
+  assert.equal(body.created.length, 3);
   assert.equal(amapCalls, 1, 'only the unverified order should call Amap during import');
   assert.equal(body.created[0].locationPoiId, 'verified-poi');
   assert.equal(body.created[1].locationPoiId, 'resolved-poi');
+  assert.deepEqual(
+    [body.created[2].district, body.created[2].place, body.created[2].locationStatus, body.created[2].locationCoordinates],
+    ['线上', '线上授课', 'online', '']
+  );
   assert.deepEqual(body.created.map(order => [order.distanceKm, order.routeMode, order.routeStatus]), [
-    ['', '待计算', 'pending'], ['', '待计算', 'pending']
+    ['', '待计算', 'pending'], ['', '待计算', 'pending'], ['', '线上', 'not_applicable']
   ]);
 });
 

@@ -5,12 +5,13 @@ const { extractWithAI } = require('./ai-provider');
 const { validateStructuredOrder } = require('./validator');
 const { redactForAI } = require('./privacy');
 
-const PARSER_VERSION = '2.2.2';
+const PARSER_VERSION = '2.2.3';
 const evidence = (raw, pattern) => String(raw || '').match(pattern)?.[0] || '';
 const subjects = value => String(value || '').split(/[\/、，,]+/).map(item => item.trim()).filter(Boolean);
 const uniq = values => [...new Set(values.filter(Boolean))];
 
 function locationEvidence(ruleOrder) {
+  const online = ruleOrder.district === '线上' || ruleOrder.locationStatus === 'online';
   const options = Array.isArray(ruleOrder.locationOptions) && ruleOrder.locationOptions.length
     ? ruleOrder.locationOptions
     : [{
@@ -48,7 +49,7 @@ function locationEvidence(ruleOrder) {
     value,
     rawEvidence: value.map(item => item.raw).filter(Boolean).join(' 或 '),
     confidence: verified ? 0.98 : complete ? 0.78 : value.some(option => option.place) ? 0.58 : 0,
-    source: verified ? 'amap' : 'rule'
+    source: online ? 'rule' : verified ? 'amap' : 'rule'
   };
 }
 

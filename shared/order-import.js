@@ -12,6 +12,35 @@ const IMPORT_FIELDS = [
 
 function text(value) { return String(value == null ? '' : value).trim(); }
 
+function isOnlineOrder(value) {
+  if (value && typeof value === 'object') {
+    return text(value.district) === '线上' || text(value.locationStatus) === 'online' || /网课|线上/.test(text(value.raw));
+  }
+  return /网课|线上/.test(text(value));
+}
+
+function markOnlineLocation(order) {
+  if (!isOnlineOrder(order)) return false;
+  Object.assign(order, {
+    district: '线上',
+    place: '线上授课',
+    placeOriginal: '线上授课',
+    address: '线上授课',
+    locationQuery: '',
+    locationQueries: [],
+    locationOptions: [],
+    locationRelation: '',
+    locationVerified: true,
+    locationStatus: 'online',
+    locationPoiId: '',
+    locationCoordinates: '',
+    locationAddress: '',
+    locationConfidence: 100,
+    locationCandidates: []
+  });
+  return true;
+}
+
 function sanitizeImportedOrder(input = {}) {
   const clean = {};
   for (const key of IMPORT_FIELDS) {
@@ -80,6 +109,12 @@ function canReuseVerifiedLocation(imported, ruleOrder = null) {
 
 function markRoutePending(order) {
   order.distanceKm = '';
+  if (markOnlineLocation(order)) {
+    order.routeMode = '线上';
+    order.routeStatus = 'not_applicable';
+    order.routeOptions = {};
+    return order;
+  }
   order.routeMode = '待计算';
   order.routeStatus = 'pending';
   order.routeOptions = {};
@@ -87,4 +122,4 @@ function markRoutePending(order) {
   return order;
 }
 
-module.exports = { IMPORT_FIELDS, sanitizeImportedOrder, isShenzhenCoordinate, canReuseVerifiedLocation, markRoutePending };
+module.exports = { IMPORT_FIELDS, sanitizeImportedOrder, isOnlineOrder, markOnlineLocation, isShenzhenCoordinate, canReuseVerifiedLocation, markRoutePending };

@@ -95,6 +95,17 @@ assert.equal(orders[1].subject, '物理');
 assert.equal(orders[1].price, 160);
 assert.equal(orders[1].gender, '不限');
 
+const onlineOrder = platform.parseOrder('网课，新高一数学，200元/小时，每周两次，需要有经验老师', '匿名测试机构', 'test-agency');
+assert.equal(onlineOrder.district, '线上');
+assert.equal(onlineOrder.place, '线上授课');
+assert.equal(onlineOrder.address, '线上授课');
+assert.equal(onlineOrder.locationStatus, 'online');
+assert.equal(onlineOrder.locationVerified, true);
+assert.equal(onlineOrder.locationQuery, '');
+
+const explicitOnlineOrder = platform.parseOrder('深圳南山区学生，线上辅导初二英语，240元/2小时', '匿名测试机构', 'test-agency');
+assert.equal(explicitOnlineOrder.district, '线上', 'explicit online teaching should override a physical district mention');
+
 const decorativeSeparatorOrder = platform.parseOrder(`深圳26071759
 地址》宝安区共和花园
 学员★高二女

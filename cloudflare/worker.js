@@ -4,7 +4,7 @@ const { createRepository } = require('./storage.js');
 const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
-const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
+const { sanitizeImportedOrder, isOnlineOrder, markOnlineLocation, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
 const { canonicalOrderText, semanticOrderFingerprint, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe.js');
 const { orderExpiryCutoff, isExpiredOrder } = require('../shared/order-retention.js');
 const { recoverOrderRawText, detectOrderIssues } = require('../shared/order-quality.js');
@@ -26,7 +26,7 @@ const ORDER_ISSUE_TYPES = Object.freeze({
 const LOCATION_CACHE_CONTROL = 'public, max-age=300, s-maxage=86400';
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const LISTS = {
-  districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏'],
+  districts: ['罗湖', '福田', '南山', '盐田', '宝安', '龙岗', '龙华', '坪山', '光明', '大鹏', '线上'],
   subjects: ['语文', '数学', '英语', '物理', '化学', '生物', '道法', '政治', '历史', '地理', '科学', '信息技术', '编程', '微积分', '奥数', '全科', '陪读', '体育', '音乐', '美术', '书法', '其他'],
   grades: ['幼儿园', '一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '小学', '初一', '初二', '初三', '初中', '高一', '高二', '高三', '高中', '中考', '高考', '大学', '成人', '其他']
 };
@@ -123,8 +123,9 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 
 async function prepareCloudflareImportedOrder(item, agency, amap) {
   const order = sanitizeImportedOrder(item);
+  const online = markOnlineLocation(order);
   const hasLocationOptions = Array.isArray(order.locationOptions) && order.locationOptions.length > 1;
-  if (!hasLocationOptions && !canReuseVerifiedLocation(order)) {
+  if (!online && !hasLocationOptions && !canReuseVerifiedLocation(order)) {
     order.locationVerified = false;
     order.locationStatus = order.locationQuery ? 'unverified' : 'missing';
     order.locationPoiId = '';
@@ -142,7 +143,7 @@ async function prepareCloudflareImportedOrder(item, agency, amap) {
       }
     }
   }
-  if (hasLocationOptions) {
+  if (!online && hasLocationOptions) {
     order.locationOptions = await mapWithConcurrency(order.locationOptions, 2, async option => {
       const query = text(option.query || option.locationQuery);
       if (!query) return { ...option, verified: false, status: 'missing', routeOptions: {} };
@@ -185,6 +186,7 @@ async function prepareCloudflareImportedOrder(item, agency, amap) {
 }
 
 async function retryStoredOrderLocation(order, amap) {
+  if (markOnlineLocation(order)) return order;
   if (order.locationVerified && order.locationCoordinates) return order;
   const query = text(order.locationQuery || order.address
     || ['深圳市', order.district ? `${text(order.district).replace(/区$/, '')}区` : '', order.place].filter(Boolean).join(''));
@@ -291,7 +293,12 @@ async function pairedLogin(repo, request, data, env) {
 function cleanOrder(order, viewer) {
   const canSee = viewer && (viewer.role === 'admin' || (viewer.role === 'agency' && viewer.id === order.agencyId));
   const copy = { ...order, raw: recoverOrderRawText(order) };
-  if (viewer?.role === 'admin') copy.qualityIssues = detectOrderIssues(order);
+  markOnlineLocation(copy);
+  if (viewer?.role === 'admin') {
+    const qualityOrder = { ...order };
+    markOnlineLocation(qualityOrder);
+    copy.qualityIssues = detectOrderIssues(qualityOrder);
+  }
   delete copy.sourceImages; delete copy.importFingerprint; delete copy.passwordHash;
   delete copy.applicants; delete copy.applicantCount;
   if (!canSee) {
@@ -503,7 +510,7 @@ function createWorker(dependencies = {}) {
           if (!teacher) return error('请先以老师身份登录', 401);
           const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status === 'open')).map(order => ({
             id: order.id,
-            locations: Array.isArray(order.locationOptions) && order.locationOptions.length > 1
+            locations: isOnlineOrder(order) ? [] : Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
               : order.locationVerified && order.locationCoordinates ? [order.locationCoordinates] : []
           })).filter(order => order.locations.length);
@@ -614,6 +621,9 @@ function createWorker(dependencies = {}) {
           const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed'));
           const settings = await repo.getSettings();
           const distances = await mapWithConcurrency(orders, 4, async order => {
+            if (isOnlineOrder(order)) {
+              return { id: order.id, status: 'online', distanceKm: '', routeMode: '线上', routeStatus: 'not_applicable', routeOptions: {}, locationOptionRoutes: [], score: scoreOrder(order, settings) };
+            }
             const destinations = Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => ({ option, value: option.coordinates }))
               : order.locationVerified && order.locationCoordinates ? [{ value: order.locationCoordinates }] : [];

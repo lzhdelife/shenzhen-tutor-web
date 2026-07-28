@@ -25,6 +25,13 @@ test('normal orders do not receive quality labels', () => {
   assert.deepEqual(detectOrderIssues(order), []);
 });
 
+test('online orders do not require map coordinates', () => {
+  assert.deepEqual(detectOrderIssues({
+    raw: '网课，新高一数学，200元/小时', district: '线上', place: '线上授课',
+    subject: '数学', grade: '高一', locationStatus: 'online', locationCoordinates: ''
+  }), []);
+});
+
 test('recognized location text without confirmed coordinates receives a precise label', () => {
   const order = {
     raw: '罗湖区松泉公寓旁，初一英语。',

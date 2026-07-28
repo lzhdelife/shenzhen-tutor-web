@@ -397,7 +397,12 @@ function selectedRoute(order) {
   return routes[routeMode] || null;
 }
 
+function isOnlineOrderView(order) {
+  return String(order.district || '').replace(/区$/, '') === '线上' || order.locationStatus === 'online';
+}
+
 function routeText(order) {
+  if (isOnlineOrderView(order)) return '';
   if (order.locationVerified === false && ['ambiguous', 'not_found', 'missing'].includes(order.locationStatus)) {
     return '地点待核实，距离暂不可计算';
   }
@@ -766,6 +771,7 @@ function priceLabel(o) {
 
 function displayPlace(order) {
   const district = compactText(order.district || '').replace(/区$/, '');
+  if (isOnlineOrderView(order)) return '线上授课';
   let place = cleanDisplayText(order.place || '', 60)
     .replace(/^(?:【|《)?(?:学员地址|辅导地址|上课地址|地址|地点)(?:】|》)?\s*[:：]?\s*/, '')
     .replace(/^(?:【[^】]{0,18}】|《[^》]{0,18}》)\s*/, '')
@@ -911,7 +917,9 @@ function orderDisplayMeta(o) {
     ? String(o.district).replace(/区$/, '')
     : '';
   const place = displayPlace(o);
-  const locationBase = `${district ? `${district}区·` : ''}${place}`.replace(/区·区/g, '区·') || '位置待定';
+  const locationBase = district === '线上'
+    ? '线上授课'
+    : `${district ? `${district}区·` : ''}${place}`.replace(/区·区/g, '区·') || '位置待定';
   const location = o.transitLine ? `${locationBase}（${cleanDisplayText(o.transitLine, 12)}）` : locationBase;
   const grade = cleanDisplayText(o.gradeDescription || '', 40) || categoryLabel(o.grade, state.lists.grades, '年级待定');
   const subject = categoryLabel(o.subject, state.lists.subjects, '科目待定');
@@ -976,7 +984,7 @@ function orderCard(o) {
     ${orderDetailMarkup(o, meta)}
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
-      <button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>
+      ${isOnlineOrderView(o) ? '' : `<button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>`}
       <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
       ${issueReportMarkup(issueType => `reportPublishedOrderIssue('${o.id}','${issueType}',this)`)}
     </div>
