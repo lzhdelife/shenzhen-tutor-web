@@ -352,25 +352,16 @@ function createRepository(env = {}) {
   async function submitPublisherAccess(userId, displayName, contact) {
     const timestamp = nowIso();
     await run(`INSERT INTO publisher_access (user_id, display_name, contact, status, requested_at, reviewed_at, updated_at)
-      VALUES (?, ?, ?, 'pending', ?, NULL, ?)
+      VALUES (?, ?, ?, 'approved', ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name, contact=excluded.contact,
-      status=CASE WHEN publisher_access.status='approved' THEN 'approved' ELSE 'pending' END,
-      requested_at=CASE WHEN publisher_access.status='approved' THEN publisher_access.requested_at ELSE excluded.requested_at END,
-      reviewed_at=CASE WHEN publisher_access.status='approved' THEN publisher_access.reviewed_at ELSE NULL END,
-      updated_at=excluded.updated_at`, [userId, displayName, contact, timestamp, timestamp]);
+      status='approved', requested_at=excluded.requested_at, reviewed_at=excluded.reviewed_at,
+      updated_at=excluded.updated_at`, [userId, displayName, contact, timestamp, timestamp, timestamp]);
     return getPublisherAccess(userId);
   }
 
   async function listPublisherAccess() {
     return (await all(`SELECT * FROM publisher_access
-      ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'approved' THEN 1 ELSE 2 END, updated_at DESC`)).map(mapRow);
-  }
-
-  async function setPublisherAccessStatus(userId, status) {
-    const timestamp = nowIso();
-    await run(`UPDATE publisher_access SET status = ?, reviewed_at = ?, updated_at = ? WHERE user_id = ?`,
-      [status, timestamp, timestamp, userId]);
-    return getPublisherAccess(userId);
+      ORDER BY updated_at DESC`)).map(mapRow);
   }
 
   async function upsertOrderIssueReport(input) {
@@ -501,7 +492,7 @@ function createRepository(env = {}) {
     createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact, listOrders,
     updateOrder, deleteOrder, deleteOrdersByIds, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
-    getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess, setPublisherAccessStatus,
+    getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess,
     upsertOrderIssueReport, listOrderIssueReports, deleteExportedOrderIssueReports,
     listAnnouncements, createAnnouncement,
     createClipboardCapture, getClipboardCapture, listClipboardCaptures,

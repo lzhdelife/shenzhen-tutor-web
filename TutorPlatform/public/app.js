@@ -46,6 +46,8 @@ let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
 let visibleOrderLimit = 20;
 let focusedListOrderId = '';
+let seenOrderObserver = null;
+const seenOrderTimers = new Map();
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
@@ -54,11 +56,14 @@ const PUBLISHER_BROWSER_ACCESS_KEY = 'tutorPlatformPublisherBrowserAccess';
 const ADMIN_BROWSER_ACCESS_KEY = 'tutorPlatformAdminBrowserAccess';
 const BROWSER_PREFERENCES_KEY = 'tutorPlatformBrowserPreferences';
 const IMPORT_PREVIEW_HISTORY_KEY = 'importPreviewHistoryV1';
+const SEEN_ORDERS_KEY = 'tutorPlatformSeenOrdersV1';
 const SUBPAGE_HISTORY_KEY = 'tutorPlatformSubpages';
 const SUBPAGE_PANEL_IDS = ['contactPanel', 'applicationPanel', 'rawTextPanel'];
 const PRIVATE_STATE_REFRESH_MS = 60 * 1000;
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 const NEARBY_DISTANCE_KM = 10;
+const SEEN_ORDER_DELAY_MS = 1000;
+const SEEN_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ORDER_ISSUE_TYPES = [
   ['location', '地点'],
   ['grade_subject', '年级/科目'],
@@ -132,6 +137,60 @@ const teacherFilterSelections = {
   gender: new Set(),
   publisher: new Set()
 };
+
+function loadSeenOrders() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SEEN_ORDERS_KEY) || '{}');
+    const cutoff = Date.now() - SEEN_ORDER_MAX_AGE_MS;
+    return new Map(Object.entries(saved).filter(([id, timestamp]) => id && Number(timestamp) >= cutoff));
+  } catch {
+    localStorage.removeItem(SEEN_ORDERS_KEY);
+    return new Map();
+  }
+}
+
+const seenOrders = loadSeenOrders();
+
+function saveSeenOrders() {
+  const latest = [...seenOrders.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 1000);
+  try {
+    localStorage.setItem(SEEN_ORDERS_KEY, JSON.stringify(Object.fromEntries(latest)));
+  } catch {}
+}
+
+function markOrderSeen(orderId, card) {
+  if (!orderId || seenOrders.has(orderId)) return;
+  seenOrders.set(orderId, Date.now());
+  saveSeenOrders();
+  card?.classList.add('order-seen');
+}
+
+function observeRenderedOrderCards() {
+  seenOrderObserver?.disconnect();
+  for (const timer of seenOrderTimers.values()) clearTimeout(timer);
+  seenOrderTimers.clear();
+  if (!('IntersectionObserver' in window)) return;
+  seenOrderObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const orderId = entry.target.dataset.orderId || '';
+      if (seenOrders.has(orderId)) continue;
+      if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+        if (!seenOrderTimers.has(orderId)) {
+          seenOrderTimers.set(orderId, setTimeout(() => {
+            seenOrderTimers.delete(orderId);
+            markOrderSeen(orderId, entry.target);
+          }, SEEN_ORDER_DELAY_MS));
+        }
+      } else if (seenOrderTimers.has(orderId)) {
+        clearTimeout(seenOrderTimers.get(orderId));
+        seenOrderTimers.delete(orderId);
+      }
+    }
+  }, { threshold: [0, 0.5, 1] });
+  $$('#orders .card[data-order-id]').forEach(card => seenOrderObserver.observe(card));
+}
 
 const routeLabels = {
   walking: '步行',
@@ -906,11 +965,12 @@ function orderDisplayMeta(o) {
   if (Array.isArray(o.locationOptions) && o.locationOptions.length > 1) {
     const labels = o.locationOptions.slice(0, 3).map((option, index) => {
       const place = cleanDisplayText(option.place || '', 40).replace(/^深圳国际会展中心/, '国际会展中心');
-      return `${['①', '②', '③'][index] || `${index + 1}.`}${option.district || ''}·${place}`;
+      const prefix = o.locationRelation === 'PHASED' && option.phase ? `${option.phase}：` : (['①', '②', '③'][index] || `${index + 1}.`);
+      return `${prefix}${option.district || ''}·${place}`;
     });
     const grade = cleanDisplayText(o.gradeDescription || '', 40) || categoryLabel(o.grade, state.lists.grades, '年级待定');
     const subject = categoryLabel(o.subject, state.lists.subjects, '科目待定');
-    const location = `地点二选一：${labels.join(' ')}`;
+    const location = o.locationRelation === 'PHASED' ? `分阶段地点：${labels.join(' ')}` : `地点二选一：${labels.join(' ')}`;
     return { district: '', place: '', location, grade, subject, title: `${location} | ${grade} ${subject}` };
   }
   const district = state.lists.districts.includes(String(o.district || '').replace(/区$/, ''))
@@ -973,7 +1033,7 @@ function toggleIssueReportMenu(button, event) {
 
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
-  return `<article class="card" id="order-card-${escapeHtml(o.id)}">
+  return `<article class="card${seenOrders.has(o.id) ? ' order-seen' : ''}" id="order-card-${escapeHtml(o.id)}" data-order-id="${escapeHtml(o.id)}">
     <div class="card-head">
       <div>
         <div class="title">${escapeHtml(meta.title)}</div>
@@ -998,6 +1058,9 @@ function renderOrders({ resetLimit = false } = {}) {
   if (count) count.textContent = `共 ${list.length} 条`;
   const more = $('#orderListMore');
   if (teacherViewMode === 'map') {
+    seenOrderObserver?.disconnect();
+    for (const timer of seenOrderTimers.values()) clearTimeout(timer);
+    seenOrderTimers.clear();
     $('#orders').replaceChildren();
     more.classList.add('hidden');
     ensureOrderMapCurrent(list).catch(error => showOrderMapStatus(error.message));
@@ -1009,6 +1072,7 @@ function renderOrders({ resetLimit = false } = {}) {
     if (focused) visible = [focused, ...visible.slice(0, Math.max(0, visibleOrderLimit - 1))];
   }
   $('#orders').innerHTML = visible.length ? visible.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
+  observeRenderedOrderCards();
   more.classList.toggle('hidden', visibleOrderLimit >= list.length);
   $('#loadMoreOrders').textContent = `加载更多（${Math.min(visibleOrderLimit, list.length)}/${list.length}）`;
 }
@@ -1756,18 +1820,9 @@ function renderPublisherAccess() {
     return;
   }
 
-  const pending = access?.status === 'pending';
-  form.classList.toggle('hidden', pending);
-  if (pending) {
-    title.textContent = '申请审核中';
-    message.textContent = '请添加吴老师沟通，审核通过后即可发单。';
-    return;
-  }
-
-  title.textContent = access?.status === 'rejected' ? '重新申请发单权限' : '申请发单权限';
-  message.textContent = access?.status === 'rejected'
-    ? '本次申请暂未通过。请联系吴老师沟通后重新提交。'
-    : '首次使用需审核；已通过的联系方式可直接进入。';
+  form.classList.remove('hidden');
+  title.textContent = '登记发单信息';
+  message.textContent = '填写后即可发单。';
   form.elements.displayName.value = access?.displayName || '';
   form.elements.contact.value = access?.contact || '';
 }
@@ -1777,23 +1832,17 @@ function renderAdminPublisherRequests() {
   const count = $('#adminPublisherCount');
   if (!root || !count) return;
   const requests = adminToken && Array.isArray(state.publisherRequests) ? state.publisherRequests : [];
-  const pendingCount = requests.filter(item => item.status === 'pending').length;
-  count.textContent = pendingCount ? `${pendingCount} 条待审核` : '';
+  count.textContent = requests.length ? `${requests.length} 人` : '';
   root.innerHTML = requests.length ? requests.map(item => {
-    const statusText = item.status === 'approved' ? '已批准' : item.status === 'rejected' ? '已拒绝' : '待审核';
     return `<article class="publisher-request-row">
       <div class="publisher-request-info">
         <strong>${escapeHtml(item.displayName || '未填写称呼')}</strong>
         <button class="publisher-contact-copy" type="button" data-copy-contact="${escapeHtml(item.contact || '')}" title="点击复制联系方式">${escapeHtml(item.contact || '未填写联系方式')}</button>
         <small>${item.requestedAt ? new Date(item.requestedAt).toLocaleString() : ''}</small>
       </div>
-      <span class="publisher-status ${escapeHtml(item.status || 'pending')}">${statusText}</span>
-      <div class="actions">
-        ${item.status !== 'approved' ? `<button class="primary" type="button" data-publisher-review="approved" data-user-id="${escapeHtml(item.userId)}">批准</button>` : ''}
-        ${item.status !== 'rejected' ? `<button class="secondary" type="button" data-publisher-review="rejected" data-user-id="${escapeHtml(item.userId)}">拒绝</button>` : ''}
-      </div>
+      <span class="publisher-status approved">已登记</span>
     </article>`;
-  }).join('') : '<div class="empty-state">目前没有发单申请。</div>';
+  }).join('') : '<div class="empty-state">目前没有发单者登记。</div>';
 }
 
 function renderAdmin() {
@@ -2408,20 +2457,10 @@ async function submitPublisherAccess(form) {
     }
     state.publisherAccess = result.access;
     renderPublisherAccess();
-    toast('申请已提交');
+    toast('登记成功，可以发单了');
   } finally {
     button.disabled = false;
   }
-}
-
-async function reviewPublisherAccess(userId, status) {
-  const result = await api(`/api/admin/publisher-access/${encodeURIComponent(userId)}`, {
-    method: 'PATCH',
-    body: { status }
-  }, adminToken);
-  state.publisherRequests = (state.publisherRequests || []).map(item => item.userId === userId ? result.access : item);
-  renderAdminPublisherRequests();
-  toast(status === 'approved' ? '已批准发单权限' : '已拒绝发单权限');
 }
 
 async function parseAndImportText(text, onStage = () => {}) {
@@ -2896,12 +2935,6 @@ $('#adminPublisherRequests')?.addEventListener('click', event => {
       .catch(() => toast('复制失败，请手动复制'));
     return;
   }
-  const button = event.target.closest('[data-publisher-review]');
-  if (!button) return;
-  button.disabled = true;
-  reviewPublisherAccess(button.dataset.userId, button.dataset.publisherReview)
-    .catch(error => toast(error.message))
-    .finally(() => { button.disabled = false; });
 });
 
 $('#adminOrders').addEventListener('change', event => {

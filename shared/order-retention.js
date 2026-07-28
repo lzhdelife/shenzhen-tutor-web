@@ -1,6 +1,6 @@
 'use strict';
 
-const ORDER_RETENTION_DAYS = 3;
+const ORDER_RETENTION_DAYS = 2;
 const ORDER_RETENTION_MS = ORDER_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 function orderExpiryCutoff(now = Date.now()) {

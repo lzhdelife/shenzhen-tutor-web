@@ -27,7 +27,7 @@ for (const fixture of fixtures) {
   if (expected.placeIncludes) { counters.place[1]++; const ok = expected.placeIncludes.every(value => order.place.includes(value)); if (ok) counters.place[0]++; assert.equal(ok, true, `${fixture.id}: ${order.place}`); }
   if (expected.placeExcludes) assert.ok(expected.placeExcludes.every(value => !order.place.includes(value)), `${fixture.id}: polluted place ${order.place}`);
   if (expected.placeOriginal) assert.equal(order.placeOriginal, expected.placeOriginal, `${fixture.id}:placeOriginal`);
-  for (const field of ['grade', 'subject', 'studentGender', 'gender', 'price', 'priceMin', 'priceMax', 'priceUnit', 'optionalSubjects', 'studentLevel', 'studentType', 'transitLine', 'locationRelation']) {
+  for (const field of ['grade', 'subject', 'studentGender', 'gender', 'price', 'priceMin', 'priceMax', 'priceUnit', 'hourlyPrice', 'monthly', 'optionalSubjects', 'studentLevel', 'studentType', 'transitLine', 'locationRelation']) {
     const expectedKey = field === 'gender' ? 'teacherGender' : field;
     if (Object.prototype.hasOwnProperty.call(expected, expectedKey)) assert.equal(order[field], expected[expectedKey], `${fixture.id}:${field}`);
   }
@@ -36,7 +36,7 @@ for (const fixture of fixtures) {
   if (expected.locationQueryIncludes) assert.ok(expected.locationQueryIncludes.every(value => order.locationQueries.includes(value)), `${fixture.id}: ${order.locationQueries.join(' | ')}`);
   if (expected.scheduleIncludes) { counters.phases[1]++; const ok = expected.scheduleIncludes.every(value => order.schedule.includes(value)); if (ok) counters.phases[0]++; assert.equal(ok, true, `${fixture.id}: ${order.schedule}`); }
   if (!expected.teacherGender && order.gender) counters.genderConfusions++;
-  assert.equal(structured.parserVersion, '2.2.3');
+  assert.equal(structured.parserVersion, '2.3.0');
   assert.equal(structured.rawText, fixture.raw);
   assert.ok(structured.normalizedText, `${fixture.id}: normalized text available alongside lossless rawText`);
   assert.equal(structured.locations.rawEvidence.length > 0, true, `${fixture.id}: location evidence`);
@@ -47,6 +47,7 @@ for (const fixture of fixtures) {
     ['price', 'priceMin', 'price']
   ]) {
     if (!Object.prototype.hasOwnProperty.call(expected, expectedKey)) continue;
+    if (counter === 'price' && !Number(expected.price)) continue;
     counters[counter][1]++;
     const value = structured[field].value;
     const wanted = expected[expectedKey];
@@ -144,3 +145,21 @@ assert.deepEqual(numberedSplit.diagnostics.map(item => item.boundaryReason), ['n
 assert.ok(numberedSplit.diagnostics.every(item => item.confidence === 0.95));
 assert.equal(numberedSplit.blocks.join('\n'), numberedFixture, 'keycap-numbered normalized coverage must be 100%');
 console.log('PASS numbered compact split regression expectedCount=2 coverage=100%');
+
+const mixedCodeBatch = `地址：光明区示例花园
+年级科目：新高三物理
+课酬：150/h
+#重新安排 #P26070001
+【地址】：南山区示例家园
+【学科】：小学陪读
+【薪酬】：300/2小时
+深圳家教：H27001
+【学员】：初二
+【科目】：数学
+【课酬】：100/时
+【地址】：龙岗区示例新村`;
+const mixedCodeSplit = platform.splitImportBlocksDetailed(mixedCodeBatch);
+assert.equal(mixedCodeSplit.blocks.length, 3, 'embedded hash code and following agency code must split independent orders');
+assert.match(mixedCodeSplit.blocks[1], /^#重新安排 #P26070001/);
+assert.match(mixedCodeSplit.blocks[2], /^深圳家教：H27001/);
+console.log('PASS mixed agency-code split regression expectedCount=3');

@@ -169,7 +169,7 @@ async function prepareCloudflareImportedOrder(item, agency, amap) {
       }
     });
     const primary = order.locationOptions[0];
-    order.locationRelation = 'OR';
+    order.locationRelation = order.locationRelation || 'OR';
     order.locationVerified = order.locationOptions.some(option => option.verified);
     order.locationStatus = order.locationOptions.every(option => option.verified) ? 'verified' : 'options_unverified';
     if (primary?.verified) {
@@ -459,7 +459,7 @@ function createWorker(dependencies = {}) {
           if (!displayName) return error('请填写称呼');
           if ([...displayName].length > 12) return error('称呼最多填写12个字');
           if (contact.length < 5) return error('请填写微信号或手机号');
-          if (typeof repo.submitPublisherAccess !== 'function') return error('发单审核服务尚未配置', 503);
+          if (typeof repo.submitPublisherAccess !== 'function') return error('发单登记服务尚未配置', 503);
           const approved = typeof repo.findApprovedPublisherAccess === 'function'
             ? await repo.findApprovedPublisherAccess(displayName, contact)
             : null;
@@ -472,17 +472,6 @@ function createWorker(dependencies = {}) {
             }
           }
           return json({ access: await repo.submitPublisherAccess(viewer.id, displayName, contact) });
-        }
-        const publisherReview = path.match(/^\/api\/admin\/publisher-access\/([^/]+)$/);
-        if (publisherReview && method === 'PATCH') {
-          if (!viewer || viewer.role !== 'admin') return error('需要管理员权限', 401);
-          const data = await bodyJson(request);
-          const status = text(data.status);
-          if (!['approved', 'rejected'].includes(status)) return error('审核状态无效');
-          if (typeof repo.setPublisherAccessStatus !== 'function') return error('发单审核服务尚未配置', 503);
-          const access = await repo.setPublisherAccessStatus(publisherReview[1], status);
-          if (!access) return error('申请记录不存在', 404);
-          return json({ access });
         }
         if (method === 'GET' && path === '/api/clipboard/inbox') {
           if (!viewer || viewer.role !== 'agency') return error('需要发单身份', 401);
@@ -508,7 +497,8 @@ function createWorker(dependencies = {}) {
         if (method === 'GET' && path === '/api/map-orders') {
           const teacher = await requireRole(repo, request, 'teacher');
           if (!teacher) return error('请先以老师身份登录', 401);
-          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status === 'open')).map(order => ({
+          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 }))
+            .filter(order => order.status === 'open' && !isExpiredOrder(order))).map(order => ({
             id: order.id,
             locations: isOnlineOrder(order) ? [] : Array.isArray(order.locationOptions) && order.locationOptions.length > 1
               ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
@@ -519,20 +509,22 @@ function createWorker(dependencies = {}) {
         if (method === 'GET' && path === '/api/state') {
           const state = await repo.getPublicState();
           const needsPrivateOrders = viewer?.role === 'admin' || viewer?.role === 'agency';
-          const visibleOrders = needsPrivateOrders ? await repo.listOrders({ limit: 500 }) : (state.orders || []);
+          const visibleOrders = needsPrivateOrders
+            ? await repo.listOrders({ limit: 500 })
+            : (state.orders || []).filter(order => !isExpiredOrder(order));
           const teacherVisibleIds = new Set(dedupeOrdersByCanonicalRaw(
-            visibleOrders.filter(order => order.status !== 'closed')
+            visibleOrders.filter(order => order.status !== 'closed' && !isExpiredOrder(order))
           ).map(order => order.id));
           const displayOrders = viewer?.role === 'admin' || viewer?.role === 'agency'
             ? visibleOrders
             : [
-                ...dedupeOrdersByCanonicalRaw(visibleOrders.filter(order => order.status !== 'closed')),
+                ...dedupeOrdersByCanonicalRaw(visibleOrders.filter(order => order.status !== 'closed' && !isExpiredOrder(order))),
                 ...visibleOrders.filter(order => order.status === 'closed')
               ];
           const orders = displayOrders.map(order => {
             return {
               ...cleanOrder(order, viewer),
-              teacherVisible: order.status !== 'closed' && teacherVisibleIds.has(order.id)
+              teacherVisible: order.status !== 'closed' && !isExpiredOrder(order) && teacherVisibleIds.has(order.id)
             };
           });
           const settings = state.settings || {};
@@ -618,7 +610,8 @@ function createWorker(dependencies = {}) {
           if (!teacher) return error('请先以老师身份登录', 401);
           const data = await bodyJson(request), origin = text(data.origin);
           if (!origin) return error('请填写你的位置');
-          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 })).filter(order => order.status !== 'closed'));
+          const orders = dedupeOrdersByCanonicalRaw((await repo.listOrders({ limit: 500 }))
+            .filter(order => order.status !== 'closed' && !isExpiredOrder(order)));
           const settings = await repo.getSettings();
           const distances = await mapWithConcurrency(orders, 4, async order => {
             if (isOnlineOrder(order)) {
@@ -643,13 +636,13 @@ function createWorker(dependencies = {}) {
         }
         if (method === 'POST' && path === '/api/parse') {
           const agency = await approvedAgencyOf(repo, request);
-          if (!agency) return error('发单权限尚未审核通过', 403);
+          if (!agency) return error('请先登记发单信息', 403);
           if (typeof dependencies.parseOrders === 'function') return json(await dependencies.parseOrders(await bodyJson(request), { agency, env, ctx }));
           return error(dependencies.parseLoadError ? `订单解析适配加载失败：${dependencies.parseLoadError}` : '订单解析服务尚未部署，请稍后再试', 503);
         }
         if (method === 'POST' && path === '/api/orders') {
           const agency = await approvedAgencyOf(repo, request);
-          if (!agency) return error('发单权限尚未审核通过', 403);
+          if (!agency) return error('请先登记发单信息', 403);
           const data = await bodyJson(request);
           const { images: _images, pages: _pages, sourceImages: _sourceImages, ...orderData } = data;
           const raw = text(orderData.raw);
@@ -677,7 +670,7 @@ function createWorker(dependencies = {}) {
         }
         if (method === 'POST' && path === '/api/import') {
           const agency = await approvedAgencyOf(repo, request);
-          if (!agency) return error('发单权限尚未审核通过', 403);
+          if (!agency) return error('请先登记发单信息', 403);
           const data = await bodyJson(request);
           const incoming = Array.isArray(data.orders) ? data.orders.slice(0, 200) : [];
           if (!incoming.length) return error('请先识别并确认要导入的订单');
@@ -725,7 +718,7 @@ function createWorker(dependencies = {}) {
         }
         if (method === 'POST' && path === '/api/agency/orders/bulk') {
           const agency = await approvedAgencyOf(repo, request);
-          if (!agency) return error('发单权限尚未审核通过', 403);
+          if (!agency) return error('请先登记发单信息', 403);
           const data = await bodyJson(request);
           if (data.action !== 'delete') return error('不支持的批量操作');
           const orders = await repo.listOrders({ agencyId: agency.id, limit: 500 });
@@ -789,7 +782,7 @@ function createWorker(dependencies = {}) {
             : null;
           const order = contactDetails?.order || await repo.getOrderById(orderContact[1]);
           if (!order) return error('订单不存在', 404);
-          if (order.status === 'closed') return error('这个订单已经下架');
+          if (order.status === 'closed' || isExpiredOrder(order)) return error('这个订单已经下架');
           const access = contactDetails?.publisher
             || (typeof repo.getPublisherAccess === 'function' ? await repo.getPublisherAccess(order.agencyId) : null);
           return json({

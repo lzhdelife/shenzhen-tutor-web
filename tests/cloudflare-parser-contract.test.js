@@ -14,7 +14,7 @@ test('Cloudflare adapter exposes the shared lossless parser contract', async () 
     env: {}
   });
 
-  assert.equal(result.parserVersion, '2.2.3');
+  assert.equal(result.parserVersion, '2.3.0');
   assert.deepEqual(result.parsed.map(order => order.raw), [first, second]);
   assert.deepEqual(result.parsed.map(order => order.structured.rawText), [first, second]);
   assert.equal(result.splitDiagnostics.length, 2);

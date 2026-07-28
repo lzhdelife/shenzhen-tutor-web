@@ -921,6 +921,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .agency-orders-section { margin-top: 24px; }
 .agency-orders-section #agencyOrders { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .agency-order-card { display: grid; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
+.order-list .card.order-seen { background: #f1f3f4; border-color: #d8dcdf; color: #62686d; filter: saturate(.55); }
+.order-list .card.order-seen .title,
+.order-list .card.order-seen .score { color: #62686d; }
 .agency-order-head { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .agency-order-head > div { min-width: 0; }
 .agency-order-head strong { display: block; overflow-wrap: anywhere; font-size: 16px; line-height: 1.45; }
@@ -1233,6 +1236,9 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
   .publisher-request-row,
   .preview-card,
   .agency-order-card { border-color: var(--line); background: var(--card); color: var(--ink); }
+  .order-list .card.order-seen { background: #25292c; border-color: #3c4246; color: #aab0b4; }
+  .order-list .card.order-seen .title,
+  .order-list .card.order-seen .score { color: #aab0b4; }
   .auth-brand { background: #1d2326; color: var(--ink); }
   .auth-brand::after { background: var(--green); }
   .auth-platform-stats small,

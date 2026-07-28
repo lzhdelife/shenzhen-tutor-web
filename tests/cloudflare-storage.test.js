@@ -25,7 +25,7 @@ class MockD1 {
       const table = insert[1];
       const columns = insert[2].split(',').map(value => value.trim());
       const row = table === 'publisher_access'
-        ? { user_id: values[0], display_name: values[1], contact: values[2], status: 'pending', requested_at: values[3], reviewed_at: null, updated_at: values[4] }
+        ? { user_id: values[0], display_name: values[1], contact: values[2], status: 'approved', requested_at: values[3], reviewed_at: values[4], updated_at: values[5] }
         : Object.fromEntries(columns.map((column, index) => [column, values[index]]));
       if (table === 'visitor_activity') row.visit_count = 1;
       if (table === 'amap_usage') { row.call_count = 1; row.updated_at = values[3]; }
@@ -48,12 +48,7 @@ class MockD1 {
           if (match) { match.call_count = Number(match.call_count || 0) + 1; match.updated_at = row.updated_at; }
           else this.tables.amap_usage.push(row);
         } else if (table === 'publisher_access') {
-          const approved = existing.status === 'approved';
-          Object.assign(existing, row, {
-            status: approved ? 'approved' : 'pending',
-            requested_at: approved ? existing.requested_at : row.requested_at,
-            reviewed_at: approved ? existing.reviewed_at : null
-          });
+          Object.assign(existing, row);
         } else Object.assign(existing, row);
       }
       else if (existing) throw new Error(`mock unique constraint: ${table}.${key}`);
@@ -152,11 +147,9 @@ async function run() {
   assert.equal((await repo.listUsers({ role: 'teacher' }))[0].id, teacher.id);
 
   const pendingAccess = await repo.submitPublisherAccess(agency.id, '测试称呼', 'wechat-test');
-  assert.equal(pendingAccess.status, 'pending');
+  assert.equal(pendingAccess.status, 'approved');
   assert.equal((await repo.listPublisherAccess())[0].userId, agency.id);
-  const approvedAccess = await repo.setPublisherAccessStatus(agency.id, 'approved');
-  assert.equal(approvedAccess.status, 'approved');
-  assert.ok(approvedAccess.reviewedAt);
+  assert.ok(pendingAccess.reviewedAt);
   assert.equal((await repo.findApprovedPublisherAccess('测试称呼', 'wechat-test')).userId, agency.id);
   assert.equal(await repo.findApprovedPublisherAccess('测试称呼', 'wrong-contact'), null);
   assert.equal((await repo.submitPublisherAccess(agency.id, '新称呼', 'new-contact')).status, 'approved');

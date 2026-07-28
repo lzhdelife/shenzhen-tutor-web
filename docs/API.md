@@ -25,6 +25,8 @@
 | GET | `/api/map-config` | 公共 | 返回 JS API 是否配置、域名受限的浏览器 Key 和同源安全代理地址；不返回安全密钥 |
 | GET | `/api/map-orders` | teacher | 仅返回开放订单 ID 与已确认坐标，不返回门牌地址或学生信息 |
 | POST | `/api/account/guest` | 公共 | 按匿名浏览器设备 ID 建立或恢复成对的老师/发单身份 |
+| GET | `/api/publisher-access` | agency | 读取当前发单者登记资料 |
+| POST | `/api/publisher-access` | agency | 提交称呼和微信号/手机号并立即获得发单权限；相同资料可跨浏览器恢复身份 |
 | POST | `/api/account/login` | 公共 | 统一密码登录/首次注册，返回老师和中介双 Token |
 | POST | `/api/account/remember-login` | 记住登录 Cookie | 轮换长期令牌并恢复双 Token |
 | POST | `/api/login` | 公共 | 兼容单角色登录 |
@@ -149,7 +151,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 `POST /api/parse` 返回 `{ parserVersion, parsed, splitDiagnostics, ignoredBlocks }`。`splitDiagnostics` 中每项包含 `blockIndex`、`sourceBlockIndex`、`rawStart`、`rawEnd`、`boundaryReason`、`classification` 和 `confidence`。每段切割文本先经过订单最小证据分类；有效订单进入 `parsed[]`，群名、闲聊、广告前缀等非订单文本进入 `ignoredBlocks[]`，其中保留原文、跨度、分类证据和忽略原因。预览不会去重，也不会静默丢弃被忽略原文。
 
-每个 `parsed[]` 项包含统一的 `structured` 契约。可抽取字段使用 `{ value, rawEvidence, confidence, source }`；`structured.locations.value[]` 同时保留地点原文、行政区、展示地点、`query/locationQueries`、附近语义和二选一关系。`structured.schedulePhases[]` 保留阶段、开始时间、频次、星期、时段、单次时长和课次范围。`structured.diagnostics.uncertainFields[]` 必须在导入前展示给用户确认。解析层只生成地点证据和查询文本，不负责调用地图服务。
+每个 `parsed[]` 项包含统一的 `structured` 契约。可抽取字段使用 `{ value, rawEvidence, confidence, source }`；`structured.locations.value[]` 同时保留地点原文、行政区、展示地点、`query/locationQueries`、附近语义，以及 `OR` 二选一或 `PHASED` 分阶段关系。`structured.schedulePhases[]` 保留阶段、开始时间、频次、星期、时段、单次时长和课次范围。`structured.diagnostics.uncertainFields[]` 必须在导入前展示给用户确认。解析层只生成地点证据和查询文本，不负责调用地图服务。
 
 最简单的请求：
 

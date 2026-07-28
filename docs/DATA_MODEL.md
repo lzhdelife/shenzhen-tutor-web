@@ -29,7 +29,7 @@
 | `poi_id` / `coordinates` / `resolved_address` | 高德 POI、经纬度和标准地址 |
 | `query_text` / `queries_json` | 地点查询主文本及备选查询组合 |
 | `candidates_json` | 高德候选列表，供人工复核 |
-| `options_json` / `relation` | “A 或 B”多地点选项及其关系 |
+| `options_json` / `relation` | 多地点选项及其关系；`OR` 为二选一，`PHASED` 为暑假/开学后等分阶段地点 |
 | `updated_at` | 地点最后更新时间 |
 
 发单人的称呼和联系方式不复制进订单正文。订单只保存 `agency_id`，用户主动点击“申请接单”时再通过 `publisher_access` 读取对应资料。老师自己的出发位置、直线距离和路线结果不写入订单数据库。
@@ -166,8 +166,8 @@
 | `locationConfidence` | number? | 本地匹配评分 |
 | `locationQuery` / `locationQueries` | string/string[] | 按区、街道/片区、社区/小区组合的高德查询 |
 | `locationCandidates` | array | 低置信度时保留给预览人工选择的 2–3 个候选 |
-| `locationOptions` | array | “A 或 B/二选一/均可”订单的多个地点；每项独立保存 POI、坐标、置信度和路线 |
-| `locationRelation` | string | 多地点关系，当前为 `OR` |
+| `locationOptions` | array | 二选一或分阶段订单的多个地点；每项独立保存阶段、POI、坐标、置信度和路线 |
+| `locationRelation` | string | 多地点关系：`OR` 或 `PHASED` |
 | `distanceKm` | number/string | 高德返回的路线距离；失败时为空 |
 | `routeMode` | string | 实际路线标签或明确的不可用状态，不再伪装成本地估算 |
 | `score` | number | 当前设置下的匹配分数，可重新计算 |

@@ -587,7 +587,7 @@ function looksLikeFieldHeader(line) {
     .replace(/^\d{1,2}\s*[、.．)]\s*/, '')
     .replace(/^[【\[]\s*/, '')
     .replace(/\s*[】\]]\s*[:：]?\s*/, '：');
-  return /^(?:编号|家教编号|家教内容|家教地点|家教时间|家教薪酬|家教要求|学员地址|辅导地址|辅导地点|上课地址|联系地址|地址|地点|辅导科目|科目内容|科目|学员情况|学生情况|学生人数|情况|学员|学生|年级性别|孩子性别|年级科目|年级学科|年级|辅导时间|时间安排|时间次数|时间次數|课时次数|时间|次数|次數|课时价格|课时报酬|课费报酬|课费薪酬|课费次薪|课酬薪资|课酬报酬|老师薪水|薪水|老师课费|老师报酬|教师报酬|课酬|薪酬|薪资|时薪|报酬|对师要求|老师要求|教师要求|教员要求|教员|老师|要求|BR)\s*[:：]?/i.test(value);
+  return /^(?:编号|家教编号|家教内容|家教地点|家教时间|家教薪酬|家教要求|学员地址|辅导地址|辅导地点|上课地址|联系地址|地址|地点|辅导科目|科目内容|科目|学员情况|学生情况|学生人数|情况|学员|学生|性别年级科目|年级性别|孩子性别|年级科目|年级学科|年级|辅导时间|时间安排|时间次数|时间次數|课时次数|时间|次数|次數|课时价格|课时报酬|课费报酬|课费薪酬|课费次薪|课酬薪资|课酬报酬|老师薪水|薪水|老师课费|老师报酬|教师报酬|课酬|薪酬|薪资|时薪|报酬|对师要求|老师要求|教师要求|教员要求|教员|老师|要求|BR)\s*[:：]?/i.test(value);
 }
 
 function lineField(text, names) {
@@ -747,7 +747,7 @@ function extractLooseOrderLine(text) {
 
 function extractLooseLocationLine(text) {
   const lines = textOf(text).split(/\n/).map(line => line.trim()).filter(Boolean);
-  const districtPoi = /(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?[\u4e00-\u9fffA-Za-z0-9·]{2,30}?(?:街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/;
+  const districtPoi = /(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?[\u4e00-\u9fffA-Za-z0-9·]{2,30}(?:街道|社区|花园|小区|公馆|家园|华府|新村|山庄|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/;
   const districtRoad = /(?:深圳市?)?(?:罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏)区?[\u4e00-\u9fffA-Za-z0-9·]{2,20}?(?:大道|路|街|巷)/;
   for (const line of lines) {
     const match = line.match(districtPoi) || line.match(districtRoad);
@@ -783,7 +783,7 @@ function splitImportBlocksSoft(input) {
   const titleLine = /^\s*[^\u4e00-\u9fa5A-Za-z0-9]{0,8}\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]\s*)?(?:[&＆]\s*)?(?:大学生上门|上门辅导|暑假预约|今日新单|大学生|专职老师|全职老师|暑假单|长期单|线上|广东线上)/;
   const bracketTitle = /^\s*【\s*[LZ]\s*[^】]+】/i;
   const looseTitle = /^\s*(?:[①②③④⑤⑥⑦⑧⑨⑩]\s*)?【[^】]*(?:深圳|南山|宝安|福田|龙华|龙岗|罗湖|盐田|光明|坪山|大鹏)[^】]+】/;
-  const codeTitle = /^\s*(?:编号\s*[:：]?\s*)?(?:[A-Z]{1,5}\d{4,}[A-ZQ]?|[A-Z]{1,4}深圳\d{5,}[A-ZQ]?|SZ\d{5,}[A-Z]?|lw\d{3,}|(?:深圳|香港)[^\u4e00-\u9fa5A-Za-z0-9]{0,4}[A-Z]{0,5}\d{5,}[A-Z]*|深圳[a-zA-Z]{1,5}\d+|深圳线下[A-Z]{1,5}\d+|深圳TCZ\d+|深圳S?\d{5,}[A-Z]?|深圳家教\s*【?\s*\d{3,}\s*】?\s*号?家教|深圳家教\s*[:：]?\s*H?\d{3,}|深圳星禾家教\d+号?家教?|深圳质优家教\d+号?家教?|订单\s*[:：]?\s*\d+)/i;
+  const codeTitle = /^\s*(?:编号\s*[:：]?\s*)?(?:#[^\n#]{0,24}#[A-Z]{1,5}\d{5,}|[A-Z]{1,5}\d{4,}[A-ZQ]?|[A-Z]{1,4}深圳\d{5,}[A-ZQ]?|SZ\d{5,}[A-Z]?|lw\d{3,}|(?:深圳|香港)[^\u4e00-\u9fa5A-Za-z0-9]{0,4}[A-Z]{0,5}\d{5,}[A-Z]*|深圳[a-zA-Z]{1,5}\d+|深圳线下[A-Z]{1,5}\d+|深圳TCZ\d+|深圳S?\d{5,}[A-Z]?|深圳家教\s*【?\s*\d{3,}\s*】?\s*号?家教|深圳家教\s*[:：]?\s*H?\d{3,}|深圳星禾家教\d+号?家教?|深圳质优家教\d+号?家教?|订单\s*[:：]?\s*\d+)/i;
   const byTitle = /^\s*[^\u4e00-\u9fa5A-Za-z0-9]{0,8}\s*深圳\s*BY\d{6,}(?:-\d+)?\s*#/i;
   const urgentTitle = /^\s*(?:急|妃)\s*\d{8,}/i;
   const numericCodeTitle = /^\s*\d{8,}(?=\s*(?:#|地址|地点|$))/i;
@@ -975,7 +975,9 @@ function extractSubjects(text) {
   const matches = [];
   if (/自然拼读|音标|phonics/i.test(text)) matches.push('英语');
   if (/数理化/.test(text)) matches.push('数学', '物理', '化学');
+  if (/英数物|数英物|数物英/.test(text)) matches.push('数学', '英语', '物理');
   if (/语数英/.test(text)) matches.push('语文', '数学', '英语');
+  if (/(?:^|[\s，,、:：])数(?=$|[\s，,、:：])/.test(text)) matches.push('数学');
   if (/全科/.test(text)) matches.push('全科');
   if (/陪读|陪学/.test(text)) matches.push('陪读');
   for (const subject of LISTS.subjects) {
@@ -1073,7 +1075,9 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
   const looksLikeLocationEvidence = value => {
     const candidate = textOf(value);
     if (/^(?:编号|学生|学员|学生情况|学员情况|时间|次数|薪酬|薪资|薪水|课酬|要求|老师要求|教师要求|教员要求|成绩)$/.test(candidate)) return false;
-    return /(深圳|罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|坂田|西乡|福永|街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘|(?:路|大道|街|巷)(?:口|段)?)/.test(candidate);
+    if (/\d{2,5}\s*[-—~～]?\s*\d{0,5}\s*\/?\s*(?:h|小时)/i.test(candidate)
+      && !/(街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|路|街|巷)/.test(candidate)) return false;
+    return /(罗湖|福田|南山|盐田|宝安|龙岗|龙华|坪山|光明|大鹏|坂田|平湖|西乡|福永|街道|社区|花园|小区|公馆|家园|华府|新村|山庄|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘|(?:路|大道|街|巷)(?:口|段)?)/.test(candidate);
   };
   const bracketSources = [...source.matchAll(/[【\[]([^】\]]{2,80})[】\]]/g)]
     .map(match => match[1])
@@ -1096,7 +1100,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
       .replace(/^(?:深圳市?)?[A-Za-z]{0,4}\d{5,}[A-Za-z]?/i, '')
       .replace(/^[A-Za-z]{1,3}(?=深圳市?)/i, '');
     const inlineGradeIndex = item.search(/(?:准|新)?(?:幼儿园|小[一二三四五六]|[一二三四五六]年级|小学|初[一二三]|初中|高[一二三]|高中|成人)(?=(?:男|女|全科|语文|数学|英语|物理|化学|生物|学生|学员))/);
-    if (inlineGradeIndex > 0 && /(?:路|大道|街|巷|花园|小区|公馆|家园|华府|新村|大厦|公寓|苑|城|村)/.test(item.slice(0, inlineGradeIndex))) {
+    if (inlineGradeIndex > 0 && /(?:路|大道|街|巷|花园|小区|公馆|家园|华府|新村|山庄|大厦|公寓|苑|城|村)/.test(item.slice(0, inlineGradeIndex))) {
       item = item.slice(0, inlineGradeIndex);
     }
     item = item
@@ -1115,7 +1119,7 @@ function extractLocationHierarchy(text, explicitLocation = '', district = '') {
     const cleaned = cleanPart(candidateSource);
     if (!cleaned || cleaned.length < 2 || cleaned.length > 24) continue;
     const knownNames = Object.keys(LANDMARK_DISTRICTS).filter(name => cleaned.includes(name));
-    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,12}(?:街道|社区|花园|小区|公馆|家园|华府|新村|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
+    const suffixNames = [...cleaned.matchAll(/[\u4e00-\u9fff]{2,12}(?:街道|社区|花园|小区|公馆|家园|华府|新村|山庄|地铁站|中心|广场|大厦|公寓|苑|城|村|墟|塘)/g)].map(match => match[0]);
     const fullCandidate = cleaned.length <= 16 && !/(一般|提高|成绩|连续|周末|专业|老师|前十|知识点)/.test(cleaned) ? cleaned : '';
     const names = uniq([fullCandidate, ...knownNames, ...suffixNames]);
     if (names.length) {
@@ -1171,6 +1175,29 @@ function extractLocationOptions(text) {
       locationQueries: uniq([`深圳市${district ? `${district}区` : ''}${precisePlace}`, precisePlace])
     };
   }).filter(option => option.district && option.place.length >= 2);
+}
+
+function extractPhasedLocationOptions(text) {
+  const source = textOf(text);
+  const match = source.match(/暑假(?:期间)?(?:上课)?(?:地点|地址)?\s*在\s*([^，,\n]{2,36})[，,]\s*开学后(?:上课)?(?:地点|地址)?\s*在\s*([^，,\n【\[]+)/);
+  if (!match) return [];
+  return [['暑假', match[1]], ['开学后', match[2]]].map(([phase, raw]) => {
+    const district = extractDistrict(raw);
+    const hierarchy = extractLocationHierarchy(raw, raw, district);
+    const place = canonicalLocationPlace(hierarchy.place || extractPlace(raw, district), district);
+    const query = hierarchy.queries[0] || buildAddress(district, place, raw);
+    return {
+      phase,
+      raw: textOf(raw),
+      district,
+      place,
+      nearby: /附近|周边/.test(raw),
+      query,
+      locationQuery: query,
+      locationQueries: hierarchy.queries,
+      verified: false
+    };
+  }).filter(option => option.district && option.place);
 }
 
 function extractTransitLocation(text) {
@@ -1244,8 +1271,9 @@ function dailyDurationHours(text) {
 }
 
 function extractPrice(text) {
-  const salary = anyField(text, ['家教薪酬', '薪酬', '课酬', '老师课费', '课时薪酬', '课时报酬', '课费报酬', '课费薪酬', '课酬薪资', '课酬报酬', '老师薪水', '薪水', '老师报酬', '教师报酬', '老师报酬', '时薪', '报酬', '薪资', '薪资待遇']);
+  const salary = anyField(text, ['家教薪酬', '薪酬', '课酬', '老师课费', '课时费', '课时薪酬', '课时报酬', '课费报酬', '课费薪酬', '课酬薪资', '课酬报酬', '老师薪水', '薪水', '老师报酬', '教师报酬', '老师报酬', '时薪', '报酬', '报价', '薪资', '薪资待遇']);
   const source = salary || text;
+  const monthlySource = salary && !/月/.test(salary) ? textOf(text) : source;
   let priceText = salary;
   let monthly = 0;
   const validPrice = value => Number(value) >= 50 && Number(value) <= 100000;
@@ -1258,20 +1286,24 @@ function extractPrice(text) {
     hourlyPrice: validHourly(hourlyValue) ? Math.round(Number(hourlyValue)) : 0,
     priceApproximate: /左右|约|大概/.test(textOf(matchedText || priceText))
   });
-  let m = source.match(/(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)\s*w\s*\/?\s*月/i);
-  if (/自报|报价|面议|待定/.test(source)) {
-    const quoted = source.match(/(?:老师)?自报(?:价)?(?:\s*\/\s*(?:次|小时|h|2h))?|报价|面议|待定/i);
+  let m = monthlySource.match(/(\d+(?:\.\d+)?)\s*[-~～]\s*(\d+(?:\.\d+)?)\s*w\s*\/?\s*月/i);
+  if (/(?:老师)?自报(?:价)?|报价\s*(?:自定|面议)|面议|待定/.test(source)) {
+    const quoted = source.match(/(?:老师)?自报(?:价)?(?:\s*\/\s*(?:次|小时|h|2h))?|报价\s*(?:自定|面议)|面议|待定/i);
     return { price: 0, priceText: textOf(quoted?.[0] || salary), monthly: 0, priceUnit: '', hourlyPrice: 0 };
   }
   if (m) {
     monthly = Math.round((Number(m[1]) + Number(m[2])) / 2 * 10000);
     return finish(0, m[0], monthly, '月', 0);
   }
-  m = source.match(/(\d{3,6})\s*[-—~～]\s*(\d{3,6})\s*\/?\s*月/);
+  m = monthlySource.match(/(\d+(?:\.\d+)?)\s*w\s*\/?\s*月/i);
+  if (m) return finish(0, m[0], Math.round(Number(m[1]) * 10000), '月', 0);
+  m = source.match(/(\d{3,6})\s*[-—~～]\s*(\d{3,6})\s*(?:\/|一个|每)?\s*月/);
   if (m) {
     monthly = Math.round((Number(m[1]) + Number(m[2])) / 2);
     return finish(0, m[0], monthly, '月', 0);
   }
+  m = source.match(/(\d{3,6})\s*(?:元)?\s*(?:\/|一个|每)\s*月/);
+  if (m) return finish(0, m[0], Number(m[1]), '月', 0);
   m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*(?:\/|一次课\/?)?\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
   if (m) {
     const priceMin = Number(m[1]);
@@ -1280,8 +1312,16 @@ function extractPrice(text) {
     const sessionPrice = (priceMin + priceMax) / 2;
     return { ...finish(sessionPrice, m[0], 0, `${duration}小时`, sessionPrice / duration), priceMin, priceMax };
   }
+  m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*(?:\/|一次课\/?)?\s*([一二两三四])\s*(?:h|小时|时)/i);
+  if (m) {
+    const duration = ({ 一: 1, 二: 2, 两: 2, 三: 3, 四: 4 })[m[3]];
+    const priceMin = Number(m[1]);
+    const priceMax = Number(m[2]);
+    const sessionPrice = (priceMin + priceMax) / 2;
+    return { ...finish(sessionPrice, m[0], 0, `${duration}小时`, sessionPrice / duration), priceMin, priceMax };
+  }
 
-  m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*\/?\s*(?:次|节)/i);
+  m = source.match(/(\d{2,5})\s*[-—~～]\s*(\d{2,5})\s*(?:元)?\s*\/*\s*(?:次|节)/i);
   if (m) {
     const duration = lessonDurationHours(text);
     const sessionPrice = (Number(m[1]) + Number(m[2])) / 2;
@@ -1298,12 +1338,25 @@ function extractPrice(text) {
     return finish(Number(m[1]), m[0], 0, '天', duration ? Number(m[1]) / duration : 0);
   }
   m = source.match(/(\d{2,5})\s*[、,，]\s*(\d{2,5})\s*(?:元)?\s*(?:\/\s*(?:小时|时|h)|每小时)/i);
-  if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
+  if (m) {
+    const priceMin = Number(m[1]);
+    const priceMax = Number(m[2]);
+    return { ...finish((priceMin + priceMax) / 2, m[0]), priceMin, priceMax };
+  }
   m = source.match(/(\d{2,5})\s*[-—~～]+\s*(\d{2,5})\s*(?:元)?\s*(?:\/?\s*(?:1)?\s*(小时|时|h)|每小时|元每小时|元1小时|元\/小时)/i);
   if (!m && salary) m = source.match(/(\d{2,5})\s*[-—~～]+\s*(\d{2,5})/);
-  if (m) return finish((Number(m[1]) + Number(m[2])) / 2, m[0]);
+  if (m) {
+    const priceMin = Number(m[1]);
+    const priceMax = Number(m[2]);
+    return { ...finish((priceMin + priceMax) / 2, m[0]), priceMin, priceMax };
+  }
   m = source.match(/(\d{2,5})\s*(?:元|块)?\s*\/\s*(\d+(?:\.\d+)?)\s*(?:h|小时|时)/i);
   if (m) return finish(Number(m[1]) / Number(m[2]), m[0]);
+  m = source.match(/(?:课时费|课酬|薪酬|报酬)\s*[:：]?\s*(\d{2,5})\s*(?:元)?\s*([一二两三四五六七八九十]|\d+(?:\.\d+)?)\s*(?:个)?小时/i);
+  if (m) {
+    const duration = ({ 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }[m[2]] || Number(m[2]));
+    return finish(Number(m[1]), m[0], 0, `${duration}小时`, Number(m[1]) / duration);
+  }
   m = source.match(/(\d{2,5})\s*(?:元|块)?\s*(?:\/\s*(?:小时|h|时)|每(?:个)?小时)/i);
   if (!m) {
     m = [...source.matchAll(/(\d{2,5})\s*(元|块)?\s*(?:每|一)?\s*(?:个)?\s*(小时|h|时)/gi)]
@@ -1341,7 +1394,7 @@ function parseOrder(raw, source = '', agencyId = '') {
   const title = extractTitle(text);
   const locationField = anyField(text, ['上课地址', '辅导地点', '学员地址', '联系地址', '家教地点', '地址', '地点']);
   const numberedLocation = extractNumberedSection(text, 1);
-  const gradeSubjectField = anyField(text, ['年级科目', '年级学科', '年级性别', '年级', '家教内容', '辅导科目', '科目']);
+  const gradeSubjectField = anyField(text, ['性别年级科目', '年级科目', '年级学科', '年级性别', '年级', '家教内容', '辅导科目', '科目']);
   const looseOrderLine = extractLooseOrderLine(text);
   const looseLocationLine = extractLooseLocationLine(text);
   const locationText = locationField
@@ -1350,20 +1403,25 @@ function parseOrder(raw, source = '', agencyId = '') {
     || looseLocationLine;
   const online = isOnlineOrder(locationText + '\n' + title + '\n' + text);
   const transitLocation = online ? null : extractTransitLocation(text);
-  const district = online ? '线上' : transitLocation?.district || extractDistrict(locationText + '\n' + title + '\n' + text);
-  const locationOptions = online ? [] : extractLocationOptions(text);
+  const alternativeLocationOptions = online ? [] : extractLocationOptions(text);
+  const phasedLocationOptions = online || alternativeLocationOptions.length ? [] : extractPhasedLocationOptions(text);
+  const locationOptions = alternativeLocationOptions.length ? alternativeLocationOptions : phasedLocationOptions;
+  const district = online ? '线上' : locationOptions[0]?.district || transitLocation?.district || extractDistrict(locationText + '\n' + title + '\n' + text);
   const locationHierarchy = online
     ? { raw: '线上授课', place: '线上授课', queries: [] }
     : extractLocationHierarchy(text, locationField || looseLocationLine, district);
   const place = online
     ? '线上授课'
+    : locationOptions.length > 1
+    ? locationOptions[0].place
     : transitLocation
     ? [transitLocation.area, transitLocation.place].filter(Boolean).join('·')
     : locationHierarchy.place || (locationText ? extractPlace(locationText, district) : extractPlace(title, district));
   const student = extractStudent(text);
   const studentGender = extractStudentGender(text, student);
   const subject = extractSubjects(gradeSubjectField) || extractSubjects(looseOrderLine) || extractSubjects(title) || extractSubjects(student) || extractSubjects(text) || '其他';
-  let grade = extractGrades(gradeSubjectField) || extractGrades(looseOrderLine) || extractGrades(title + '\n' + student) || extractGrades(title) || '其他';
+  const gradeText = text.replace(/[（(](?:小学|初中|高中)部[）)]/g, '');
+  let grade = extractGrades(gradeSubjectField) || extractGrades(looseOrderLine.replace(/[（(](?:小学|初中|高中)部[）)]/g, '')) || extractGrades(title.replace(/[（(](?:小学|初中|高中)部[）)]/g, '') + '\n' + student) || extractGrades(gradeText) || '其他';
   if (['小学', '初中', '高中'].includes(grade)) {
     grade = extractGrades(student + '\n' + title) || grade;
   }
@@ -1378,14 +1436,14 @@ function parseOrder(raw, source = '', agencyId = '') {
     id: 'o-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
     agencyId,
     district, place, placeOriginal: locationHierarchy.raw || place, address, subject, grade, gradeDescription,
-    locationQuery: online ? '' : transitLocation?.queries[0] || locationHierarchy.queries[0] || address,
-    locationQueries: online ? [] : transitLocation?.queries || locationHierarchy.queries,
+    locationQuery: online ? '' : locationOptions[0]?.query || transitLocation?.queries[0] || locationHierarchy.queries[0] || address,
+    locationQueries: online ? [] : locationOptions[0]?.locationQueries || transitLocation?.queries || locationHierarchy.queries,
     locationVerified: online ? true : undefined,
     locationStatus: online ? 'online' : '',
     area: transitLocation?.area || '',
     transitLine: transitLocation?.transitLine || '',
     locationOptions,
-    locationRelation: locationOptions.length > 1 ? 'OR' : '',
+    locationRelation: alternativeLocationOptions.length > 1 ? 'OR' : phasedLocationOptions.length > 1 ? 'PHASED' : '',
     price: priceInfo.price,
     priceText: priceInfo.priceText,
     monthly: priceInfo.monthly,
@@ -1763,7 +1821,7 @@ async function resolveOrderLocation(order, settings) {
       });
     }
     order.locationOptions = resolvedOptions;
-    order.locationRelation = 'OR';
+    order.locationRelation = order.locationRelation || 'OR';
     const primary = resolvedOptions[0];
     order.district = primary.district;
     order.place = primary.place;
@@ -2219,18 +2277,18 @@ function sanitizeTeacherPreferences(value = {}) {
 
 function publicDb(db, viewer = null) {
   const teacherVisibleIds = new Set(dedupeOrdersByCanonicalRaw(
-    db.orders.filter(order => order.status !== 'closed')
+    db.orders.filter(order => order.status !== 'closed' && !isExpiredOrder(order))
   ).map(order => order.id));
   const visibleOrders = viewer?.role === 'admin' || viewer?.role === 'agency'
     ? db.orders
     : [
-        ...dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed')),
+        ...dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed' && !isExpiredOrder(order))),
         ...db.orders.filter(order => order.status === 'closed')
       ];
   const orders = visibleOrders.map(order => {
     const copy = { ...order, score: score(order, db.settings) };
     markOnlineLocation(copy);
-    copy.teacherVisible = order.status !== 'closed' && teacherVisibleIds.has(order.id);
+    copy.teacherVisible = order.status !== 'closed' && !isExpiredOrder(order) && teacherVisibleIds.has(order.id);
     const ownsPreciseLocation = viewer && (
       viewer.role === 'admin' ||
       (viewer.role === 'agency' && order.agencyId === viewer.id)
@@ -2324,7 +2382,7 @@ async function handleApi(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/map-orders') {
     const teacher = requireRole(req, res, 'teacher');
     if (!teacher) return;
-    const orders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status === 'open')).map(order => ({
+    const orders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status === 'open' && !isExpiredOrder(order))).map(order => ({
       id: order.id,
       locations: isOnlineOrder(order) ? [] : Array.isArray(order.locationOptions) && order.locationOptions.length > 1
         ? order.locationOptions.filter(option => option.verified && option.coordinates).map(option => option.coordinates)
@@ -2744,7 +2802,7 @@ async function handleApi(req, res) {
     const data = await bodyJson(req);
     const origin = textOf(data.origin);
     if (!origin) return send(res, 400, { error: '请填写你的位置' });
-    const openOrders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed'));
+    const openOrders = dedupeOrdersByCanonicalRaw(db.orders.filter(order => order.status !== 'closed' && !isExpiredOrder(order)));
     const unresolved = openOrders.filter(order => order.locationVerified === false
       && order.district
       && (isGenericLocationValue(order.place) || (order.locationCandidates || []).some(candidate => candidate?.location)));

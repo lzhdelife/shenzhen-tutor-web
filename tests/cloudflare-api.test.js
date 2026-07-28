@@ -39,13 +39,12 @@ function memoryRepository() {
     async getPublisherAccess(userId) { return state.publisherAccess.get(userId) || null; },
     async findApprovedPublisherAccess(displayName, contact) { return [...state.publisherAccess.values()].find(item => item.displayName === displayName && item.contact === contact && item.status === 'approved') || null; },
     async submitPublisherAccess(userId, displayName, contact) {
-      const existing = state.publisherAccess.get(userId);
-      const item = { userId, displayName, contact, status: existing?.status === 'approved' ? 'approved' : 'pending', requestedAt: existing?.requestedAt || new Date().toISOString(), reviewedAt: existing?.reviewedAt || null, updatedAt: new Date().toISOString() };
+      const timestamp = new Date().toISOString();
+      const item = { userId, displayName, contact, status: 'approved', requestedAt: timestamp, reviewedAt: timestamp, updatedAt: timestamp };
       state.publisherAccess.set(userId, item);
       return item;
     },
     async listPublisherAccess() { return [...state.publisherAccess.values()].sort((a, b) => (a.status === 'pending' ? -1 : 1) - (b.status === 'pending' ? -1 : 1)); },
-    async setPublisherAccessStatus(userId, status) { const item = state.publisherAccess.get(userId); if (!item) return null; Object.assign(item, { status, reviewedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); return item; },
     async upsertOrderIssueReport(input) {
       const key = `${input.targetKey}|${input.reporterKey}`;
       const existing = state.orderIssueReports.get(key);
@@ -284,7 +283,7 @@ test('account login creates paired roles and persists only token hashes', async 
   assert.equal(denied.status, 401);
 });
 
-test('publisher access requires an application and admin approval before publishing', async () => {
+test('publisher registration grants publishing access immediately and restores across browsers', async () => {
   const { call } = harness({ parseOrders: async data => ({ parsed: [{ raw: data.text }], ignoredBlocks: [] }) });
   const guestResponse = await call('/api/account/guest', { method: 'POST', body: { deviceId: 'publisher_access_browser_1234' } });
   assert.match(guestResponse.headers.get('set-cookie'), /HttpOnly; Secure; SameSite=Lax/);
@@ -302,18 +301,9 @@ test('publisher access requires an application and admin approval before publish
   const submitted = await (await call('/api/publisher-access', { method: 'POST', headers: agencyHeaders, body: {
     displayName: '申请人', contact: 'wechat-publisher'
   } })).json();
-  assert.equal(submitted.access.status, 'pending');
+  assert.equal(submitted.access.status, 'approved');
   const agencyState = await (await call('/api/state', { headers: agencyHeaders })).json();
   assert.equal(agencyState.publisherAccess.contact, 'wechat-publisher');
-
-  const password = 'publisher-admin-password';
-  const admin = await (await call('/api/admin/setup', { method: 'POST', body: {
-    password, passwordProof: await clientPasswordProof(password, 'admin', '')
-  } })).json();
-  const adminHeaders = { authorization: `Bearer ${admin.token}` };
-  const adminState = await (await call('/api/state', { headers: adminHeaders })).json();
-  assert.equal(adminState.publisherRequests[0].status, 'pending');
-  assert.equal((await call(`/api/admin/publisher-access/${guest.agency.id}`, { method: 'PATCH', headers: adminHeaders, body: { status: 'approved' } })).status, 200);
 
   assert.equal((await call('/api/parse', { method: 'POST', headers: agencyHeaders, body: { text: '南山区初二数学家教' } })).status, 200);
   const published = await (await call('/api/orders', { method: 'POST', headers: agencyHeaders, body: {
@@ -339,7 +329,13 @@ test('publisher access requires an application and admin approval before publish
   assert.equal(restored.agency.id, guest.agency.id);
   assert.equal((await call('/api/orders', { method: 'POST', headers: { authorization: `Bearer ${restored.agencyToken}` }, body: { district: '福田', subject: '英语' } })).status, 200);
   assert.equal((await call('/api/state', { headers: { authorization: `Bearer ${restored.agencyToken}` } })).status, 200);
-  assert.equal((await call('/api/state', { headers: adminHeaders }).then(response => response.json())).publisherRequests.length, 1);
+  const password = 'publisher-admin-password';
+  const admin = await (await call('/api/admin/setup', { method: 'POST', body: {
+    password, passwordProof: await clientPasswordProof(password, 'admin', '')
+  } })).json();
+  const adminState = await (await call('/api/state', { headers: { authorization: `Bearer ${admin.token}` } })).json();
+  assert.equal(adminState.publisherRequests.length, 1);
+  assert.equal(adminState.publisherRequests[0].status, 'approved');
 });
 
 test('shared clipboard bridge requires its program token and exposes a common queue', async () => {
@@ -601,14 +597,29 @@ test('import merges cross-group wording variants but keeps different subjects se
   assert.deepEqual(result.created.map(order => order.subject).sort(), ['数学', '物理']);
 });
 
-test('scheduled cleanup deletes orders older than three days', async () => {
+test('scheduled cleanup deletes orders older than 48 hours', async () => {
   const { repo, worker } = harness();
   const now = Date.UTC(2026, 6, 25, 4, 0, 0);
-  repo.state.orders.set('old', { id: 'old', createdAt: new Date(now - (3 * 24 * 60 * 60 * 1000) - 1).toISOString() });
-  repo.state.orders.set('fresh', { id: 'fresh', createdAt: new Date(now - (3 * 24 * 60 * 60 * 1000) + 1).toISOString() });
+  repo.state.orders.set('old', { id: 'old', createdAt: new Date(now - (48 * 60 * 60 * 1000) - 1).toISOString() });
+  repo.state.orders.set('fresh', { id: 'fresh', createdAt: new Date(now - (48 * 60 * 60 * 1000) + 1).toISOString() });
   await worker.scheduled({ scheduledTime: now }, { AUTH_PEPPER: 'unit-test-pepper' }, {});
   assert.equal(repo.state.orders.has('old'), false);
   assert.equal(repo.state.orders.has('fresh'), true);
+});
+
+test('expired orders are absent from public state and map and cannot reveal contact details', async () => {
+  const { call, repo } = harness();
+  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'retention_browser_123456' } })).json();
+  const oldTime = new Date(Date.now() - (48 * 60 * 60 * 1000) - 1000).toISOString();
+  const freshTime = new Date(Date.now() - 60 * 1000).toISOString();
+  repo.state.orders.set('expired-order', { id: 'expired-order', status: 'open', createdAt: oldTime, locationVerified: true, locationCoordinates: '113.9,22.5' });
+  repo.state.orders.set('fresh-order', { id: 'fresh-order', status: 'open', createdAt: freshTime, locationVerified: true, locationCoordinates: '114.0,22.6' });
+  const headers = { authorization: `Bearer ${guest.teacherToken}` };
+  const state = await (await call('/api/state', { headers })).json();
+  assert.deepEqual(state.orders.map(order => order.id), ['fresh-order']);
+  const map = await (await call('/api/map-orders', { headers })).json();
+  assert.deepEqual(map.orders.map(order => order.id), ['fresh-order']);
+  assert.equal((await call('/api/orders/expired-order/contact', { headers })).status, 400);
 });
 
 test('识别有误反馈保存快照、同人去重且仅管理员可读取', async () => {
