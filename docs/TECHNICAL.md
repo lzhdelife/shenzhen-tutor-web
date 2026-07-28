@@ -9,7 +9,6 @@ flowchart LR
     B["手机 / PC 浏览器"] -->|"HTTPS"| W["Cloudflare Worker"]
     W --> D["Cloudflare D1"]
     W --> A["高德 Web 服务 / JS API"]
-    X["兼容剪贴板桥接器"] -.->|"可选 API"| W
 ```
 
 本地开发使用 `TutorPlatform/server.js` 和被 Git 忽略的 `TutorPlatform/data/db.json`，其 HTTP 契约尽量与 Worker 保持一致。Node JSON 后端不是正式生产存储。
@@ -23,7 +22,6 @@ flowchart LR
 | 本地后端 | Node.js 20+，标准库 HTTP/FS/Crypto 与原生 `fetch` |
 | 前端 | 原生 HTML、CSS、JavaScript，无打包器 |
 | 地图 | 高德 Web 服务、JS API 2.0、同源安全代理 |
-| 剪贴板桥接 | Python/Windows，可选兼容增强器 |
 | 测试 | Node 合成回归、Worker 契约测试、真实浏览器验收 |
 
 ## 3. 代码结构
@@ -40,7 +38,6 @@ flowchart LR
 │  ├─ storage.js                 # D1 数据访问层
 │  ├─ amap-service.js            # 高德 REST 服务、缓存和并发控制
 │  └─ migrations/                # D1 结构迁移
-├─ clipboard_bridge/             # 可选 Windows 剪贴板桥接器
 ├─ shared/                       # Node 与 Worker 共用业务契约
 ├─ docs/                         # 项目、API、数据和部署文档
 ├─ scripts/                      # 启动、部署辅助和密钥扫描
@@ -49,7 +46,7 @@ flowchart LR
 
 ## 4. 模块边界
 
-- `TutorPlatform/parser` 独立维护切割、非订单分类和字段解析。UI、Worker 编排、地图和 EXE 不复制解析正则。
+- `TutorPlatform/parser` 独立维护切割、非订单分类和字段解析。UI、Worker 编排和地图不复制解析正则。
 - `shared` 保存两种后端必须一致的去重、清洗、评分、异常判定和保留期规则。
 - 前端只消费 HTTP 契约，不直接调用高德 Web Service，也不持有 Web Service Key 或 JS Security Code。
 - `cloudflare/amap-service.js` 是正式服务端高德 REST 调用的唯一实现；订单导入、历史地点重试和路线入口复用它。
@@ -58,7 +55,7 @@ flowchart LR
 ## 5. 业务与身份边界
 
 - 普通看单用户通过匿名浏览器设备身份打开即用，无登录门槛。
-- 发单用户提交称呼和微信号/手机号，经管理员批准后才能导入；相同资料可跨浏览器恢复身份。
+- 发单用户提交称呼和微信号/手机号后自动完成登记并获得导入权限；相同资料可跨浏览器恢复身份。
 - 订单保留发单身份关联，但联系方式不出现在普通列表响应中，只在用户主动点击申请接单时按订单读取；该操作不创建接单申请记录。
 - 管理员使用单独凭证与会话；真实 `AUTH_PEPPER` 仅存在 Worker Secret 或本地忽略文件。
 - 页面偏好、已看订单和访客 ID 存在浏览器；正式订单、发单者登记、会话散列和统计存入 D1。
@@ -79,7 +76,7 @@ flowchart LR
 - 高德服务合并相同在途请求、使用短期缓存，并将 REST 并发限制为 4。
 - 导入并发受控，重复订单在 POI 调用前过滤。
 - 访客心跳仅在页面可见时按固定间隔更新，不增加页面访问量。
-- 网页不再高频轮询剪贴板桥接队列。
+- 发单仅通过网页粘贴或 TXT 导入，不运行桌面桥接轮询和共享剪贴板队列。
 
 ## 8. 数据和安全
 

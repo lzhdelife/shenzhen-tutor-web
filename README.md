@@ -1,6 +1,6 @@
 # 深圳家教接单平台
 
-面向深圳家教订单共创的公网 Web 平台，提供订单录入、解析、去重、发布、筛选、接单和地图浏览。正式站同时支持手机和 PC；Windows 剪贴板桥接器仅作低耦合兼容，不是网站运行前提。
+面向深圳家教订单共创的公网 Web 平台，提供订单录入、解析、去重、发布、筛选、接单和地图浏览。正式站同时支持手机和 PC，网页粘贴和 TXT 导入是统一的发单入口。
 
 正式站：<https://tutor.liuzonghao.top>
 
@@ -21,6 +21,7 @@
 - 高德地点候选、标准地址和经纬度确认、四种路线及距离计算。
 - 老师端订单列表、组合筛选、本地直线距离排序和聚合地图；真实通勤路线仅在打开单条地图详情时计算。
 - 发单端粘贴/TXT 顺序队列、明显处理反馈、结果历史和批量订单管理。
+- 每条订单完整公开 48 小时；公共读取实时排除过期订单，正式站每天北京时间 12:00 物理清理。
 - 点击申请接单后可复制原文，并按需获取发单人或管理员联系方式。
 - 异常订单复核、访客/在线统计和平台侧高德调用监控。
 - 正式站使用 Cloudflare Worker 与 D1；Node JSON 实现用于本地开发。
@@ -34,7 +35,6 @@
 │  ├─ parser/                   # 唯一的订单切割、分类和字段解析逻辑
 │  ├─ public/                   # PC Web 前端
 │  └─ data/                     # 本地运行数据，不提交 Git
-├─ clipboard_bridge/            # Windows 剪贴板桥接器源码
 ├─ cloudflare/                  # 正式站 Worker、D1 存储与迁移
 ├─ shared/                      # Node 与 Worker 共用的订单契约
 ├─ tests/                       # 匿名合成回归测试
@@ -42,7 +42,7 @@
 └─ docs/                        # API、数据模型和开发文档
 ```
 
-模块边界：前端和剪贴板桥接器不复制解析正则，也不直接调用高德 Web Service。它们只消费服务端 HTTP 契约；高德 Web Service Key 始终留在本地服务或云端 Secret 中。
+模块边界：前端不复制解析正则，也不直接调用高德 Web Service。解析、地点、订单存储和页面只通过明确契约协作；高德 Web Service Key 始终留在本地服务或云端 Secret 中。
 
 ## 本地启动
 
@@ -69,23 +69,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\configure-amap-local.ps1
 
 按提示输入配置并重新启动网站。可参考 `.env.example`，不要把真实 Key 写入代码、文档或提交记录。
 
-## 剪贴板桥接器（兼容）
-
-源码运行：
-
-```powershell
-python .\clipboard_bridge\clipboard_collector.py
-```
-
-打包 Windows EXE：
-
-```powershell
-python -m pip install pyinstaller
-powershell -ExecutionPolicy Bypass -File .\scripts\build-clipboard-bridge.ps1
-```
-
-输出文件为 `dist\clipboard-bridge\ShenzhenTutorClipboardBridge.exe`。`dist/` 是本机构建产物，不上传 GitHub。当前主流程已改为网页粘贴和 TXT 导入，桥接器不应驱动网页高频轮询。完整说明见 [剪贴板自动发单](docs/CLIPBOARD_AUTOMATION.md)。
-
 ## 验证
 
 ```powershell
@@ -110,7 +93,6 @@ npm.cmd run check:secrets
 - [HTTP API](docs/API.md)
 - [数据模型](docs/DATA_MODEL.md)
 - [解析准确性](docs/PARSER_ACCURACY.md)
-- [剪贴板自动发单](docs/CLIPBOARD_AUTOMATION.md)
 - [Cloudflare 正式部署](docs/CLOUDFLARE.md)
 - [项目交接手册](docs/PROJECT_CONTEXT.md)
 - [安全说明](SECURITY.md)

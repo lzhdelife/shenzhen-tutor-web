@@ -408,53 +408,6 @@ function createRepository(env = {}) {
     return deleted;
   }
 
-  async function createClipboardCapture(input) {
-    const capture = {
-      captureId: input.captureId,
-      text: input.text || '',
-      capturedAt: input.capturedAt || nowIso(),
-      receivedAt: input.receivedAt || nowIso()
-    };
-    await run(`INSERT INTO clipboard_captures (capture_id, text, captured_at, received_at, status, attempts, next_attempt_at, last_error)
-      VALUES (?, ?, ?, ?, 'pending', 0, 0, '') ON CONFLICT(capture_id) DO NOTHING`,
-    [capture.captureId, capture.text, capture.capturedAt, capture.receivedAt]);
-    const row = mapRow(await first('SELECT * FROM clipboard_captures WHERE capture_id = ?', [capture.captureId]));
-    return row ? { ...row, status: row.status || 'pending', attempts: Number(row.attempts || 0), nextAttemptAt: Number(row.nextAttemptAt || 0), lastError: row.lastError || '' } : null;
-  }
-
-  async function getClipboardCapture(captureId) {
-    const row = mapRow(await first('SELECT * FROM clipboard_captures WHERE capture_id = ?', [captureId]));
-    return row ? { ...row, status: row.status || 'pending', attempts: Number(row.attempts || 0), nextAttemptAt: Number(row.nextAttemptAt || 0), lastError: row.lastError || '' } : null;
-  }
-
-  async function listClipboardCaptures(limit = 10) {
-    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 50);
-    return (await all(`SELECT * FROM clipboard_captures
-      WHERE status = 'pending' AND next_attempt_at <= ?
-      ORDER BY received_at ASC LIMIT ?`, [Date.now(), safeLimit])).map(mapRow);
-  }
-
-  async function completeClipboardCapture(captureId, outcome = 'completed') {
-    await run(`UPDATE clipboard_captures SET status = ?, completed_at = ?, last_error = '' WHERE capture_id = ?`,
-      [outcome === 'ignored' ? 'ignored' : 'completed', nowIso(), captureId]);
-    return getClipboardCapture(captureId);
-  }
-
-  async function failClipboardCapture(captureId, message = '') {
-    const current = await getClipboardCapture(captureId);
-    if (!current) return null;
-    const attempts = Number(current.attempts || 0) + 1;
-    const nextAttemptAt = Date.now() + Math.min(60000, 2000 * (2 ** Math.min(attempts, 5)));
-    await run(`UPDATE clipboard_captures SET attempts = ?, next_attempt_at = ?, last_error = ? WHERE capture_id = ?`,
-      [attempts, nextAttemptAt, String(message || '').slice(0, 300), captureId]);
-    return getClipboardCapture(captureId);
-  }
-
-  async function deleteClipboardCapturesOlderThan(cutoff) {
-    const result = await run(`DELETE FROM clipboard_captures WHERE received_at <= ? AND status <> 'pending'`, [cutoff]);
-    return Number(result?.meta?.changes || result?.changes || 0);
-  }
-
   async function createAnnouncement(input) {
     const timestamp = input.createdAt || nowIso();
     const id = input.id || makeId('n');
@@ -494,9 +447,7 @@ function createRepository(env = {}) {
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess,
     upsertOrderIssueReport, listOrderIssueReports, deleteExportedOrderIssueReports,
-    listAnnouncements, createAnnouncement,
-    createClipboardCapture, getClipboardCapture, listClipboardCaptures,
-    completeClipboardCapture, failClipboardCapture, deleteClipboardCapturesOlderThan };
+    listAnnouncements, createAnnouncement };
 }
 
 module.exports = { createRepository };

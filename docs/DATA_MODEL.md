@@ -221,6 +221,8 @@
 
 ## 迁移注意事项
 
+`0002_clipboard_shared.sql` 属于已下线 Windows 剪贴板桥接器的历史迁移。为保持已部署数据库的迁移链稳定，该 migration 和正式库中的旧表暂不删除；当前 Node/Worker/API 不再读写该表。
+
 迁移 PostgreSQL 时至少需要 `identities/users`、`orders`、`order_locations`、`publisher_access`、`teacher_preferences`、`announcements`、`feedback` 和 `sessions` 表。应增加：
 
 - 用户角色 + 名称 + 手机号唯一约束。

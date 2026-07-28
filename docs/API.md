@@ -135,6 +135,8 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 
 ## 中介和订单接口
 
+发单原文只通过网页粘贴或 TXT 导入进入 `/api/parse` 和 `/api/import`。已下线的 Windows 剪贴板桥接器及 `/api/clipboard/*` 不再属于接口契约。
+
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/orders` | agency | 手工创建一条订单 |

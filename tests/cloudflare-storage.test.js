@@ -220,12 +220,6 @@ async function run() {
   assert.equal(await repo.deleteOrdersByIds([order.id, order.id, 'missing-order']), 1);
   assert.equal((await repo.listOrders()).length, 0);
 
-  const capture = await repo.createClipboardCapture({ captureId: 'capture-storage-1', text: 'clipboard order' });
-  assert.equal(capture.status, 'pending');
-  assert.equal((await repo.listClipboardCaptures()).length, 1);
-  await repo.completeClipboardCapture(capture.captureId);
-  assert.equal((await repo.getClipboardCapture(capture.captureId)).status, 'completed');
-
   console.log('cloudflare storage tests passed');
 }
 

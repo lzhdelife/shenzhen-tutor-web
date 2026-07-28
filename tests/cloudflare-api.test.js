@@ -6,7 +6,7 @@ const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
 
 function memoryRepository() {
-  const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], clipboard: new Map(), visitors: new Map(), publisherAccess: new Map(), orderIssueReports: new Map() };
+  const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], visitors: new Map(), publisherAccess: new Map(), orderIssueReports: new Map() };
   return {
     state,
     async getUserById(id) { return state.users.get(id) || null; },
@@ -67,12 +67,6 @@ function memoryRepository() {
     },
     async listAnnouncements() { return state.announcements; },
     async createAnnouncement(input) { state.announcements.push(input); return input; },
-    async createClipboardCapture(input) { const existing = state.clipboard.get(input.captureId); if (existing) return existing; const capture = { ...input, status: 'pending', attempts: 0 }; state.clipboard.set(input.captureId, capture); return capture; },
-    async getClipboardCapture(id) { return state.clipboard.get(id) || null; },
-    async listClipboardCaptures() { return [...state.clipboard.values()].filter(item => item.status === 'pending'); },
-    async completeClipboardCapture(id, outcome = 'completed') { const item = state.clipboard.get(id); if (item) item.status = outcome; return item || null; },
-    async failClipboardCapture(id, message) { const item = state.clipboard.get(id); if (item) { item.attempts++; item.lastError = message; } return item || null; },
-    async deleteClipboardCapturesOlderThan() { return 0; },
   };
 }
 
@@ -338,23 +332,6 @@ test('publisher registration grants publishing access immediately and restores a
   assert.equal(adminState.publisherRequests[0].status, 'approved');
 });
 
-test('shared clipboard bridge requires its program token and exposes a common queue', async () => {
-  const { call } = harness({}, { CLIPBOARD_BRIDGE_TOKEN: 'shared-test-token' });
-  const deviceId = 'browser_clipboard_test_1234';
-  const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId } })).json();
-  const anonymous = await call('/api/clipboard/inbox');
-  assert.equal(anonymous.status, 401);
-  const response = await call('/api/clipboard/inbox', { headers: { authorization: `Bearer ${guest.agencyToken}` } });
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { items: [], pending: 0 });
-  const denied = await call('/api/clipboard/capture', { method: 'POST', body: { captureId: 'capture_denied_1234', text: '订单' } });
-  assert.equal(denied.status, 401);
-  const captured = await call('/api/clipboard/capture', { method: 'POST', headers: { 'x-clipboard-bridge-token': 'shared-test-token' }, body: { captureId: 'capture_shared_1234', text: '订单' } });
-  assert.equal(captured.status, 200);
-  const inbox = await (await call('/api/clipboard/inbox', { headers: { authorization: `Bearer ${guest.agencyToken}` } })).json();
-  assert.equal(inbox.pending, 1);
-});
-
 test('agency creates and batch deletes orders while the legacy application route is absent', async () => {
   const { repo, call } = harness();
   const loginName = '张老师', loginPhone = ['139', '0013', '9000'].join('');
@@ -368,6 +345,7 @@ test('agency creates and batch deletes orders while the legacy application route
   assert.equal((await call(`/api/orders/${order.id}/apply`, {
     method: 'POST', headers: { authorization: `Bearer ${login.teacherToken}` }, body: { contact: 'legacy-contact' }
   })).status, 404);
+  assert.equal((await call('/api/clipboard/health')).status, 404);
 
   assert.equal((await call('/api/agency/orders/bulk', { method: 'POST', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { action: 'close' } })).status, 400);
   assert.equal((await call(`/api/orders/${order.id}`, { method: 'PATCH', headers: { authorization: `Bearer ${login.agencyToken}` }, body: { status: 'closed' } })).status, 404);

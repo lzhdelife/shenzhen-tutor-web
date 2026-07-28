@@ -6,7 +6,6 @@ const { runParserPipeline } = require('./parser/pipeline');
 const { sanitizeImportedOrder, isOnlineOrder, markOnlineLocation, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import');
 const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter');
 const { recognizeOrders } = require('./parser/recognizer');
-const { classifyOrderBlock } = require('./parser/classifier');
 const { scoreOrder } = require('../shared/order-score');
 const { canonicalOrderText, semanticOrderFingerprint: sharedSemanticOrderFingerprint, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe');
 const { isExpiredOrder, millisecondsUntilShanghaiNoon } = require('../shared/order-retention');
@@ -17,8 +16,6 @@ const PUBLIC = path.join(ROOT, 'public');
 const DATA_DIR = process.env.TUTOR_DATA_DIR ? path.resolve(process.env.TUTOR_DATA_DIR) : path.join(ROOT, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
-const MAX_CLIPBOARD_TEXT_BYTES = 512 * 1024;
-const MAX_CLIPBOARD_INBOX = 500;
 const ORDER_ISSUE_TYPES = Object.freeze({
   location: '地点',
   grade_subject: '年级/科目',
@@ -71,8 +68,6 @@ function readDb() {
   db.settings ||= {};
   db.users ||= [];
   db.orders ||= [];
-  db.clipboardInbox ||= [];
-  db.clipboardReceipts ||= [];
   db.rememberSessions ||= [];
   db.visitorActivity ||= {};
   db.orderIssueReports ||= [];
@@ -433,15 +428,6 @@ function requireRole(req, res, role) {
     return null;
   }
   return session;
-}
-
-function isLoopbackRequest(req) {
-  const address = textOf(req.socket?.remoteAddress).toLowerCase();
-  return address === '127.0.0.1' || address === '::1' || address.startsWith('::ffff:127.');
-}
-
-function isClipboardBridgeRequest(req) {
-  return isLoopbackRequest(req) && req.headers['x-clipboard-bridge'] === 'shenzhen-tutor-local-v1';
 }
 
 function send(res, status, body, type = 'application/json; charset=utf-8', extraHeaders = {}) {
@@ -2432,84 +2418,6 @@ async function handleApi(req, res) {
     }
     writeDb(db);
     return send(res, 200, { ok: true, report: { targetKey, source, updatedAt: report.updatedAt } });
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/clipboard/capture') {
-    if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
-    const data = await bodyJson(req);
-    const text = String(data.text || '');
-    if (!text.trim()) return send(res, 400, { error: '剪贴板原文不能为空' });
-    if (Buffer.byteLength(text, 'utf8') > MAX_CLIPBOARD_TEXT_BYTES) return send(res, 413, { error: '单条剪贴板内容过大' });
-    const captureId = /^[A-Za-z0-9_-]{8,100}$/.test(textOf(data.captureId)) ? textOf(data.captureId) : crypto.randomUUID();
-    const completed = db.clipboardReceipts.find(item => item.captureId === captureId);
-    if (completed) return send(res, 200, { ok: true, captureId, status: completed.outcome || 'completed', duplicate: true });
-    const existing = db.clipboardInbox.find(item => item.captureId === captureId);
-    if (existing) return send(res, 200, { ok: true, captureId, status: 'pending', duplicate: true });
-    if (!classifyOrderBlock(text).accepted) {
-      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), outcome: 'ignored' });
-      db.clipboardReceipts = db.clipboardReceipts.slice(-500);
-      writeDb(db);
-      return send(res, 200, { ok: true, captureId, status: 'ignored', duplicate: false });
-    }
-    if (db.clipboardInbox.length >= MAX_CLIPBOARD_INBOX) return send(res, 507, { error: '网站待处理队列已满，请先打开发单端完成导入' });
-    db.clipboardInbox.push({
-      captureId,
-      text,
-      capturedAt: textOf(data.capturedAt) || new Date().toISOString(),
-      receivedAt: new Date().toISOString(),
-      attempts: 0,
-      nextAttemptAt: 0,
-      lastError: ''
-    });
-    writeDb(db);
-    return send(res, 200, { ok: true, captureId, status: 'pending', duplicate: false, pending: db.clipboardInbox.length });
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/clipboard/status') {
-    if (!isClipboardBridgeRequest(req)) return send(res, 403, { error: '剪贴板桥接仅允许本机程序访问' });
-    const captureId = textOf(url.searchParams.get('captureId'));
-    const receipt = db.clipboardReceipts.find(item => item.captureId === captureId);
-    if (receipt) return send(res, 200, { captureId, status: receipt.outcome || 'completed' });
-    if (db.clipboardInbox.some(item => item.captureId === captureId)) return send(res, 200, { captureId, status: 'pending' });
-    return send(res, 200, { captureId, status: 'unknown' });
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/clipboard/inbox') {
-    const agency = requireRole(req, res, 'agency');
-    if (!agency) return;
-    const now = Date.now();
-    const items = db.clipboardInbox
-      .filter(item => Number(item.nextAttemptAt || 0) <= now)
-      .sort((a, b) => String(a.receivedAt).localeCompare(String(b.receivedAt)))
-      .slice(0, 10)
-      .map(item => ({ captureId: item.captureId, text: item.text, capturedAt: item.capturedAt, attempts: item.attempts || 0 }));
-    return send(res, 200, { items, pending: db.clipboardInbox.length });
-  }
-
-  const clipboardAction = url.pathname.match(/^\/api\/clipboard\/([A-Za-z0-9_-]{8,100})\/(complete|fail)$/);
-  if (req.method === 'POST' && clipboardAction) {
-    const agency = requireRole(req, res, 'agency');
-    if (!agency) return;
-    const captureId = clipboardAction[1];
-    const action = clipboardAction[2];
-    const index = db.clipboardInbox.findIndex(item => item.captureId === captureId);
-    if (index < 0) return send(res, 200, { ok: true, captureId, status: db.clipboardReceipts.some(item => item.captureId === captureId) ? 'completed' : 'unknown' });
-    if (action === 'complete') {
-      const data = await bodyJson(req);
-      const outcome = data.outcome === 'ignored' ? 'ignored' : 'completed';
-      db.clipboardInbox.splice(index, 1);
-      db.clipboardReceipts.push({ captureId, completedAt: new Date().toISOString(), agencyId: agency.id, outcome });
-      db.clipboardReceipts = db.clipboardReceipts.slice(-500);
-      writeDb(db);
-      return send(res, 200, { ok: true, captureId, status: outcome });
-    }
-    const data = await bodyJson(req);
-    const item = db.clipboardInbox[index];
-    item.attempts = Number(item.attempts || 0) + 1;
-    item.lastError = textOf(data.error).slice(0, 300);
-    item.nextAttemptAt = Date.now() + Math.min(60000, 2000 * (2 ** Math.min(item.attempts, 5)));
-    writeDb(db);
-    return send(res, 200, { ok: true, captureId, status: 'pending', attempts: item.attempts, nextAttemptAt: item.nextAttemptAt });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/stats') {
