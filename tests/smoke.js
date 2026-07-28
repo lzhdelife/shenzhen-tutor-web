@@ -1,8 +1,10 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 const platform = require('../TutorPlatform/server.js');
 const { summarizeScheduleText } = require('../TutorPlatform/public/schedule-format.js');
 const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public/order-score.js');
@@ -10,6 +12,7 @@ const { lessonPriceLabel, lessonPriceAmount } = require('../TutorPlatform/public
 const browserAppSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'app.js'), 'utf8');
 const browserStylesSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'styles.css'), 'utf8');
 const browserHtmlSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'index.html'), 'utf8');
+const passwordFallbackSource = fs.readFileSync(path.join(__dirname, '..', 'TutorPlatform', 'public', 'password-proof-fallback.js'), 'utf8');
 assert.match(browserHtmlSource, /id="toggleOrderSearch"/,
   'order list should expose the secondary keyword-search control');
 assert.match(browserAppSource, /searchTokens\.every\(token => searchable\.includes\(token\)\)/,
@@ -18,6 +21,19 @@ assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers nee
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
 assert.match(browserAppSource, /typeof crypto !== 'undefined' && crypto\.subtle/,
   'admin login should tolerate browsers without Web Crypto');
+assert.match(browserAppSource, /password-proof-fallback\.js/,
+  'limited webviews should load the password-proof fallback on demand');
+assert.doesNotMatch(browserHtmlSource, /password-proof-fallback\.js/,
+  'normal page loads should not download the password-proof fallback');
+const fallbackContext = { TextEncoder };
+vm.runInNewContext(passwordFallbackSource, fallbackContext);
+const fallbackPassword = 'fallback-test-password';
+const fallbackSalt = 'shenzhen-tutor-v1|admin|';
+assert.deepEqual(
+  Buffer.from(fallbackContext.TutorPasswordProof.derive(fallbackPassword, fallbackSalt, 210000)),
+  crypto.pbkdf2Sync(fallbackPassword, fallbackSalt, 210000, 32, 'sha256'),
+  'fallback password proof should exactly match native PBKDF2'
+);
 assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,
   'map view should hide the list-only filter toolbar');
 assert.match(browserAppSource, /restorePublisherBrowserSession\(\)/,

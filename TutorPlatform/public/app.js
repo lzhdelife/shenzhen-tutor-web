@@ -173,13 +173,36 @@ async function api(path, options = {}, token = '', retryGuestSession = true) {
   return res.json();
 }
 
+let passwordProofFallbackPromise;
+async function loadPasswordProofFallback() {
+  if (typeof TutorPasswordProof !== 'undefined') return TutorPasswordProof;
+  if (!passwordProofFallbackPromise) {
+    passwordProofFallbackPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = './password-proof-fallback.js?v=20260728-1';
+      script.onload = () => typeof TutorPasswordProof !== 'undefined'
+        ? resolve(TutorPasswordProof)
+        : reject(new Error('兼容登录组件加载失败，请刷新后重试'));
+      script.onerror = () => reject(new Error('兼容登录组件加载失败，请检查网络后重试'));
+      document.head.appendChild(script);
+    });
+  }
+  return passwordProofFallbackPromise;
+}
+
 async function passwordProof(password, name, phone) {
   const subtle = typeof crypto !== 'undefined' && crypto.subtle;
-  if (!subtle) return '';
   const encoder = new TextEncoder();
-  const key = await subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
-  const salt = encoder.encode(`shenzhen-tutor-v1|${String(name || '').trim()}|${String(phone || '').trim()}`);
-  const bits = await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 210000 }, key, 256);
+  const saltText = `shenzhen-tutor-v1|${String(name || '').trim()}|${String(phone || '').trim()}`;
+  let bits;
+  if (subtle) {
+    const key = await subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
+    bits = await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: encoder.encode(saltText), iterations: 210000 }, key, 256);
+  } else {
+    const fallback = (await loadPasswordProofFallback()).derive;
+    if (!fallback) throw new Error('当前浏览器无法安全登录，请刷新后重试');
+    bits = fallback(String(password || ''), saltText, 210000);
+  }
   let binary = '';
   for (const byte of new Uint8Array(bits)) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

@@ -5,6 +5,7 @@
   "description": "深圳家教接单平台 Web 应用",
   "scripts": {
     "start": "node scripts/start-local.js",
+    "build:password-proof": "esbuild scripts/password-proof-fallback.js --bundle --minify --format=iife --global-name=TutorPasswordProof --outfile=TutorPlatform/public/password-proof-fallback.js",
     "test": "node tests/smoke.js && node tests/parser-regressions.js && node tests/recognizer-contract.js && node tests/api-preview.js && node tests/order-retention.js",
     "check:secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-secrets.ps1",
     "cloudflare:dev": "wrangler dev --local",
@@ -14,6 +15,7 @@
     "cloudflare:deploy": "wrangler deploy"
   },
   "devDependencies": {
+    "@noble/hashes": "^1.8.0",
     "wrangler": "4.112.0"
   },
   "engines": {

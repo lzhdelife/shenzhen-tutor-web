@@ -125,20 +125,6 @@ test('管理端统计按访客去重并通过心跳计算在线人数', async ()
   assert.equal((await call('/api/admin/batch-delete-users', { method: 'POST', headers: { authorization: `Bearer ${setup.token}` }, body: {} })).status, 404);
 });
 
-test('缺少浏览器 Web Crypto 时管理端可由 Worker 兼容验证密码', async () => {
-  const { call } = harness();
-  const password = 'legacy-browser-admin-password';
-  const setup = await call('/api/admin/setup', { method: 'POST', body: { password } });
-  assert.equal(setup.status, 200);
-
-  const login = await call('/api/admin/login', { method: 'POST', body: { password } });
-  assert.equal(login.status, 200);
-  assert.ok((await login.json()).token);
-
-  const denied = await call('/api/admin/login', { method: 'POST', body: { password: 'wrong-password' } });
-  assert.equal(denied.status, 401);
-});
-
 function harness(extra = {}, envOverrides = {}) {
   const repo = memoryRepository();
   const worker = createWorker({ createRepository: () => repo, ...extra });
