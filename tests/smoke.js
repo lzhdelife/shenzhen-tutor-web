@@ -16,6 +16,8 @@ assert.match(browserAppSource, /searchTokens\.every\(token => searchable\.includ
   'keyword search should require every entered token to match');
 assert.match(browserAppSource, /function clientRandomId\(/, 'mobile browsers need a randomUUID fallback');
 assert.doesNotMatch(browserAppSource, /\bid:\s*crypto\.randomUUID\(\)/, 'mobile import IDs must not require crypto.randomUUID');
+assert.match(browserAppSource, /typeof crypto !== 'undefined' && crypto\.subtle/,
+  'admin login should tolerate browsers without Web Crypto');
 assert.match(browserAppSource, /teacherFilters'\)\.classList\.toggle\('hidden', teacherViewMode === 'map'\)/,
   'map view should hide the list-only filter toolbar');
 assert.match(browserAppSource, /restorePublisherBrowserSession\(\)/,

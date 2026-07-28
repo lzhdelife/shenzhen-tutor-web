@@ -1,7 +1,7 @@
 'use strict';
 
 const { createRepository } = require('./storage.js');
-const { proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
+const { clientPasswordProof, proofCredential, verifyProofCredential, sha256, randomToken, cookieValue, sessionCookie } = require('./auth.js');
 const { createAmapService } = require('./amap-service.js');
 const { scoreOrder } = require('../shared/order-score.js');
 const { sanitizeImportedOrder, canReuseVerifiedLocation, markRoutePending } = require('../shared/order-import.js');
@@ -37,6 +37,12 @@ function json(body, status = 200, headers = {}) {
 
 function error(message, status = 400) { return json({ error: message }, status); }
 function text(value) { return String(value == null ? '' : value).trim(); }
+async function adminPasswordProof(data) {
+  const supplied = suppliedProof(data);
+  if (supplied) return supplied;
+  const password = text(data.password);
+  return password && password.length <= 256 ? clientPasswordProof(password, 'admin', '') : '';
+}
 function mapConfigured(env) { return Boolean(text(env.AMAP_JS_API_KEY) && text(env.AMAP_JS_SECURITY_CODE)); }
 function queueAmapUsage(repo, ctx, event) {
   if (typeof repo.recordAmapUsage !== 'function') return;
@@ -412,9 +418,10 @@ function createWorker(dependencies = {}) {
           const data = await bodyJson(request), settings = await repo.getSettings();
           if (settings.adminPasswordHash) return error('管理员密码已经设置', 409);
           if (text(data.password).length < 8) return error('管理员密码至少需要8位');
-          if (!suppliedProof(data)) return error('登录页面版本过旧，请刷新后重试');
+          const passwordProof = await adminPasswordProof(data);
+          if (!passwordProof) return error('登录页面版本过旧，请刷新后重试');
           let admin = await repo.getUserById('admin');
-          const passwordHash = await proofCredential(suppliedProof(data), requirePepper(env));
+          const passwordHash = await proofCredential(passwordProof, requirePepper(env));
           if (!admin) admin = await repo.createUser({ id: 'admin', role: 'admin', name: '管理员', phone: '', passwordHash });
           else await repo.updateUser('admin', { passwordHash });
           await repo.setSetting('adminPasswordHash', passwordHash);
@@ -424,7 +431,8 @@ function createWorker(dependencies = {}) {
         if (method === 'POST' && path === '/api/admin/login') {
           const data = await bodyJson(request), settings = await repo.getSettings();
           if (!settings.adminPasswordHash) return error('请先设置管理员密码', 409);
-          if (!(await verifyProofCredential(suppliedProof(data), settings.adminPasswordHash, requirePepper(env)))) return error('管理员密码不正确', 401);
+          const passwordProof = await adminPasswordProof(data);
+          if (!(await verifyProofCredential(passwordProof, settings.adminPasswordHash, requirePepper(env)))) return error('管理员密码不正确', 401);
           const admin = await repo.getUserById('admin');
           if (!admin) return error('管理员账号未初始化', 409);
           const token = await issueSession(repo, request, admin);

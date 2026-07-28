@@ -174,10 +174,12 @@ async function api(path, options = {}, token = '', retryGuestSession = true) {
 }
 
 async function passwordProof(password, name, phone) {
+  const subtle = typeof crypto !== 'undefined' && crypto.subtle;
+  if (!subtle) return '';
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
+  const key = await subtle.importKey('raw', encoder.encode(String(password || '')), 'PBKDF2', false, ['deriveBits']);
   const salt = encoder.encode(`shenzhen-tutor-v1|${String(name || '').trim()}|${String(phone || '').trim()}`);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 210000 }, key, 256);
+  const bits = await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 210000 }, key, 256);
   let binary = '';
   for (const byte of new Uint8Array(bits)) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
