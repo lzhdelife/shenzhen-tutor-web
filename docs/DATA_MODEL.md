@@ -172,7 +172,7 @@
 | `locationRelation` | string | 多地点关系：`OR` 或 `PHASED` |
 | `distanceKm` | number/string | 高德返回的路线距离；失败时为空 |
 | `routeMode` | string | 实际路线标签或明确的不可用状态，不再伪装成本地估算 |
-| `score` | number | 当前设置下的匹配分数，可重新计算 |
+| `score` | number | 当前设置下按直线距离计算的匹配分数，可重新计算；课时费不参与评分 |
 
 老师按自己起点计算的四种路线不会持久写入订单，前端保存在当前页面状态中。
 

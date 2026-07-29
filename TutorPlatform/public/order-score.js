@@ -85,17 +85,17 @@
   function distancePoints(distanceKm) {
     const km = Number(distanceKm);
     if (!Number.isFinite(km) || km <= 0) return 0;
-    if (km <= 3) return 50;
-    if (km <= 5) return 45;
-    if (km <= 10) return 35;
-    if (km <= 15) return 25;
-    if (km <= 20) return 15;
-    if (km <= 30) return 5;
+    if (km <= 3) return 100;
+    if (km <= 5) return 90;
+    if (km <= 10) return 70;
+    if (km <= 15) return 50;
+    if (km <= 20) return 30;
+    if (km <= 30) return 10;
     return 0;
   }
 
   function scoreOrder(order = {}) {
-    return pricePoints(order) + distancePoints(order.distanceKm);
+    return distancePoints(order.distanceKm);
   }
 
   return { hourlyRate, lessonPrice, lessonPriceLabel, lessonPriceAmount, pricePoints, distancePoints, scoreOrder };

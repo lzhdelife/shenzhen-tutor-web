@@ -219,11 +219,12 @@ assert.equal(platform.sanitizeRouteMode('unsupported'), 'cycling');
 
 const scoreExample = { district: '福田', subject: '物理', grade: '高三', hourlyPrice: 200 };
 const distanceWeightedScores = [2, 8, 12, 18, 30].map(distanceKm => platform.score({ ...scoreExample, distanceKm }));
-assert.deepEqual(distanceWeightedScores, [90, 75, 65, 55, 45]);
+assert.deepEqual(distanceWeightedScores, [100, 70, 50, 30, 10]);
 assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 2 }), 100);
-assert.equal(platform.score({ hourlyPrice: 100, distanceKm: 2 }), 70);
-assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 30 }), 55);
-assert.equal(platform.score({ price: 400, priceUnit: '2小时', distanceKm: 2 }), 90);
+assert.equal(platform.score({ hourlyPrice: 100, distanceKm: 2 }), 100);
+assert.equal(platform.score({ hourlyPrice: 300, distanceKm: 30 }), 10);
+assert.equal(platform.score({ hourlyPrice: 300 }), 0);
+assert.equal(platform.score({ price: 400, priceUnit: '2小时', distanceKm: 2 }), 100);
 assert.equal(lessonPriceLabel({ price: 200, hourlyPrice: 200, priceUnit: '小时' }), '400元/次（2小时）');
 assert.equal(lessonPriceLabel({ price: 900, priceMin: 800, priceMax: 1000, hourlyPrice: 450, priceUnit: '2小时' }), '800-1000元/次（2小时）');
 assert.equal(lessonPriceLabel({ price: 500, hourlyPrice: 250, priceUnit: '次' }), '500元/次');
