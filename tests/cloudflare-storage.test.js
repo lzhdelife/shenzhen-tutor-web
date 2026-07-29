@@ -83,14 +83,53 @@ class MockD1 {
   }
   async query(sql, values) {
     if (/FROM orders o LEFT JOIN order_locations/i.test(sql)) {
+      const publicProjection = /^SELECT o\.id, o\.agency_id/i.test(sql);
       let rows = this.tables.orders.map(order => {
         const location = this.tables.order_locations.find(item => item.order_id === order.id) || {};
         const { status: location_row_status, order_id: _orderId, ...locationColumns } = location;
+        if (publicProjection) {
+          const structured = JSON.parse(order.structured_json || '{}');
+          const field = (name, evidenceName = name, fallback = '') => {
+            const direct = structured[name];
+            if (direct !== null && direct !== undefined && typeof direct !== 'object') return direct;
+            const evidence = structured[evidenceName];
+            const value = evidence && typeof evidence === 'object' ? evidence.value : undefined;
+            if (Array.isArray(value)) return JSON.stringify(value);
+            return value ?? fallback;
+          };
+          return {
+            id: order.id, agency_id: order.agency_id, status: order.status, district: order.district,
+            subject: order.subject, grade: order.grade, price: order.price, created_at: order.created_at,
+            updated_at: order.updated_at, raw: structured.raw || structured.rawText || structured.structured?.rawText || '',
+            grade_description: structured.gradeDescription || field('gradeDescription', 'gradeContext'),
+            price_min: field('priceMin', 'priceMin', 0), price_max: field('priceMax', 'priceMax', 0),
+            price_unit: field('priceUnit'), hourly_price: structured.hourlyPrice || 0,
+            price_approximate: field('priceApproximate', 'priceApproximate', 0), price_text: structured.priceText || '',
+            monthly: structured.monthly || 0, schedule: structured.schedule || '',
+            schedule_phases: structured.schedulePhases ? JSON.stringify(structured.schedulePhases) : null,
+            gender: structured.gender || field('gender', 'teacherGender'), student: structured.student || field('student', 'studentSituation'),
+            student_gender: structured.studentGender || field('studentGender'), requirements: field('requirements'),
+            transit_line: structured.transitLine || '', place: location.place, verified: location.verified,
+            location_row_status, options_json: location.options_json, relation: location.relation
+          };
+        }
         return { ...order, ...locationColumns, location_row_status };
       });
       if (/WHERE o.id = \?/i.test(sql)) rows = rows.filter(row => row.id === values[0]);
       if (/WHERE o.status = \?/i.test(sql)) rows = rows.filter(row => row.status === values[0]);
-      return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      if (/o\.status = 'open'/i.test(sql)) rows = rows.filter(row => row.status === 'open');
+      if (/o\.created_at > \?/i.test(sql)) {
+        const cutoff = values.find(value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value));
+        if (cutoff) rows = rows.filter(row => row.created_at > cutoff);
+      }
+      const limit = /LIMIT \?/i.test(sql) ? Number(values.at(-1)) : rows.length;
+      return rows.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+    }
+    if (/SELECT import_fingerprint, raw_fingerprint, semantic_fingerprint FROM orders/i.test(sql)) {
+      let rows = this.tables.orders.filter(row => row.status !== 'closed');
+      if (/created_at > \?/i.test(sql)) rows = rows.filter(row => row.created_at > values[0]);
+      return rows.map(row => ({ import_fingerprint: row.import_fingerprint, raw_fingerprint: row.raw_fingerprint,
+        semantic_fingerprint: row.semantic_fingerprint }));
     }
     const tableMatch = sql.match(/FROM (users|sessions|settings|feedback|announcements|clipboard_captures|visitor_activity|amap_usage|publisher_access|order_issue_reports)/i);
     if (!tableMatch) throw new Error(`Unsupported mock query: ${sql}`);
@@ -132,6 +171,10 @@ async function run() {
   const issueMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0007_order_issue_reports.sql'), 'utf8');
   assert.match(issueMigration, /CREATE TABLE IF NOT EXISTS order_issue_reports\b/);
   assert.match(issueMigration, /UNIQUE\(target_key, reporter_key\)/);
+  const fingerprintMigration = fs.readFileSync(path.join(__dirname, '..', 'cloudflare', 'migrations', '0009_order_fingerprints.sql'), 'utf8');
+  assert.match(fingerprintMigration, /ADD COLUMN raw_fingerprint TEXT/);
+  assert.match(fingerprintMigration, /ADD COLUMN semantic_fingerprint TEXT/);
+  assert.match(fingerprintMigration, /UNIQUE INDEX IF NOT EXISTS idx_orders_raw_fingerprint/);
 
   const db = new MockD1();
   const repo = createRepository({ DB: db });
@@ -162,7 +205,8 @@ async function run() {
   const order = await repo.createOrder({
     id: 'o-one', agencyId: agency.id, source: agency.name, status: 'open', district: '南山', subject: '数学',
     grade: '高一', price: 500, raw: '合成测试订单', schedule: '周末', place: '科技园', address: '深圳市南山区科技园',
-    locationVerified: true, locationCoordinates: '113.9,22.5', locationCandidates: [{ name: '科技园' }]
+    locationVerified: true, locationCoordinates: '113.9,22.5', locationCandidates: [{ name: '科技园' }],
+    importFingerprint: 'compat-fingerprint', rawFingerprint: 'raw-fingerprint', semanticFingerprint: 'semantic-fingerprint'
   });
   assert.equal(order.raw, '合成测试订单');
   assert.equal(db.tables.orders[0].structured_json.includes('合成测试订单'), true);
@@ -170,7 +214,12 @@ async function run() {
   assert.equal(order.locationVerified, true);
   assert.deepEqual(order.locationCandidates, [{ name: '科技园' }]);
   assert.equal(db.tables.orders[0].status, 'open');
+  assert.equal(db.tables.orders[0].raw_fingerprint, 'raw-fingerprint');
+  assert.equal(db.tables.orders[0].semantic_fingerprint, 'semantic-fingerprint');
   assert.equal((await repo.listOrders({ status: 'open' })).length, 1);
+  assert.deepEqual(await repo.listOrderFingerprints(), [{
+    importFingerprint: 'compat-fingerprint', rawFingerprint: 'raw-fingerprint', semanticFingerprint: 'semantic-fingerprint'
+  }]);
   await repo.upsertOrderIssueReport({ targetKey: `order:${order.id}`, orderId: order.id, source: 'published', reporterKey: teacher.id,
     rawText: order.raw, parsedSnapshot: { place: order.place }, parserVersion: '2.2.1' });
   await repo.upsertOrderIssueReport({ targetKey: `order:${order.id}`, orderId: order.id, source: 'published', reporterKey: teacher.id,
@@ -199,6 +248,12 @@ async function run() {
   assert.equal(evidenceOrder.student, '女生，基础一般');
   assert.equal(evidenceOrder.requirements, '有经验、认真负责');
   assert.equal(evidenceOrder.structured.parserVersion, '2.2.0');
+  const publicEvidenceOrder = (await repo.listPublicOrders())[0];
+  assert.equal(publicEvidenceOrder.priceMin, 300);
+  assert.equal(publicEvidenceOrder.schedule, '每周两次');
+  assert.equal(publicEvidenceOrder.requirements, '有经验、认真负责');
+  assert.equal('structured' in publicEvidenceOrder, false);
+  assert.equal('structuredJson' in publicEvidenceOrder, false);
   db.tables.orders[0].structured_json = flatSnapshot;
 
   await repo.setSetting('maxBikeKm', 12);

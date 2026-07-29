@@ -16,10 +16,31 @@ function memoryRepository() {
     async createSession(input) { state.sessions.set(input.tokenHash, input); return input; },
     async getSessionByTokenHash(hash) { const session = state.sessions.get(hash); return session && session.expiresAt > Date.now() ? session : null; },
     async deleteSessionByTokenHash(hash) { state.sessions.delete(hash); },
-    async getPublicState() { return { settings: state.settings, orders: [...state.orders.values()], announcement: state.announcements.at(-1) || null }; },
+    async getPublicState(filters = {}) {
+      const cutoff = filters.createdAfter ? Date.parse(filters.createdAfter) : 0;
+      const limit = Number(filters.limit || 2000);
+      const orders = [...state.orders.values()]
+        .filter(order => order.status !== 'closed' && (!cutoff || Date.parse(order.createdAt || 0) > cutoff))
+        .slice(0, limit);
+      return { settings: state.settings, orders, announcement: state.announcements.at(-1) || null };
+    },
     async createOrder(input) { const order = { ...input, id: input.id || `o-${state.orders.size + 1}`, createdAt: new Date().toISOString() }; state.orders.set(order.id, order); return order; },
     async getOrderById(id) { return state.orders.get(id) || null; },
-    async listOrders() { return [...state.orders.values()]; },
+    async listOrders(filters = {}) {
+      const cutoff = filters.createdAfter ? Date.parse(filters.createdAfter) : 0;
+      return [...state.orders.values()].filter(order =>
+        (filters.status === undefined || order.status === filters.status)
+        && (filters.agencyId === undefined || order.agencyId === filters.agencyId)
+        && (!cutoff || Date.parse(order.createdAt || 0) > cutoff));
+    },
+    async listOrderFingerprints(filters = {}) {
+      const cutoff = filters.createdAfter ? Date.parse(filters.createdAfter) : 0;
+      return [...state.orders.values()].filter(order =>
+        order.status !== 'closed' && (!cutoff || Date.parse(order.createdAt || 0) > cutoff)).map(order => ({
+        importFingerprint: order.importFingerprint || '', rawFingerprint: order.rawFingerprint || '',
+        semanticFingerprint: order.semanticFingerprint || ''
+      }));
+    },
     async updateOrder(id, patch) { Object.assign(state.orders.get(id), patch); return state.orders.get(id); },
     async deleteOrder(id) { state.orders.delete(id); },
     async deleteOrdersByIds(ids) {
@@ -231,7 +252,7 @@ test('订单地图坐标仅通过老师鉴权接口返回且公开状态裁剪�
   assert.equal('structured' in teacherState.orders[0], false);
 });
 
-test('老师复用公共订单读取，发单者只额外读取私有订单', async () => {
+test('老师和发单者复用精简公共订单，只有管理员读取完整订单', async () => {
   const { call, repo } = harness();
   const name = '列表性能测试', phone = ['136', '0013', '6000'].join(''), password = 'secret1';
   const login = await (await call('/api/account/login', { method: 'POST', body: {
@@ -255,9 +276,22 @@ test('老师复用公共订单读取，发单者只额外读取私有订单', as
   assert.equal('applicants' in teacherState.orders[0], false);
 
   const agencyState = await (await call('/api/state', { headers: { authorization: `Bearer ${login.agencyToken}` } })).json();
-  assert.equal(privateOrderReads, 1, '发单者仍读取包含私有字段的订单');
+  assert.equal(privateOrderReads, 0, '发单者也复用精简公共订单读取结果');
   assert.equal('applicantCount' in agencyState.orders[0], false);
   assert.equal('applicants' in agencyState.orders[0], false);
+});
+
+test('public state does not truncate an active order set at 500 rows', async () => {
+  const { call, repo } = harness();
+  const createdAt = new Date().toISOString();
+  for (let index = 0; index < 650; index++) {
+    repo.state.orders.set(`capacity-${index}`, {
+      id: `capacity-${index}`, status: 'open', createdAt, district: '南山', grade: '高一', subject: '数学',
+      raw: `合成容量订单 ${index}`
+    });
+  }
+  const state = await (await call('/api/state')).json();
+  assert.equal(state.orders.length, 650);
 });
 
 test('account login creates paired roles and persists only token hashes', async () => {
@@ -531,6 +565,9 @@ test('import skips the same order despite whitespace punctuation and emoji diffe
   } })).json();
   approvePublisher(repo, login.user);
   const headers = { authorization: `Bearer ${login.token}` };
+  let fullOrderReads = 0;
+  const listOrders = repo.listOrders.bind(repo);
+  repo.listOrders = async filters => { fullOrderReads++; return listOrders(filters); };
   const base = {
     district: '宝安', place: '西乡测试花园', grade: '高二', subject: '物理', price: 300,
     locationVerified: true, locationStatus: 'verified', locationPoiId: 'dedupe-poi',
@@ -545,6 +582,7 @@ test('import skips the same order despite whitespace punctuation and emoji diffe
   assert.equal(first.created.length, 1);
   assert.equal(repeated.created.length, 0);
   assert.equal(repeated.duplicatesSkipped, 1);
+  assert.equal(fullOrderReads, 0, 'deduplication should read only compact fingerprint columns');
 });
 
 test('import merges cross-group wording variants but keeps different subjects separate', async () => {

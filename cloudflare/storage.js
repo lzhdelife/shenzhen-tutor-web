@@ -1,6 +1,6 @@
 'use strict';
 
-const JSON_FIELDS = new Set(['preferences_json', 'structured_json', 'queries_json', 'candidates_json', 'options_json', 'value_json', 'parsed_snapshot_json']);
+const JSON_FIELDS = new Set(['preferences_json', 'structured_json', 'queries_json', 'candidates_json', 'options_json', 'value_json', 'parsed_snapshot_json', 'schedule_phases']);
 
 function nowIso() {
   return new Date().toISOString();
@@ -94,6 +94,21 @@ function mapOrder(row) {
   return order;
 }
 
+function mapPublicOrder(row) {
+  const order = mapOrder(row);
+  for (const key of ['gradeDescription', 'priceMin', 'priceMax', 'priceUnit', 'gender', 'student', 'studentGender', 'requirements']) {
+    let value = order[key];
+    if (typeof value === 'string' && /^[\[{]/.test(value.trim())) value = parseJson(value, value);
+    order[key] = evidenceValue(value, ['priceMin', 'priceMax'].includes(key) ? 0 : '');
+  }
+  if (!order.schedule && Array.isArray(order.schedulePhases)) {
+    order.schedule = order.schedulePhases.map(phase => phase?.rawEvidence).filter(Boolean).join('；');
+  }
+  order.priceApproximate = Boolean(order.priceApproximate);
+  delete order.schedulePhases;
+  return order;
+}
+
 function rowsOf(result) {
   return result && Array.isArray(result.results) ? result.results : [];
 }
@@ -108,6 +123,35 @@ function createRepository(env = {}) {
   const locationSelect = `SELECT o.*, l.place, l.address, l.original_place, l.verified,
     l.status AS location_row_status, l.poi_id, l.coordinates, l.resolved_address, l.confidence,
     l.query_text, l.queries_json, l.candidates_json, l.options_json, l.relation
+    FROM orders o LEFT JOIN order_locations l ON l.order_id = o.id`;
+  const publicOrderSelect = `SELECT o.id, o.agency_id, o.status, o.district, o.subject, o.grade, o.price,
+    o.created_at, o.updated_at,
+    COALESCE(json_extract(o.structured_json, '$.raw'), json_extract(o.structured_json, '$.rawText'),
+      json_extract(o.structured_json, '$.structured.rawText'), '') AS raw,
+    COALESCE(json_extract(o.structured_json, '$.gradeDescription'), json_extract(o.structured_json, '$.gradeContext.value'), '') AS grade_description,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.priceMin') IN ('integer', 'real', 'text')
+      THEN json_extract(o.structured_json, '$.priceMin') END, json_extract(o.structured_json, '$.priceMin.value'), 0) AS price_min,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.priceMax') IN ('integer', 'real', 'text')
+      THEN json_extract(o.structured_json, '$.priceMax') END, json_extract(o.structured_json, '$.priceMax.value'), 0) AS price_max,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.priceUnit') = 'text'
+      THEN json_extract(o.structured_json, '$.priceUnit') END, json_extract(o.structured_json, '$.priceUnit.value'), '') AS price_unit,
+    COALESCE(json_extract(o.structured_json, '$.hourlyPrice'), 0) AS hourly_price,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.priceApproximate') IN ('true', 'false', 'integer')
+      THEN json_extract(o.structured_json, '$.priceApproximate') END, json_extract(o.structured_json, '$.priceApproximate.value'), 0) AS price_approximate,
+    COALESCE(json_extract(o.structured_json, '$.priceText'), '') AS price_text,
+    COALESCE(json_extract(o.structured_json, '$.monthly'), 0) AS monthly,
+    COALESCE(json_extract(o.structured_json, '$.schedule'), '') AS schedule,
+    json_extract(o.structured_json, '$.schedulePhases') AS schedule_phases,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.gender') = 'text' THEN json_extract(o.structured_json, '$.gender') END,
+      json_extract(o.structured_json, '$.teacherGender.value'), '') AS gender,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.student') = 'text' THEN json_extract(o.structured_json, '$.student') END,
+      json_extract(o.structured_json, '$.studentSituation.value'), '') AS student,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.studentGender') = 'text' THEN json_extract(o.structured_json, '$.studentGender') END,
+      json_extract(o.structured_json, '$.studentGender.value'), '') AS student_gender,
+    COALESCE(CASE WHEN json_type(o.structured_json, '$.requirements') IN ('text', 'array')
+      THEN json_extract(o.structured_json, '$.requirements') END, json_extract(o.structured_json, '$.requirements.value'), '') AS requirements,
+    COALESCE(json_extract(o.structured_json, '$.transitLine'), '') AS transit_line,
+    l.place, l.verified, l.status AS location_row_status, l.options_json, l.relation
     FROM orders o LEFT JOIN order_locations l ON l.order_id = o.id`;
 
   async function getUserById(id) {
@@ -200,9 +244,11 @@ function createRepository(env = {}) {
     const timestamp = input.createdAt || nowIso();
     const id = input.id || makeId('o');
     const orderStatement = db.prepare(`INSERT INTO orders (id, agency_id, source, status, district, subject, grade, price,
-      import_fingerprint, structured_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+      import_fingerprint, raw_fingerprint, semantic_fingerprint, structured_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
       id, input.agencyId, input.source || '', input.status || 'open', input.district || '', input.subject || '',
       input.grade || '', Number(input.price || 0), input.importFingerprint || null,
+      input.rawFingerprint || null, input.semanticFingerprint || null,
       JSON.stringify({ ...input, structured: input.structured || null }), timestamp, input.updatedAt || timestamp);
     const locationStatement = db.prepare(`INSERT INTO order_locations (order_id, place, address, original_place, verified, status,
       poi_id, coordinates, resolved_address, confidence, query_text, queries_json, candidates_json, options_json, relation, updated_at)
@@ -218,9 +264,27 @@ function createRepository(env = {}) {
     for (const [key, column] of [['status', 'o.status'], ['agencyId', 'o.agency_id'], ['district', 'o.district']]) {
       if (filters[key] !== undefined) { clauses.push(`${column} = ?`); values.push(filters[key]); }
     }
-    const limit = Math.min(Math.max(Number(filters.limit) || 500, 1), 500);
+    if (filters.createdAfter) { clauses.push('o.created_at > ?'); values.push(filters.createdAfter); }
+    const limit = Math.min(Math.max(Number(filters.limit) || 2000, 1), 2000);
     const rows = await all(`${locationSelect}${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY o.created_at DESC LIMIT ?`, [...values, limit]);
     return rows.map(mapOrder);
+  }
+
+  async function listPublicOrders(filters = {}) {
+    const clauses = [`o.status = 'open'`];
+    const values = [];
+    if (filters.createdAfter) { clauses.push('o.created_at > ?'); values.push(filters.createdAfter); }
+    const limit = Math.min(Math.max(Number(filters.limit) || 2000, 1), 2000);
+    const rows = await all(`${publicOrderSelect} WHERE ${clauses.join(' AND ')} ORDER BY o.created_at DESC LIMIT ?`, [...values, limit]);
+    return rows.map(mapPublicOrder);
+  }
+
+  async function listOrderFingerprints(filters = {}) {
+    const clauses = [`status <> 'closed'`];
+    const values = [];
+    if (filters.createdAfter) { clauses.push('created_at > ?'); values.push(filters.createdAfter); }
+    return (await all(`SELECT import_fingerprint, raw_fingerprint, semantic_fingerprint FROM orders
+      WHERE ${clauses.join(' AND ')} ORDER BY created_at DESC`, values)).map(mapRow);
   }
 
   async function updateOrder(id, patch) {
@@ -229,8 +293,10 @@ function createRepository(env = {}) {
     const merged = { ...current, ...patch, id };
     const timestamp = nowIso();
     await run(`UPDATE orders SET agency_id=?, source=?, status=?, district=?, subject=?, grade=?, price=?, import_fingerprint=?,
-      structured_json=?, updated_at=? WHERE id=?`, [merged.agencyId, merged.source || '', merged.status || 'open', merged.district || '',
+      raw_fingerprint=?, semantic_fingerprint=?, structured_json=?, updated_at=? WHERE id=?`,
+    [merged.agencyId, merged.source || '', merged.status || 'open', merged.district || '',
       merged.subject || '', merged.grade || '', Number(merged.price || 0), merged.importFingerprint || null,
+      merged.rawFingerprint || null, merged.semanticFingerprint || null,
       JSON.stringify({ ...merged, structured: patch.structured || merged.structured || null }), timestamp, id]);
     await run(`INSERT INTO order_locations (order_id, place, address, original_place, verified, status, poi_id, coordinates,
       resolved_address, confidence, query_text, queries_json, candidates_json, options_json, relation, updated_at)
@@ -425,10 +491,14 @@ function createRepository(env = {}) {
     return rows.map(row => ({ ...mapRow(row), active: Boolean(row.active) }));
   }
 
-  async function getPublicState() {
-    const [settings, announcements, orders] = await Promise.all([getSettings(), listAnnouncements({ active: true }), listOrders({ status: 'open' })]);
+  async function getPublicState(filters = {}) {
+    const [settings, announcements, orders] = await Promise.all([
+      getSettings(), listAnnouncements({ active: true }),
+      listPublicOrders({ createdAfter: filters.createdAfter, limit: filters.limit || 2000 })
+    ]);
     const publicOrders = orders.map(order => {
-      const { importFingerprint: _fingerprint, sourceImages: _sourceImages, applicants: _applicants,
+      const { importFingerprint: _fingerprint, rawFingerprint: _rawFingerprint, semanticFingerprint: _semanticFingerprint,
+        sourceImages: _sourceImages, applicants: _applicants,
         applicantCount: _applicantCount, ...safe } = order;
       return safe;
     });
@@ -442,7 +512,8 @@ function createRepository(env = {}) {
 
   return {
     getPublicState, getUserById, getUserByPhone, listUsers, createUser, updateUser, deleteUser,
-    createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact, listOrders,
+    createSession, getSessionByTokenHash, deleteSessionByTokenHash, createOrder, getOrderById, getOrderContact,
+    listOrders, listPublicOrders, listOrderFingerprints,
     updateOrder, deleteOrder, deleteOrdersByIds, deleteOrdersOlderThan, getSettings, setSetting, incrementSetting,
     recordVisitorVisit, touchVisitor, getVisitorStats, recordAmapUsage, getAmapUsage,
     getPublisherAccess, findApprovedPublisherAccess, submitPublisherAccess, listPublisherAccess,

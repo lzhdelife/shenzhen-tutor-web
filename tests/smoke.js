@@ -60,6 +60,16 @@ assert.match(browserStylesSource, /@media \(prefers-color-scheme: dark\)[\s\S]*-
   'dark mode should use a distinct card color instead of relying on borders');
 assert.match(browserStylesSource, /\.card,[\s\S]*background: var\(--card\); color: var\(--ink\);/,
   'dark repeated cards should use the raised card layer');
+assert.doesNotMatch(browserStylesSource, /\.order-list \.card\.order-seen\s*\{[^}]*\bfilter\s*:/,
+  'seen-order styling must not dim interactive buttons through a card-wide filter');
+assert.doesNotMatch(browserStylesSource, /\.order-list \.card\.order-seen \.score\s*\{[^}]*color\s*:/,
+  'seen-order styling must keep the score badge contrast intact');
+assert.doesNotMatch(browserAppSource, /IntersectionObserver|SEEN_ORDER_DELAY_MS/,
+  'orders must not be marked as seen merely because they were scrolled into view');
+assert.match(browserAppSource, /function openRawText\(encoded, orderId = ''\)\s*\{\s*markOrderSeen\(orderId\)/,
+  'opening raw order text should mark that order as seen');
+assert.match(browserAppSource, /async function applyOrder\(id\)\s*\{\s*markOrderSeen\(id\)/,
+  'requesting order contact details should mark that order as seen');
 assert.doesNotMatch(browserHtmlSource, /id="orderForm"|manual-entry-panel|手动录入/,
   'the redundant manual order form should not be shown');
 assert.doesNotMatch(browserAppSource, /\$\('#orderForm'\)/,

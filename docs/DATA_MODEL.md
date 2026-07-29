@@ -14,7 +14,9 @@
 | `agency_id` | 关联 `users.id` 的发单身份；删除该身份会级联删除其订单 |
 | `source` / `status` | 发单来源和兼容状态；当前新订单使用 `open` |
 | `district` / `subject` / `grade` / `price` | 列表筛选、排序常用字段 |
-| `import_fingerprint` | 规范化原文的 SHA-256 指纹；唯一索引负责最终防重 |
+| `import_fingerprint` | 旧兼容指纹；保留唯一索引以兼容已有订单 |
+| `raw_fingerprint` | 规范化原文的 SHA-256 指纹；忽略空格、标点和常见符号差异 |
+| `semantic_fingerprint` | 地点、年级、科目、课酬和时间等核心字段组成的语义 SHA-256 指纹 |
 | `structured_json` | 完整订单快照：原文、解析字段、证据、置信度和扩展字段 |
 | `created_at` / `updated_at` | 创建和更新时间 |
 
@@ -181,6 +183,10 @@
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `importFingerprint` | string | 近期语义去重指纹，公开状态接口会移除 |
+| `rawFingerprint` | string | 规范化原文指纹，公开状态接口会移除 |
+| `semanticFingerprint` | string | 核心订单字段语义指纹，公开状态接口会移除 |
+
+任一指纹命中即判为重复。新订单同时保存三种指纹；已有订单继续通过 `importFingerprint` 兼容，不需要重写历史原文。去重查询只读取三列短指纹，不加载完整订单 JSON。
 
 ## `feedback[]`
 

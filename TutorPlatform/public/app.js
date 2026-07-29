@@ -46,8 +46,6 @@ let backgroundStateRefreshTimer = 0;
 let teacherDistanceRequest = 0;
 let visibleOrderLimit = 20;
 let focusedListOrderId = '';
-let seenOrderObserver = null;
-const seenOrderTimers = new Map();
 
 const LOGIN_PREFERENCE_KEY = 'tutorPlatformLoginPreference';
 const REMEMBERED_PASSWORD_MASK = 'remembered-login';
@@ -62,7 +60,6 @@ const SUBPAGE_PANEL_IDS = ['contactPanel', 'applicationPanel', 'rawTextPanel'];
 const PRIVATE_STATE_REFRESH_MS = 60 * 1000;
 const MAX_IMPORT_PREVIEW_ORDERS = 50;
 const NEARBY_DISTANCE_KM = 10;
-const SEEN_ORDER_DELAY_MS = 1000;
 const SEEN_ORDER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const ORDER_ISSUE_TYPES = [
   ['location', '地点'],
@@ -164,32 +161,7 @@ function markOrderSeen(orderId, card) {
   if (!orderId || seenOrders.has(orderId)) return;
   seenOrders.set(orderId, Date.now());
   saveSeenOrders();
-  card?.classList.add('order-seen');
-}
-
-function observeRenderedOrderCards() {
-  seenOrderObserver?.disconnect();
-  for (const timer of seenOrderTimers.values()) clearTimeout(timer);
-  seenOrderTimers.clear();
-  if (!('IntersectionObserver' in window)) return;
-  seenOrderObserver = new IntersectionObserver(entries => {
-    for (const entry of entries) {
-      const orderId = entry.target.dataset.orderId || '';
-      if (seenOrders.has(orderId)) continue;
-      if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-        if (!seenOrderTimers.has(orderId)) {
-          seenOrderTimers.set(orderId, setTimeout(() => {
-            seenOrderTimers.delete(orderId);
-            markOrderSeen(orderId, entry.target);
-          }, SEEN_ORDER_DELAY_MS));
-        }
-      } else if (seenOrderTimers.has(orderId)) {
-        clearTimeout(seenOrderTimers.get(orderId));
-        seenOrderTimers.delete(orderId);
-      }
-    }
-  }, { threshold: [0, 0.5, 1] });
-  $$('#orders .card[data-order-id]').forEach(card => seenOrderObserver.observe(card));
+  (card || document.getElementById(`order-card-${orderId}`))?.classList.add('order-seen');
 }
 
 const routeLabels = {
@@ -346,7 +318,10 @@ function mergeCreatedOrders(created = []) {
 
 function scheduleBackgroundStateRefresh() {
   clearTimeout(backgroundStateRefreshTimer);
-  backgroundStateRefreshTimer = setTimeout(() => load().catch(error => console.warn('后台刷新失败', error)), 1500);
+  backgroundStateRefreshTimer = setTimeout(() => {
+    if (manualImportBusy || manualImportQueue.length) return scheduleBackgroundStateRefresh();
+    load().catch(error => console.warn('后台刷新失败', error));
+  }, 1500);
 }
 
 function setView(name) {
@@ -1045,7 +1020,7 @@ function orderCard(o) {
     <div class="actions">
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       ${isOnlineOrderView(o) ? '' : `<button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>`}
-      <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
+      <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}','${o.id}')">查看原文</button>
       ${issueReportMarkup(issueType => `reportPublishedOrderIssue('${o.id}','${issueType}',this)`)}
     </div>
   </article>`;
@@ -1058,9 +1033,6 @@ function renderOrders({ resetLimit = false } = {}) {
   if (count) count.textContent = `共 ${list.length} 条`;
   const more = $('#orderListMore');
   if (teacherViewMode === 'map') {
-    seenOrderObserver?.disconnect();
-    for (const timer of seenOrderTimers.values()) clearTimeout(timer);
-    seenOrderTimers.clear();
     $('#orders').replaceChildren();
     more.classList.add('hidden');
     ensureOrderMapCurrent(list).catch(error => showOrderMapStatus(error.message));
@@ -1072,7 +1044,6 @@ function renderOrders({ resetLimit = false } = {}) {
     if (focused) visible = [focused, ...visible.slice(0, Math.max(0, visibleOrderLimit - 1))];
   }
   $('#orders').innerHTML = visible.length ? visible.map(orderCard).join('') : '<div class="panel">暂时没有符合条件的订单。</div>';
-  observeRenderedOrderCards();
   more.classList.toggle('hidden', visibleOrderLimit >= list.length);
   $('#loadMoreOrders').textContent = `加载更多（${Math.min(visibleOrderLimit, list.length)}/${list.length}）`;
 }
@@ -1119,6 +1090,7 @@ async function loadOrderMapApi() {
 }
 
 function openMapOrder(point, marker) {
+  markOrderSeen(point.order.id);
   const AMap = orderMapApi;
   const meta = orderDisplayMeta(point.order);
   const content = document.createElement('div');
@@ -1368,6 +1340,7 @@ function setTeacherViewMode(mode) {
 }
 
 function focusOrderFromMap(orderId) {
+  markOrderSeen(orderId);
   orderMapInfoWindow?.close();
   focusedListOrderId = orderId;
   setTeacherViewMode('list');
@@ -1541,6 +1514,7 @@ async function focusOrderOnMap(orderId) {
     $('#teacherLocationForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
+  markOrderSeen(orderId);
   activeMapRouteOrderId = orderId;
   const activeOrder = state.orders.find(order => order.id === orderId);
   $('#activeMapRouteHint').textContent = activeOrder
@@ -1989,6 +1963,7 @@ async function submitIssueReport(body, button) {
 }
 
 function reportPublishedOrderIssue(orderId, issueType, button) {
+  markOrderSeen(orderId);
   return submitIssueReport({ orderId, issueType }, button);
 }
 
@@ -2061,6 +2036,7 @@ function saveImportPreviewHistory() {
 function previewBatchSummary(batch) {
   const total = batch.orders.length;
   if (batch.stage === 'publishing') return `识别 ${total} 条 · 正在发布`;
+  if (batch.stage === 'retrying') return `识别 ${total} 条 · 等待自动重试`;
   if (batch.stage === 'interrupted') return `识别 ${total} 条 · 结果已保留`;
   if (batch.stage === 'failed') return `识别 ${total} 条 · 发布暂时失败`;
   const created = Number(batch.outcome?.created || 0);
@@ -2390,6 +2366,7 @@ function closeApplicationContact(fromHistory = false) {
 }
 
 async function applyOrder(id) {
+  markOrderSeen(id);
   const request = ++applicationContactRequest;
   openApplicationContactLoading();
   try {
@@ -2463,7 +2440,7 @@ async function submitPublisherAccess(form) {
   }
 }
 
-async function parseAndImportText(text, onStage = () => {}) {
+async function parseAndImportText(text, onStage = () => {}, existingPreviewBatchId = '') {
   const rawText = String(text || '').trim();
   if (!rawText) throw new Error('请先粘贴订单文字');
   onStage({ stage: 'parsing' });
@@ -2471,18 +2448,26 @@ async function parseAndImportText(text, onStage = () => {}) {
   parsedImport = parsed.parsed || [];
   ignoredImportBlocks = parsed.ignoredBlocks || [];
   if (!parsedImport.length) throw new Error('没有识别出可以导入的订单');
-  const previewBatch = {
-    id: clientRandomId('preview-'),
-    createdAt: Date.now(),
-    stage: 'publishing',
-    orders: parsedImport,
-    ignoredBlocks: ignoredImportBlocks,
-    outcome: null
-  };
-  importPreviewHistory.unshift(previewBatch);
+  let previewBatch = previewBatchById(existingPreviewBatchId);
+  if (previewBatch) {
+    previewBatch.stage = 'publishing';
+    previewBatch.orders = parsedImport;
+    previewBatch.ignoredBlocks = ignoredImportBlocks;
+    previewBatch.outcome = null;
+  } else {
+    previewBatch = {
+      id: clientRandomId('preview-'),
+      createdAt: Date.now(),
+      stage: 'publishing',
+      orders: parsedImport,
+      ignoredBlocks: ignoredImportBlocks,
+      outcome: null
+    };
+    importPreviewHistory.unshift(previewBatch);
+  }
   saveImportPreviewHistory();
   renderPreview();
-  onStage({ stage: 'publishing', total: parsedImport.length, ignored: ignoredImportBlocks.length });
+  onStage({ stage: 'publishing', total: parsedImport.length, ignored: ignoredImportBlocks.length, previewBatchId: previewBatch.id });
   try {
     const imported = await api('/api/import', { method: 'POST', body: { orders: parsedImport } }, agencyToken);
     previewBatch.stage = 'complete';
@@ -2497,7 +2482,7 @@ async function parseAndImportText(text, onStage = () => {}) {
     scheduleBackgroundStateRefresh();
     return { imported, parsedCount: parsedImport.length, ignoredCount: ignoredImportBlocks.length };
   } catch (error) {
-    previewBatch.stage = 'failed';
+    previewBatch.stage = 'retrying';
     saveImportPreviewHistory();
     renderPreview();
     throw error;
@@ -2667,7 +2652,8 @@ function showRawText(rawText) {
   showSubpage('rawTextPanel');
 }
 
-function openRawText(encoded) {
+function openRawText(encoded, orderId = '') {
+  markOrderSeen(orderId);
   showRawText(decodeURIComponent(encoded || ''));
 }
 
@@ -3078,10 +3064,12 @@ async function processManualImportQueue() {
         setManualImportStatus(`正在切割并识别本批内容${remainingBatches()}`, 'processing');
       }
       if (progress.stage === 'publishing') {
+        item.previewBatchId = progress.previewBatchId || item.previewBatchId || '';
+        saveManualImportQueue();
         const ignored = progress.ignored ? `，已过滤 ${progress.ignored} 段无效内容` : '';
         setManualImportStatus(`已识别 ${progress.total} 条订单${ignored}；正在处理地点并发布${remainingBatches()}`, 'processing');
       }
-    });
+    }, item.previewBatchId || '');
     const created = imported.created?.length || 0;
     const duplicates = Number(imported.duplicatesSkipped || 0);
     const outcome = [
@@ -3103,7 +3091,7 @@ async function processManualImportQueue() {
       item.nextAttemptAt = Date.now() + Math.min(30000, 1500 * (2 ** Math.min(item.attempts, 4)));
       manualImportQueue.push(item);
       saveManualImportQueue();
-      setManualImportStatus(`识别暂时失败，已保留 ${manualImportQueue.length} 批等待重试`, 'error');
+      setManualImportStatus(`发布未完成，已保留 ${manualImportQueue.length} 批等待自动重试`, 'error');
     }
   } finally {
     manualImportBusy = false;
