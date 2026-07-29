@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createWorker } = require('../cloudflare/worker.js');
 const { sha256, clientPasswordProof } = require('../cloudflare/auth.js');
+const { orderExpiryCutoff } = require('../shared/order-retention.js');
 
 function memoryRepository() {
   const state = { users: new Map(), sessions: new Map(), orders: new Map(), settings: {}, objects: new Map(), announcements: [], visitors: new Map(), publisherAccess: new Map(), orderIssueReports: new Map() };
@@ -629,21 +630,22 @@ test('import merges cross-group wording variants but keeps different subjects se
   assert.deepEqual(result.created.map(order => order.subject).sort(), ['数学', '物理']);
 });
 
-test('scheduled cleanup deletes orders older than 48 hours', async () => {
+test('scheduled cleanup deletes all orders from before the daily 06:00 reset', async () => {
   const { repo, worker } = harness();
-  const now = Date.UTC(2026, 6, 25, 4, 0, 0);
-  repo.state.orders.set('old', { id: 'old', createdAt: new Date(now - (48 * 60 * 60 * 1000) - 1).toISOString() });
-  repo.state.orders.set('fresh', { id: 'fresh', createdAt: new Date(now - (48 * 60 * 60 * 1000) + 1).toISOString() });
+  const now = Date.UTC(2026, 6, 24, 22, 0, 0);
+  repo.state.orders.set('yesterday', { id: 'yesterday', createdAt: new Date(now - 1).toISOString() });
+  repo.state.orders.set('new-day', { id: 'new-day', createdAt: new Date(now + 1).toISOString() });
   await worker.scheduled({ scheduledTime: now }, { AUTH_PEPPER: 'unit-test-pepper' }, {});
-  assert.equal(repo.state.orders.has('old'), false);
-  assert.equal(repo.state.orders.has('fresh'), true);
+  assert.equal(repo.state.orders.has('yesterday'), false);
+  assert.equal(repo.state.orders.has('new-day'), true);
 });
 
 test('expired orders are absent from public state and map and cannot reveal contact details', async () => {
   const { call, repo } = harness();
   const guest = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'retention_browser_123456' } })).json();
-  const oldTime = new Date(Date.now() - (48 * 60 * 60 * 1000) - 1000).toISOString();
-  const freshTime = new Date(Date.now() - 60 * 1000).toISOString();
+  const cutoff = orderExpiryCutoff().getTime();
+  const oldTime = new Date(cutoff - 1000).toISOString();
+  const freshTime = new Date(cutoff + 1000).toISOString();
   repo.state.orders.set('expired-order', { id: 'expired-order', status: 'open', createdAt: oldTime, locationVerified: true, locationCoordinates: '113.9,22.5' });
   repo.state.orders.set('fresh-order', { id: 'fresh-order', status: 'open', createdAt: freshTime, locationVerified: true, locationCoordinates: '114.0,22.6' });
   const headers = { authorization: `Bearer ${guest.teacherToken}` };

@@ -8,7 +8,7 @@ const { isNumberedOrderStart, splitOrdersDetailed } = require('./parser/splitter
 const { recognizeOrders } = require('./parser/recognizer');
 const { scoreOrder } = require('../shared/order-score');
 const { canonicalOrderText, semanticOrderFingerprint: sharedSemanticOrderFingerprint, dedupeOrdersByCanonicalRaw } = require('../shared/order-dedupe');
-const { isExpiredOrder, millisecondsUntilShanghaiNoon } = require('../shared/order-retention');
+const { isExpiredOrder, millisecondsUntilShanghaiOrderReset } = require('../shared/order-retention');
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = __dirname;
@@ -483,17 +483,17 @@ function purgeExpiredOrders(db, now = Date.now()) {
   return expired.length;
 }
 
-function scheduleExpiredOrderCleanup() {
+function scheduleDailyOrderCleanup() {
   const run = () => {
     const db = readDb();
     const removed = purgeExpiredOrders(db);
     if (removed) {
       writeDb(db);
-      console.log(`已自动清理 ${removed} 条超过 3 天的订单。`);
+      console.log(`北京时间 6:00 已自动清理 ${removed} 条昨日订单。`);
     }
-    setTimeout(run, millisecondsUntilShanghaiNoon()).unref?.();
+    setTimeout(run, millisecondsUntilShanghaiOrderReset()).unref?.();
   };
-  setTimeout(run, millisecondsUntilShanghaiNoon()).unref?.();
+  setTimeout(run, millisecondsUntilShanghaiOrderReset()).unref?.();
 }
 
 function textOf(value) {
@@ -3044,7 +3044,7 @@ function startServer() {
     console.log(`深圳家教接单平台已启动：http://localhost:${PORT}`);
     console.log('局域网访问：把 localhost 换成这台电脑的局域网 IP。');
   });
-  scheduleExpiredOrderCleanup();
+  scheduleDailyOrderCleanup();
   return server;
 }
 

@@ -1,10 +1,20 @@
 'use strict';
 
-const ORDER_RETENTION_DAYS = 2;
-const ORDER_RETENTION_MS = ORDER_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAILY_ORDER_RESET_HOUR = 6;
 
 function orderExpiryCutoff(now = Date.now()) {
-  return new Date(Number(now) - ORDER_RETENTION_MS);
+  const timestamp = Number(now);
+  const shifted = new Date(timestamp + SHANGHAI_OFFSET_MS);
+  let cutoff = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    DAILY_ORDER_RESET_HOUR
+  ) - SHANGHAI_OFFSET_MS;
+  if (cutoff > timestamp) cutoff -= DAY_MS;
+  return new Date(cutoff);
 }
 
 function isExpiredOrder(order, now = Date.now()) {
@@ -12,18 +22,22 @@ function isExpiredOrder(order, now = Date.now()) {
   return Number.isFinite(createdAt) && createdAt <= orderExpiryCutoff(now).getTime();
 }
 
-function millisecondsUntilShanghaiNoon(now = Date.now()) {
-  const chinaOffset = 8 * 60 * 60 * 1000;
-  const shifted = new Date(Number(now) + chinaOffset);
-  let target = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate(), 12) - chinaOffset;
-  if (target <= Number(now)) target += 24 * 60 * 60 * 1000;
-  return target - Number(now);
+function millisecondsUntilShanghaiOrderReset(now = Date.now()) {
+  const timestamp = Number(now);
+  const shifted = new Date(timestamp + SHANGHAI_OFFSET_MS);
+  let target = Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    DAILY_ORDER_RESET_HOUR
+  ) - SHANGHAI_OFFSET_MS;
+  if (target <= timestamp) target += DAY_MS;
+  return target - timestamp;
 }
 
 module.exports = {
-  ORDER_RETENTION_DAYS,
-  ORDER_RETENTION_MS,
+  DAILY_ORDER_RESET_HOUR,
   orderExpiryCutoff,
   isExpiredOrder,
-  millisecondsUntilShanghaiNoon
+  millisecondsUntilShanghaiOrderReset
 };
