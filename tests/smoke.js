@@ -74,6 +74,10 @@ assert.match(browserAppSource, /const canDelete = Boolean\(currentAgency && agen
   'the list issue menu should expose deletion only to the publishing identity');
 assert.match(browserAppSource, /canDelete \? `deleteOrder\('\$\{o\.id\}','agency'\)` : ''/,
   'an owned list order should use the owner-protected delete endpoint');
+assert.match(browserAppSource, /async function focusPublishedOrderOnMap\(orderId\)\s*\{\s*setView\('teacher'\);\s*await focusOrderOnMap\(orderId\);/,
+  'publisher navigation should reuse the shared map flow after revealing the teacher map view');
+assert.match(browserAppSource, /isOnlineOrderView\(o\) \? '' : `<button class="secondary" onclick="focusPublishedOrderOnMap\('\$\{o\.id\}'\)"\>地图导航<\/button>`/,
+  'published offline orders should expose map navigation without adding it to online orders');
 assert.doesNotMatch(browserHtmlSource, /id="orderForm"|manual-entry-panel|手动录入/,
   'the redundant manual order form should not be shown');
 assert.doesNotMatch(browserAppSource, /\$\('#orderForm'\)/,

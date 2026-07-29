@@ -1572,6 +1572,11 @@ async function focusOrderOnMap(orderId) {
   showOrderMapStatus('');
 }
 
+async function focusPublishedOrderOnMap(orderId) {
+  setView('teacher');
+  await focusOrderOnMap(orderId);
+}
+
 async function showAllOrdersOnMap() {
   orderMapRouteRequest++;
   const visibleOrders = filteredOrders();
@@ -1898,6 +1903,7 @@ function renderAgencyOrders() {
       </div>
       ${orderDetailMarkup(o, meta)}
       <div class="actions agency-order-actions">
+        ${isOnlineOrderView(o) ? '' : `<button class="secondary" onclick="focusPublishedOrderOnMap('${o.id}')">地图导航</button>`}
         <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}')">查看原文</button>
         <button class="danger" onclick="deleteOrder('${o.id}','agency')">删除</button>
       </div>
