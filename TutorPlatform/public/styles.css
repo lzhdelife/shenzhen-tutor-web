@@ -801,6 +801,8 @@ main { width: min(1440px, 100%); margin: 0 auto; padding: 28px 28px 56px; }
 .issue-report-menu > strong { display: block; margin-bottom: 8px; color: var(--ink); font-size: 13px; }
 .issue-report-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .issue-report-options button { min-width: 0; min-height: 34px; padding: 6px 8px; font-size: 12px; }
+.issue-report-delete { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line); }
+.issue-report-delete button { width: 100%; min-height: 34px; padding: 6px 8px; font-size: 12px; }
 .preview-card .issue-report-control { width: 100%; }
 .preview-card .issue-report-menu { position: static; width: 100%; margin-top: 7px; }
 

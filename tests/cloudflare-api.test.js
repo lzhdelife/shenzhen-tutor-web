@@ -388,6 +388,22 @@ test('agency creates and batch deletes orders while the legacy application route
   assert.equal(repo.state.orders.size, 0);
 });
 
+test('only the publishing identity can delete an order from the public list', async () => {
+  const { repo, call } = harness();
+  const owner = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'delete_owner_browser_123456' } })).json();
+  const outsider = await (await call('/api/account/guest', { method: 'POST', body: { deviceId: 'delete_other_browser_123456' } })).json();
+  approvePublisher(repo, owner.agency);
+  approvePublisher(repo, outsider.agency);
+  await repo.createOrder({ id: 'owner-delete-order', agencyId: owner.agency.id, status: 'open', raw: '合成归属删除订单' });
+
+  const path = '/api/orders/owner-delete-order';
+  assert.equal((await call(path, { method: 'DELETE', headers: { authorization: `Bearer ${outsider.agencyToken}` } })).status, 403);
+  assert.equal((await call(path, { method: 'DELETE', headers: { authorization: `Bearer ${owner.teacherToken}` } })).status, 403);
+  assert.equal(repo.state.orders.has('owner-delete-order'), true);
+  assert.equal((await call(path, { method: 'DELETE', headers: { authorization: `Bearer ${owner.agencyToken}` } })).status, 200);
+  assert.equal(repo.state.orders.has('owner-delete-order'), false);
+});
+
 test('guest device receives stable paired roles without a login form', async () => {
   const { repo, call } = harness();
   const body = { deviceId: 'browser_1234567890abcdef' };

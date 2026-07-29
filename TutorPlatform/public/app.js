@@ -977,12 +977,13 @@ function orderDetailMarkup(o, meta = orderDisplayMeta(o)) {
   </div>`;
 }
 
-function issueReportMarkup(selectHandler) {
+function issueReportMarkup(selectHandler, deleteHandler = '') {
   return `<div class="issue-report-control">
     <button type="button" class="text-button issue-report-button" aria-expanded="false" onclick="toggleIssueReportMenu(this,event)">识别有误</button>
     <div class="issue-report-menu hidden">
       <strong>哪项数据有误？</strong>
       <div class="issue-report-options">${ORDER_ISSUE_TYPES.map(([code, label]) => `<button type="button" class="secondary" data-issue-label="${escapeHtml(label)}" onclick="${selectHandler(code)}">${escapeHtml(label)}</button>`).join('')}</div>
+      ${deleteHandler ? `<div class="issue-report-delete"><button type="button" class="danger" onclick="${deleteHandler}">删除订单</button></div>` : ''}
     </div>
   </div>`;
 }
@@ -1008,6 +1009,7 @@ function toggleIssueReportMenu(button, event) {
 
 function orderCard(o) {
   const meta = orderDisplayMeta(o);
+  const canDelete = Boolean(currentAgency && agencyToken && o.agencyId === currentAgency.id);
   return `<article class="card${seenOrders.has(o.id) ? ' order-seen' : ''}" id="order-card-${escapeHtml(o.id)}" data-order-id="${escapeHtml(o.id)}">
     <div class="card-head">
       <div>
@@ -1021,7 +1023,8 @@ function orderCard(o) {
       <button data-order-id="${o.id}" onclick="applyOrder('${o.id}')">申请接单</button>
       ${isOnlineOrderView(o) ? '' : `<button class="secondary" onclick="focusOrderOnMap('${o.id}')">地图导航</button>`}
       <button class="secondary" onclick="openRawText('${encodedOrderRawText(o)}','${o.id}')">查看原文</button>
-      ${issueReportMarkup(issueType => `reportPublishedOrderIssue('${o.id}','${issueType}',this)`)}
+      ${issueReportMarkup(issueType => `reportPublishedOrderIssue('${o.id}','${issueType}',this)`,
+        canDelete ? `deleteOrder('${o.id}','agency')` : '')}
     </div>
   </article>`;
 }

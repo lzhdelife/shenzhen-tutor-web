@@ -70,6 +70,10 @@ assert.match(browserAppSource, /function openRawText\(encoded, orderId = ''\)\s*
   'opening raw order text should mark that order as seen');
 assert.match(browserAppSource, /async function applyOrder\(id\)\s*\{\s*markOrderSeen\(id\)/,
   'requesting order contact details should mark that order as seen');
+assert.match(browserAppSource, /const canDelete = Boolean\(currentAgency && agencyToken && o\.agencyId === currentAgency\.id\)/,
+  'the list issue menu should expose deletion only to the publishing identity');
+assert.match(browserAppSource, /canDelete \? `deleteOrder\('\$\{o\.id\}','agency'\)` : ''/,
+  'an owned list order should use the owner-protected delete endpoint');
 assert.doesNotMatch(browserHtmlSource, /id="orderForm"|manual-entry-panel|手动录入/,
   'the redundant manual order form should not be shown');
 assert.doesNotMatch(browserAppSource, /\$\('#orderForm'\)/,

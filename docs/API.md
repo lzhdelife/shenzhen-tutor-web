@@ -144,7 +144,7 @@ Cloudflare 响应顶层 `status` 为 `verified`；每条路线带 `source: "amap
 | POST | `/api/import` | agency | 批量解析/导入文本或已解析订单 |
 | POST | `/api/order-issues` | teacher/agency | 一键反馈已发布订单或识别预览的解析错误 |
 | PATCH | `/api/orders/:id` | owner agency/admin | 中介编辑自己的订单；管理员只能改状态 |
-| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单 |
+| DELETE | `/api/orders/:id` | owner agency/admin | 删除订单；发单者只能删除自己发布的订单 |
 | POST | `/api/orders/:id/location/confirm` | owner agency/admin | 确认高德候选并保存标准地址、POI 和经纬度 |
 
 候选确认请求为 `{ "candidate": { "id", "name", "district", "address", "location" }, "district": "南山" }`。服务端校验经纬度和区名冲突，成功后写入 `locationStatus: "confirmed"`。
